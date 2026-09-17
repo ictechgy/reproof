@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-17 by Devin (r61)_
+_Last updated: 2026-09-18 by opencode (r62)_
 
 ## Goal
 
@@ -236,6 +236,38 @@ _Last updated: 2026-09-17 by Devin (r61)_
   WWDR G3(`~/secure/AppleWWDRCAG3.cer`)는 dev cert 체인용이며 이 필드에는 쓰이지 않는다.
   p12의 실제 발급본(serial `4903…`, 7/8)을 identity cert로 사용 — 프로파일이 두 발급본 모두 허용.
 
+## r62 결과 (2026-09-18, 성능 개선 BlobSet 해시 캐싱 + 저널·보안 분석 — 미커밋)
+
+- **요청**: HANDOFF(r61) 기준 "툴 보안 구조 성능 개선 파악" → "개선해줘" → "나머지 개선들도".
+- **적용한 개선(미커밋, `main`에 working tree로 존재)**:
+  - `reproloop/execution/artifacts.py` — `BlobSet`이 매번 전체 바이트를 재해시하던 것을
+    생성 시 1회 계산 후 `_files`(path, digest, size)·`_digest`로 캐싱(`field(init=False,
+    repr=False, compare=False)`, slots 호환). `manifest`는 캐시에서 새 dict를 만들어
+    반환하므로 호출자가 manifest를 변조해도 내부 해시가 오염되지 않는다. 측정: 8MiB
+    입력 digest 20회 조회 0.051초 → 0.0000005초(Python 3.14 단순 측정, 전체 실행 수치 아님).
+  - `tests/test_execution_artifacts.py` — 회귀 2건 추가: 해시 재계산 부재
+    (`patch.object`로 sha256 미호출 검증), 반환된 manifest 변조·항목 재정렬이
+    캐시된 digest를 바꾸지 않는지. 산출물·실행 관련 테스트 **41개 통과**
+    (`python3.11 -m unittest tests.test_execution_artifacts tests.test_execution_runtime
+    tests.test_execution_host_build -q`).
+- **파악만 하고 적용하지 않은 것(다음 세션 후보)**:
+  - 저널 512건 누적 제한(`reproloop/execution/journal.py:19,157,203,540`): terminal 기록
+    아카이빙 설계까지 조사 완료(옵션 A: 레코드당 archive 파일 + state 병합, 옵션 B/C
+    비권장). fail-closed 조건: terminal+reservedBytes==0+흔적 부재만 이동, archive commit
+    후 state 삭제 순서, 중복 ID 영구 거부, 읽기 preflight 무쓰기, 아카이브 변조 거절.
+    docs/REPAIR-EXECUTION.md:166 "512 identities, 무음 eviction 금지" 준수 필요.
+  - 플랫폼 복구 코드가 공통 저널에 직접 import되는 결합
+    (`journal.py` 내 `finish_mobile_recovery` 등 5개 — 책임 분리 별도 작업).
+  - qualification 시간 제한·취소 경계(`reproloop/ios_device_qualification.py`) 강화 미착수.
+  - 보안 우선순위(측정 필요, 코드 변경 아님): host-build는 격리 아님, 대상 앱 자체 네트워크
+    egress 격리는 별도 정책 필요(HANDOFF r58/r61의 미측정 항목과 동일).
+- **기존 실패(이번 변경과 무관)**: Python 3.14 전체 suite는 120초 제한으로 중단. 그 안의
+  기존 실패 4건 확인 — `test_android_app_logs_runtime`(Kotlin 컴파일러 클래스 누락
+  `ClassNotFoundException: org.jetbrains.kotlin.cli.jvm.K2JVMCompiler`), Android native
+  frame/observation 3건. r51 gate는 Python 3.11.15 기준 594 통과였다. lint·타입 검사
+  설정은 저장소에 없음(pyproject.toml에 setuptools뿐, ruff/mypy 정의 없음).
+- 커밋·브랜치·push 없음. 다음 세션에서 위 미커밋 diff를 검토 후 커밋하거나 이월 판단.
+
 ## r61 결과 (2026-09-17, 실주행 runner 준비 + 기기 차단 + README 퇴고 + git init)
 
 - **실주행 runner 작성**: `artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`.
@@ -276,10 +308,11 @@ _Last updated: 2026-09-17 by Devin (r61)_
   git grep으로 확인했다(서명 자료는 저장소 밖 `~/secure/`에 있다). 원격 remote·push는
   아직 없다.
 
-## Current Status (r51 기준 + r61 갱신)
+## Current Status (r51 기준 + r62 갱신)
 
 - 저장소 위치: `/Users/repro/Desktop/repro-loop`. **r61부터 git 저장소다**
-  (`main`, 초기 커밋 `7a59898`). remote는 아직 없다.
+  (`main`, 커밋 `57ca994`). r62 성능 개선 2파일은 **미커밋 working tree에 있다**.
+  remote는 아직 없다.
   로컬 AGENTS.md는 없고 대화에 제공된 전역 지침을 적용했다.
 - **r51 소프트웨어·로컬 검증 완료:** iOS 초기화 정책/SDK, trusted adapter와 3회 G4 재생,
   원본 복원, native 재시작 복구, fixture 정리, 서비스 factory·자료 입력·인증 복구 CLI.
@@ -385,6 +418,8 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
    (`artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`,
    오프라인 계약 검증 완료). 차단 요소는 QA-iPhone 연결 뿐이다 — `devicectl`이
    `unavailable`이면 USB 재연결·잠금 해제 후 `ready: True`를 확인하고 runner를 실행한다.
+   **r62 코드 개선 작업이 선행된다** — r62 "적용하지 않은 것"(저널 아카이빙, 복구
+   결합 분리, qualification 취소 경계)을 먼저 마무리하고 실주행을 돌린다.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
    대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요), cleanup 기기 dispatch 구간
@@ -402,9 +437,10 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
 
 안전한 재개 프롬프트:
 
-> `/Users/repro/Desktop/repro-loop`의 HANDOFF.md와 docs/IOS-PROTECTED-SERVICE.md,
-> docs/PROTECTED-SERVICE-CONFIGURATION.md를 읽어줘. 저장소는 git이다(`main`, `7a59898`).
-> r60에서 QA-iPhone 실기기 보호 서비스가 `activated`까지 통과했고, r61에서 실주행 runner
-> `artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`를 준비했다
-> (record→spec→approve→replay×3→repair verify). QA-iPhone이 `ready: True`면 그 runner를
-> 실행해 첫 실제 repair 기록을 만들어줘. 기기가 안 보이면 USB 재연결·잠금 해제부터 확인.
+> `/Users/repro/Desktop/repro-loop`의 HANDOFF.md를 읽어줘. 저장소는 git(`main`,
+> 커밋 `57ca994`)이고 r62에서 BlobSet 해시 캐싱 2파일(`reproloop/execution/artifacts.py`,
+> `tests/test_execution_artifacts.py`)이 미커밋 상태다(산출물·실행 테스트 41개 통과).
+> 먼저 `git diff`로 두 파일을 검토·커밋해줘. 그다음 r62 "적용하지 않은 것" 목록에서
+> 저널 512건 terminal 아카이빙(옵션 A 설계는 r62 절에 있음)을 fail-closed 조건을 지켜
+> 구현하고, 이어서 저널-복구 코드 결합 분리와 qualification 취소 경계를 진행해줘.
+> 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
