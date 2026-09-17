@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "class": "build-guest",
+  "network": "none",
+  "candidateCanEdit": false,
+  "enforcedControls": [
+    "no-host-credentials",
+    "bounded-artifacts",
+    "confirmed-termination"
+  ],
+  "attestations": []
+}

@@ -1,0 +1,9 @@
+{
+  "edits": [
+    {
+      "path": "sample/src/main/java/io/reproloop/sample/CounterLogic.kt",
+      "old": "if (BuildConfig.BUGGY) 2 else 1",
+      "new": "1"
+    }
+  ]
+}

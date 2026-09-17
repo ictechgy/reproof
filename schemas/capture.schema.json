@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:repro-loop:capture:1",
+  "title": "Repro Loop sample capture v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sessionId", "fixture", "startState", "events", "truncated", "lostEvents", "endSequence"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "sessionId": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$"},
+    "fixture": {"const": {"id": "default", "version": 1, "inputs": {}}},
+    "startState": {"const": {"screen": "main", "nodes": {"count": "0", "name": ""}}},
+    "truncated": {"type": "boolean"},
+    "lostEvents": {"type": "boolean"},
+    "endSequence": {"type": "integer", "minimum": 0},
+    "startedAtMs": {"type": "integer", "minimum": 0},
+    "events": {
+      "type": "array", "maxItems": 10000,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "seq", "action", "target", "parameters"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,80}$"},
+          "seq": {"type": "integer", "minimum": 1},
+          "elapsedMs": {"type": "integer", "minimum": 0},
+          "action": {"enum": ["tap", "replace", "scroll_to", "back"]},
+          "target": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+          "parameters": {"type": "object"}
+        }
+      }
+    }
+  },
+  "$comment": "Transport schema. Executable compilation additionally requires nonempty, complete streams; exact sequential IDs; supported action parameters and values. See reproloop/core.py."
+}

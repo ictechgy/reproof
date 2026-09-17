@@ -1,0 +1,60 @@
+{
+  "activity": ".MainActivity",
+  "build": {
+    "apk": "sample/build/outputs/apk/buggy/debug/sample-buggy-debug.apk",
+    "regressionResults": "sample/build/test-results/testBuggyDebugUnitTest",
+    "regressionTask": ":sample:testBuggyDebugUnitTest",
+    "task": ":sample:assembleBuggyDebug"
+  },
+  "edit": {
+    "function": "increment",
+    "kind": "kotlin_numeric_expression_v1",
+    "path": "sample/src/main/java/io/reproloop/sample/CounterLogic.kt"
+  },
+  "fixture": {
+    "id": "default",
+    "inputs": {},
+    "version": 1
+  },
+  "id": "counter",
+  "oracle": {
+    "bugCondition": {
+      "target": "count",
+      "text": "2"
+    },
+    "expectedCondition": {
+      "target": "count",
+      "text": "1"
+    }
+  },
+  "package": "io.reproloop.sample",
+  "schemaVersion": 1,
+  "startState": {
+    "nodes": {
+      "count": "0",
+      "name": ""
+    },
+    "screen": "main"
+  },
+  "targets": {
+    "back": "back",
+    "numeric": [
+      "count"
+    ],
+    "report": "report",
+    "scroll": {
+      "list": [
+        "bottom"
+      ]
+    },
+    "tap": [
+      "add",
+      "next",
+      "back",
+      "bottom"
+    ],
+    "text": [
+      "name"
+    ]
+  }
+}

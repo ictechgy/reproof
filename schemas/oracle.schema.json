@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:repro-loop:oracle:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["actual", "expected", "bugCondition", "expectedCondition"],
+  "properties": {
+    "actual": {"type": "string", "minLength": 1, "maxLength": 500},
+    "expected": {"type": "string", "minLength": 1, "maxLength": 500},
+    "bugCondition": {"$ref": "#/$defs/condition"},
+    "expectedCondition": {"$ref": "#/$defs/condition"}
+  },
+  "$defs": {"condition": {
+    "type": "object", "additionalProperties": false, "required": ["target", "text"],
+    "properties": {"target": {"type": "string"}, "text": {"type": "string", "maxLength": 128}}
+  }},
+  "$comment": "The compiler additionally requires distinct outcomes of the same allowlisted sample target."
+}

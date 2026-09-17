@@ -1,0 +1,8 @@
+package io.reproloop.autotrace
+
+/** Generated per protected build; replace every placeholder before compiling. */
+internal object ReproConfig {
+    const val PROFILE_JSON = """__PROFILE_JSON__"""
+    const val PROFILE_DIGEST = "__PROFILE_DIGEST__"
+    const val SITES_JSON = """__SITES_JSON__"""
+}

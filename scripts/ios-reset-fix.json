@@ -1,0 +1,9 @@
+{
+  "edits": [
+    {
+      "path": "Sample/ResetLogic.swift",
+      "old": "return previous",
+      "new": "return 0"
+    }
+  ]
+}

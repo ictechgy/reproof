@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 2,
+  "kind": "reproloop-shared-coordinator",
+  "stateRoot": "/var/lib/reproloop/coordinator-v2",
+  "listen": {
+    "host": "coordinator.example.internal",
+    "port": 9443,
+    "origin": "https://coordinator.example.internal:9443",
+    "tlsCertificateFile": "/etc/reproloop/coordinator.crt",
+    "tlsPrivateKeyFile": "/etc/reproloop/coordinator.key"
+  },
+  "projects": [
+    {
+      "projectFile": "/etc/reproloop/checkout-project.json",
+      "collectionPolicyFile": "/etc/reproloop/checkout-collection-policy.json"
+    }
+  ],
+  "browserSessionSeconds": 3600
+}

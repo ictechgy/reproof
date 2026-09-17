@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:repro-loop:ios-capture:2",
+  "title": "Repro Loop iOS sample capture v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sessionId",
+    "fixture",
+    "startState",
+    "events",
+    "truncated",
+    "lostEvents",
+    "endSequence",
+    "platform",
+    "applicationId"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "sessionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "fixture": {
+      "enum": [
+        {
+          "id": "ios-counter",
+          "version": 1,
+          "inputs": {}
+        },
+        {
+          "id": "ios-duplicate-submit",
+          "version": 1,
+          "inputs": {}
+        },
+        {
+          "id": "ios-reset",
+          "version": 1,
+          "inputs": {}
+        }
+      ]
+    },
+    "startState": {
+      "const": {
+        "screen": "main",
+        "nodes": {
+          "counter.name": "",
+          "counter.count": "0"
+        }
+      }
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "lostEvents": {
+      "type": "boolean"
+    },
+    "endSequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "startedAtMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "events": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "seq",
+          "action",
+          "target",
+          "parameters"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,80}$"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "elapsedMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "action": {
+            "enum": [
+              "tap",
+              "replace",
+              "scroll_to",
+              "navigate_back"
+            ]
+          },
+          "target": {
+            "enum": [
+              "counter.name",
+              "counter.count",
+              "counter.add",
+              "counter.list",
+              "counter.bottom",
+              "counter.next",
+              "counter.back",
+              "counter.reset"
+            ]
+          },
+          "parameters": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "platform": {
+      "const": "ios"
+    },
+    "applicationId": {
+      "const": "io.reproloop.sample.ios"
+    }
+  },
+  "$comment": "Transport schema. reproloop/ios_core.py additionally enforces exact sample action parameters, ordered coverage, completed sessions, and platform-specific semantics."
+}

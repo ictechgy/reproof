@@ -1,0 +1,9 @@
+{
+  "edits": [
+    {
+      "path": "Sample/SubmissionLogic.swift",
+      "old": "return true",
+      "new": "return !submitted"
+    }
+  ]
+}

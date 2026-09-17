@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "id": "checkout_scenario",
+  "revision": 1,
+  "originalRecordingDigest": "ef6ee2ce915338ddf33a4ee7e2970606d7da8a8deb3f1678cd8ddd779653f61a",
+  "actions": [
+    {
+      "eventId": "event_one",
+      "action": "tap",
+      "target": {
+        "kind": "accessibility-id",
+        "value": "checkout"
+      },
+      "parameters": {}
+    }
+  ],
+  "waits": [
+    {
+      "afterEventId": "event_one",
+      "durationMs": 250
+    }
+  ],
+  "bindings": [
+    {
+      "name": "account",
+      "variableId": "account_name"
+    }
+  ],
+  "fixtures": [
+    "seed_account"
+  ],
+  "assertions": [
+    {
+      "id": "defect_visible",
+      "role": "defect",
+      "predicate": {
+        "kind": "property",
+        "observationId": "screen",
+        "property": "text",
+        "operator": "equals",
+        "value": "error"
+      },
+      "coverage": {
+        "class": "sampled",
+        "windowMs": {
+          "start": 10,
+          "end": 2990
+        },
+        "maxUncertaintyMs": 10,
+        "maxAgeMs": 60000,
+        "scope": "root",
+        "properties": [
+          "text"
+        ],
+        "samplingIntervalMs": 1020
+      },
+      "windowMs": 3000,
+      "stabilityMs": 1000
+    },
+    {
+      "id": "expected_visible",
+      "role": "expected",
+      "predicate": {
+        "kind": "property",
+        "observationId": "screen",
+        "property": "text",
+        "operator": "equals",
+        "value": "success"
+      },
+      "coverage": {
+        "class": "snapshot",
+        "windowMs": {
+          "start": 3000,
+          "end": 3000
+        },
+        "maxUncertaintyMs": 10,
+        "maxAgeMs": 60000,
+        "scope": "root",
+        "properties": [
+          "text"
+        ]
+      },
+      "windowMs": 3000,
+      "stabilityMs": 0
+    }
+  ],
+  "provenance": {
+    "kind": "authored",
+    "source": "local-review",
+    "author": "qa_admin",
+    "revision": "1"
+  }
+}

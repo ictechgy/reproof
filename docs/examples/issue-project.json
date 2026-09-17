@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "id": "checkout",
+  "revision": "r1",
+  "trustGroup": "qa",
+  "applications": [
+    {
+      "id": "ios_app",
+      "platform": "ios",
+      "bundle": "com.example.app"
+    }
+  ],
+  "builds": [
+    {
+      "id": "original",
+      "applicationId": "ios_app",
+      "revision": "a",
+      "artifactDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+      "provenance": "trusted-build"
+    },
+    {
+      "id": "candidate",
+      "applicationId": "ios_app",
+      "revision": "b",
+      "artifactDigest": "9999999999999999999999999999999999999999999999999999999999999999",
+      "sourceDigest": "8888888888888888888888888888888888888888888888888888888888888888",
+      "provenance": "trusted-build"
+    }
+  ],
+  "variables": [],
+  "fixtures": [
+    {
+      "id": "seed_account",
+      "kind": "fixture",
+      "productFile": "fixtures/seed_account.json",
+      "operation": "prepare",
+      "endpointId": "fixture_service",
+      "exclusive": true,
+      "capabilities": {
+        "remoteFencing": true,
+        "terminalStatus": true,
+        "idempotencyRetentionMs": 60000
+      }
+    },
+    {
+      "id": "check_account",
+      "kind": "fixture",
+      "productFile": "fixtures/check_account.json",
+      "operation": "check",
+      "endpointId": "fixture_service",
+      "exclusive": true,
+      "capabilities": {
+        "remoteFencing": true,
+        "terminalStatus": true,
+        "idempotencyRetentionMs": 60000
+      }
+    },
+    {
+      "id": "cleanup_account",
+      "kind": "cleanup",
+      "productFile": "fixtures/cleanup_account.json",
+      "operation": "cleanup",
+      "endpointId": "fixture_service",
+      "exclusive": true,
+      "capabilities": {
+        "remoteFencing": true,
+        "terminalStatus": true,
+        "idempotencyRetentionMs": 60000
+      }
+    }
+  ],
+  "observations": [
+    "screen"
+  ],
+  "evidencePolicy": {
+    "pixels": true,
+    "text": true,
+    "accessibility": true,
+    "logs": false,
+    "fixtures": true,
+    "unknownSensitive": "deny",
+    "aiEligible": false
+  },
+  "editablePaths": [
+    "src/Checkout.swift"
+  ],
+  "recipes": [
+    {
+      "id": "regression_ui",
+      "kind": "regression",
+      "productFile": "checks/ui.json",
+      "operation": "regression"
+    }
+  ],
+  "executionClasses": [
+    "mobile-device"
+  ]
+}

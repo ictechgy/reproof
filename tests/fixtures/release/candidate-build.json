@@ -1,0 +1,8 @@
+{
+  "id": "candidate",
+  "applicationId": "ios_app",
+  "revision": "abc",
+  "artifactDigest": "7777777777777777777777777777777777777777777777777777777777777777",
+  "sourceDigest": "8888888888888888888888888888888888888888888888888888888888888888",
+  "provenance": "trusted-build"
+}

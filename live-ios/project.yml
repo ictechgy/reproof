@@ -1,0 +1,56 @@
+name: ReproLive
+
+options:
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    SDKROOT: iphoneos
+    SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  ReproLiveHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: HostApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.reproloop.live.host
+        PRODUCT_NAME: ReproLiveHost
+        INFOPLIST_FILE: HostApp/Info.plist
+        DEFINES_MODULE: true
+        ENABLE_TESTABILITY: true
+        ENABLE_DEBUG_DYLIB: false
+
+  ReproLiveTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: ReproLiveHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.reproloop.live.tests
+        PRODUCT_NAME: ReproLiveTests
+        INFOPLIST_FILE: Tests/Info.plist
+        TEST_TARGET_NAME: ReproLiveHost
+
+schemes:
+  ReproLive:
+    build:
+      targets:
+        ReproLiveHost: all
+        ReproLiveTests: [test]
+    test:
+      config: Debug
+      targets:
+        - name: ReproLiveTests

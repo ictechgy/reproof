@@ -1,0 +1,10 @@
+<resources>
+    <item name="name" type="id" />
+    <item name="add" type="id" />
+    <item name="count" type="id" />
+    <item name="list" type="id" />
+    <item name="bottom" type="id" />
+    <item name="next" type="id" />
+    <item name="back" type="id" />
+    <item name="report" type="id" />
+</resources>

@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "recordingId": "recording_one",
+  "projectId": "checkout",
+  "projectRevision": "r1",
+  "applicationId": "ios_app",
+  "buildId": "original",
+  "startedAtMs": 1789124000000,
+  "endSequence": 1,
+  "events": [
+    {
+      "id": "event_one",
+      "operationId": "operation_one",
+      "generation": 1,
+      "sequence": 1,
+      "input": {
+        "action": "tap",
+        "target": {
+          "kind": "accessibility-id",
+          "value": "checkout"
+        },
+        "parameters": {}
+      },
+      "dispatch": "injected",
+      "provenance": {
+        "kind": "injected",
+        "source": "host"
+      },
+      "offsetMs": 0,
+      "receipt": {
+        "operationId": "operation_one",
+        "generation": 1,
+        "status": "injected",
+        "providerIncarnation": "ios_helper",
+        "observedAtMs": 1789124000050
+      }
+    }
+  ],
+  "preparation": [
+    {
+      "receiptId": "prepare_one",
+      "recipeId": "seed_account",
+      "operation": "prepare",
+      "status": "complete",
+      "projectId": "checkout",
+      "applicationId": "ios_app",
+      "startedAtMs": 1789123990000,
+      "completedAtMs": 1789123999000,
+      "payloadDigest": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ],
+  "observations": [
+    {
+      "id": "screen_one",
+      "digest": "3333333333333333333333333333333333333333333333333333333333333333",
+      "path": "observations/screen.json",
+      "bytes": 1024,
+      "mimeType": "application/json"
+    }
+  ],
+  "media": [
+    {
+      "id": "video_one",
+      "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+      "path": "media/session.mov",
+      "bytes": 4096,
+      "mimeType": "video/quicktime"
+    }
+  ],
+  "clock": {
+    "source": "monotonic",
+    "uncertaintyMs": 5
+  },
+  "interruptions": [],
+  "unknowns": [],
+  "sealed": true
+}

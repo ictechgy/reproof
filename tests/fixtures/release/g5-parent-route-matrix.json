@@ -1,0 +1,292 @@
+{
+  "kind": "planned-parent-route-matrix-not-execution-evidence",
+  "baseline": "g4-parent-source.json",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/devices",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/recordings",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/jobs",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/repairs",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/jobs/{job}",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/jobs/{job}/report",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/repairs/{repair}",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/repairs/{repair}/report",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/recordings/{recording}",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/recordings/{recording}/export",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/recordings/{recording}/script",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/{session}/events",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/{session}",
+      "capability": "read-bound-stored-resource",
+      "possibleEffects": [
+        "legacy-get-renews-session"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/{session}/observe",
+      "capability": "operator-or-explicit-read-only-adapter",
+      "possibleEffects": [
+        "provider-observation"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/{session}/app-logs",
+      "capability": "operator-or-explicit-read-only-adapter",
+      "possibleEffects": [
+        "provider-log-collection"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/{session}/app-logs/export",
+      "capability": "operator-or-explicit-read-only-adapter",
+      "possibleEffects": [
+        "provider-log-collection"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/{session}/frame",
+      "capability": "operator-or-explicit-read-only-adapter",
+      "possibleEffects": [
+        "provider-frame"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/{session}/stream",
+      "capability": "operator-or-explicit-read-only-adapter",
+      "possibleEffects": [
+        "provider-frame",
+        "periodic-session-renewal",
+        "continued-binary-emission"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/devices/{device}/recover",
+      "capability": "operate-bound-project",
+      "possibleEffects": [
+        "provider-or-lifecycle-or-job"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions",
+      "capability": "operate-bound-project",
+      "possibleEffects": [
+        "provider-or-lifecycle-or-job"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{session}/heartbeat",
+      "capability": "operate-bound-project",
+      "possibleEffects": [
+        "provider-or-lifecycle-or-job"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{session}/control",
+      "capability": "operate-bound-project",
+      "possibleEffects": [
+        "provider-or-lifecycle-or-job"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{session}/input",
+      "capability": "operate-bound-project",
+      "possibleEffects": [
+        "provider-or-lifecycle-or-job"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{session}/close",
+      "capability": "operate-bound-project",
+      "possibleEffects": [
+        "provider-or-lifecycle-or-job"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{session}/recordings/start",
+      "capability": "operate-bound-project",
+      "possibleEffects": [
+        "provider-or-lifecycle-or-job"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{session}/recordings/stop",
+      "capability": "operate-bound-project",
+      "possibleEffects": [
+        "provider-or-lifecycle-or-job"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{session}/replay",
+      "capability": "operate-bound-project",
+      "possibleEffects": [
+        "provider-or-lifecycle-or-job"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{session}/replay/cancel",
+      "capability": "operate-bound-project",
+      "possibleEffects": [
+        "provider-or-lifecycle-or-job"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/jobs",
+      "capability": "operate-bound-project",
+      "possibleEffects": [
+        "provider-or-lifecycle-or-job"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/jobs/{job}/cancel",
+      "capability": "operate-bound-project",
+      "possibleEffects": [
+        "provider-or-lifecycle-or-job"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/recordings/import",
+      "capability": "maintain-bound-project",
+      "possibleEffects": [
+        "persist-inert-provenance"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/recordings/{recording}/derive",
+      "capability": "maintain-bound-project",
+      "possibleEffects": [
+        "persist-inert-provenance"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{session}/repair",
+      "capability": "explicit-protected-repair-configuration-or-denial",
+      "possibleEffects": [
+        "candidate-or-device-or-lifecycle"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/repairs/{repair}/cancel",
+      "capability": "explicit-protected-repair-configuration-or-denial",
+      "possibleEffects": [
+        "candidate-or-device-or-lifecycle"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/repairs/{repair}/resume",
+      "capability": "explicit-protected-repair-configuration-or-denial",
+      "possibleEffects": [
+        "candidate-or-device-or-lifecycle"
+      ]
+    }
+  ],
+  "mutations": [
+    "leading and internal duplicate slashes",
+    "trailing slash",
+    "percent-encoded slash or segment",
+    "dot and parent path components",
+    "query project ID differs from resource project",
+    "duplicate Host/Authorization/Content-Length headers",
+    "GET/POST/HEAD/PUT/PATCH/DELETE/OPTIONS method changes"
+  ],
+  "requiredObservations": [
+    "public response and resource existence do not disclose foreign-project bytes or counts",
+    "denial occurs before provider, renewal, fixture, dispatch and persistence callbacks",
+    "plain static loading cannot provision identity or grant shared authority",
+    "native bridge bearer is independent of browser membership",
+    "held stream/job has an authorization check after committed revocation and before its next effect"
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "id": "checkout",
+  "revision": "r1",
+  "trustGroup": "qa",
+  "applications": [
+    {
+      "id": "ios_app",
+      "platform": "ios",
+      "bundle": "com.example.app"
+    }
+  ],
+  "builds": [
+    {
+      "id": "original",
+      "applicationId": "ios_app",
+      "revision": "abc",
+      "artifactDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+      "provenance": "trusted-build"
+    }
+  ],
+  "variables": [
+    {
+      "id": "account_name",
+      "type": "string",
+      "secret": false,
+      "default": "qa-user"
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "seed_account",
+      "kind": "fixture",
+      "productFile": "fixtures/account.json",
+      "operation": "prepare",
+      "exclusive": true,
+      "capabilities": {
+        "remoteFencing": false,
+        "terminalStatus": true,
+        "idempotencyRetentionMs": 86400000
+      }
+    }
+  ],
+  "observations": [
+    "screen"
+  ],
+  "evidencePolicy": {
+    "pixels": true,
+    "text": true,
+    "accessibility": true,
+    "logs": true,
+    "fixtures": true,
+    "unknownSensitive": "deny",
+    "aiEligible": false
+  },
+  "editablePaths": [
+    "src/main/Checkout.swift"
+  ],
+  "recipes": [
+    {
+      "id": "regression_ui",
+      "kind": "regression",
+      "productFile": "checks/ui.json",
+      "operation": "regression"
+    }
+  ],
+  "executionClasses": [
+    "mobile-device"
+  ]
+}

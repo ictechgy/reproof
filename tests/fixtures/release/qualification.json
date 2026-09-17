@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "projectDigest": "21c4c6582ae4ca91cb16aa7edfa25ac878c300e7e3467a1af04b08433b73834a",
+  "projectRevision": "r1",
+  "recordingDigest": "ef6ee2ce915338ddf33a4ee7e2970606d7da8a8deb3f1678cd8ddd779653f61a",
+  "specificationDigest": "405a67deefd9d87483b752d9b1540c06a90797ad97e2e448eab7305af65b4cba",
+  "originalBuildId": "original",
+  "fixtureRules": [
+    {
+      "fixtureId": "seed_account",
+      "equivalenceDigest": "5555555555555555555555555555555555555555555555555555555555555555"
+    }
+  ],
+  "observationRequirements": [
+    {
+      "assertionId": "defect_visible",
+      "observationId": "screen",
+      "coverage": {
+        "class": "sampled",
+        "windowMs": {
+          "start": 10,
+          "end": 2990
+        },
+        "maxUncertaintyMs": 10,
+        "maxAgeMs": 60000,
+        "scope": "root",
+        "properties": [
+          "text"
+        ],
+        "samplingIntervalMs": 1020
+      }
+    },
+    {
+      "assertionId": "expected_visible",
+      "observationId": "screen",
+      "coverage": {
+        "class": "snapshot",
+        "windowMs": {
+          "start": 3000,
+          "end": 3000
+        },
+        "maxUncertaintyMs": 10,
+        "maxAgeMs": 60000,
+        "scope": "root",
+        "properties": [
+          "text"
+        ]
+      }
+    }
+  ],
+  "runtimePolicyDigest": "6666666666666666666666666666666666666666666666666666666666666666",
+  "validationRecipeIds": [
+    "regression_ui"
+  ],
+  "attemptBudget": {
+    "original": 3,
+    "candidate": 3,
+    "total": 6
+  }
+}

@@ -1,0 +1,81 @@
+name: ReproLoop
+options:
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    SDKROOT: iphoneos
+    SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
+    DEVELOPMENT_TEAM: ""
+targets:
+  ReproSample:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sample
+      - path: Recorder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.reproloop.sample.ios
+        INFOPLIST_FILE: Sample/Info.plist
+        REPRO_BUILD_ID: ios-mvp-1
+        PRODUCT_NAME: ReproSample
+        DEFINES_MODULE: true
+        ENABLE_TESTABILITY: true
+  ReproLogicTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: LogicTests
+    dependencies:
+      - target: ReproSample
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.reproloop.sample.ios.logic
+        GENERATE_INFOPLIST_FILE: true
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/ReproSample.app/ReproSample"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        PRODUCT_NAME: ReproLogicTests
+  ReproReplayTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ReplayTests
+    dependencies:
+      - target: ReproSample
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.reproloop.sample.ios.replay
+        GENERATE_INFOPLIST_FILE: true
+        TEST_TARGET_NAME: ReproSample
+        PRODUCT_NAME: ReproReplayTests
+schemes:
+  ReproSample:
+    build:
+      targets:
+        ReproSample: all
+    run:
+      config: Debug
+  ReproLogic:
+    build:
+      targets:
+        ReproSample: all
+        ReproLogicTests: [test]
+    test:
+      config: Debug
+      targets:
+        - name: ReproLogicTests
+  ReproReplay:
+    build:
+      targets:
+        ReproSample: all
+        ReproReplayTests: [test]
+    test:
+      config: Debug
+      targets:
+        - name: ReproReplayTests

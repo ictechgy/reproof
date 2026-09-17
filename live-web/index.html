@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b1119" />
+    <meta name="description" content="Repro Loop Live: open-source mobile device sessions for humans, agents, and CI." />
+    <title>Repro Loop Live</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell" hidden>
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="Repro Loop Live home">
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span>
+            <strong>Repro Loop</strong>
+            <small>LIVE CONSOLE</small>
+          </span>
+        </a>
+        <div class="topbar-meta">
+          <span class="connection-dot" id="connection-dot" aria-hidden="true"></span>
+          <span id="connection-label">Connecting</span>
+          <span class="topbar-divider" aria-hidden="true"></span>
+          <span class="client-label">Client <code id="client-id-label">—</code></span>
+          <button class="icon-button" id="refresh-devices" type="button" title="Refresh devices" aria-label="Refresh devices">↻</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="panel inventory-panel" aria-labelledby="inventory-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">FLEET</p>
+              <h1 id="inventory-title">Device farm</h1>
+            </div>
+            <span class="count-badge" id="device-count">0</span>
+          </div>
+          <div class="search-wrap">
+            <label class="sr-only" for="device-search">Search devices</label>
+            <span class="search-icon" aria-hidden="true">⌕</span>
+            <input id="device-search" type="search" placeholder="Search devices" autocomplete="off" />
+          </div>
+          <div class="device-list" id="device-list" aria-live="polite">
+            <div class="loading-card"><span class="spinner"></span><span>Loading devices…</span></div>
+          </div>
+          <div class="panel-footnote">
+            <span class="status-dot live" aria-hidden="true"></span>
+            <span>Refresh to update device availability</span>
+          </div>
+        </aside>
+
+        <section class="panel stage-panel" aria-labelledby="stage-title">
+          <div class="stage-header">
+            <div class="stage-title-wrap">
+              <p class="eyebrow">LIVE SESSION</p>
+              <h2 id="stage-title">Select a device to begin</h2>
+              <p class="stage-subtitle" id="stage-subtitle">A human or agent can take control of the same session.</p>
+            </div>
+            <div class="stage-actions">
+              <span class="capability-badge" id="kind-badge">No session</span>
+              <button class="button button-primary" id="start-session" type="button" disabled>Start session</button>
+            </div>
+          </div>
+
+          <div class="screen-card">
+            <div class="screen-card-bar">
+              <div class="screen-status">
+                <span class="status-dot" id="screen-status-dot" aria-hidden="true"></span>
+                <span id="screen-status-label">Waiting for a session</span>
+              </div>
+              <div class="frame-stats">
+                <span id="frame-fps">— received FPS</span>
+                <span class="bar-separator" aria-hidden="true"></span>
+                <span id="frame-meta">No frame</span>
+              </div>
+            </div>
+            <div class="screen-stage" id="screen-stage">
+              <div class="screen-placeholder" id="screen-placeholder">
+                <div class="placeholder-glyph" aria-hidden="true"><span></span><span></span><span></span></div>
+                <strong id="placeholder-title">No live device</strong>
+                <span id="placeholder-copy">Choose an available device from the fleet.</span>
+              </div>
+              <div class="screen-shell" id="screen-shell" tabindex="0" role="application" aria-label="Live device screen. Pointer gestures are sent when released.">
+                <img id="live-screen" data-testid="live-screen" alt="Live device screen" draggable="false" />
+                <div class="gesture-overlay" id="gesture-overlay" aria-hidden="true">
+                  <div class="gesture-line" id="gesture-line"></div>
+                  <div class="gesture-point" id="gesture-point"></div>
+                </div>
+                <div class="frame-loading" id="frame-loading"><span class="spinner"></span><span>Waiting for first frame</span></div>
+              </div>
+            </div>
+            <div class="screen-card-footer">
+              <div class="control-hint"><span class="hint-key">●</span> <span id="gesture-mode-label">Gesture at release</span> <span class="hint-separator">·</span> <span id="control-state">Take control to interact</span></div>
+              <div class="screen-toolbar" aria-label="Device controls">
+                <button class="toolbar-button" id="home-button" type="button" disabled><span aria-hidden="true">⌂</span><span>Home</span></button>
+                <button class="toolbar-button" id="reset-button" type="button" disabled><span aria-hidden="true">↺</span><span>Reset app</span></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="quick-actions">
+            <label class="text-command">
+              <span class="sr-only">Text input sent to device</span>
+              <input id="text-input" type="text" placeholder="Send text to device…" autocomplete="off" disabled />
+              <button id="text-submit" type="button" disabled aria-label="Send text">↵</button>
+            </label>
+            <div class="session-actions">
+              <button class="button button-quiet" id="take-control" type="button" disabled>Take control</button>
+              <button class="button button-danger-quiet" id="close-session" type="button" disabled>Close session</button>
+            </div>
+          </div>
+          <div class="live-error" id="live-error" role="alert" hidden></div>
+        </section>
+
+        <aside class="panel session-panel" aria-labelledby="session-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">OBSERVABILITY</p>
+              <h2 id="session-title">Session timeline</h2>
+            </div>
+            <span class="recording-indicator" id="recording-indicator" hidden><span></span> REC</span>
+          </div>
+
+          <section class="session-summary" aria-label="Session details">
+            <div class="summary-row"><span>Session</span><code id="session-id">—</code></div>
+            <div class="summary-row"><span>Controller</span><span id="controller-state">Unclaimed</span></div>
+            <div class="summary-row"><span>Frame stream</span><span id="stream-state">Idle</span></div>
+          </section>
+
+          <section class="recording-controls" aria-labelledby="recording-title">
+            <div class="section-label-row">
+              <h3 id="recording-title">Recording</h3>
+              <span class="soft-badge" id="recording-state">No recording</span>
+            </div>
+            <div class="button-row">
+              <button class="button button-record" id="record-start" data-testid="record-start" type="button" disabled><span class="record-icon" aria-hidden="true"></span>Reset &amp; record</button>
+              <button class="button button-secondary" id="record-stop" data-testid="record-stop" type="button" disabled>Stop</button>
+            </div>
+            <div class="recording-detail" id="recording-detail">Records gestures, timing, and frame references for replay.</div>
+          </section>
+
+          <section class="replay-controls" aria-labelledby="replay-title">
+            <div class="section-label-row">
+              <h3 id="replay-title">Replay</h3>
+              <span class="soft-badge" id="replay-state">Ready</span>
+            </div>
+            <div id="variables-form" class="variables-form" hidden></div>
+            <div class="button-row">
+              <button class="button button-primary button-wide" id="replay-start" data-testid="replay-start" type="button" disabled>Replay recording</button>
+              <button class="button button-secondary" id="replay-cancel" type="button" disabled>Cancel</button>
+            </div>
+          </section>
+
+          <details class="side-section" open>
+            <summary><span>Recording library</span><span class="soft-badge" id="library-count">0</span></summary>
+            <div class="side-section-body">
+              <div class="library-actions">
+                <button class="button button-secondary" id="refresh-recordings" type="button">Refresh</button>
+                <label class="button button-secondary file-button" for="recording-import">Import JSON</label>
+                <input id="recording-import" type="file" accept="application/json,.json" hidden />
+              </div>
+              <div class="library-list" id="recording-library" aria-live="polite">
+                <div class="empty-card">Loading recordings…</div>
+              </div>
+              <div class="library-selected" id="library-selected" hidden>
+                <span id="library-selected-label">No recording selected</span>
+                <div class="library-derive">
+                  <label for="derive-speed">Copy speed</label>
+                  <select id="derive-speed">
+                    <option value="0.5">0.5×</option>
+                    <option value="1" selected>1×</option>
+                    <option value="2">2×</option>
+                  </select>
+                  <button class="button button-secondary" id="derive-recording" type="button">Create copy</button>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="side-section" open>
+            <summary><span>Automation jobs</span><span class="soft-badge" id="jobs-count">0</span></summary>
+            <div class="side-section-body">
+              <p class="section-help" id="job-help">Select a replayable library recording to queue a device-farm job.</p>
+              <div class="job-form" id="job-form" hidden>
+                <div class="job-options">
+                  <label>Repeats<input id="job-repeats" type="number" min="1" max="10" step="1" value="1" inputmode="numeric" /></label>
+                  <label>Timeout (s)<input id="job-timeout" type="number" min="1" max="900" step="1" value="900" inputmode="numeric" /></label>
+                </div>
+                <div id="job-variables-form" class="variables-form" hidden></div>
+                <button class="button button-primary button-wide" id="submit-job" type="button">Queue automation job</button>
+              </div>
+              <div class="jobs-list" id="jobs-list" aria-live="polite">
+                <div class="loading-card"><span class="spinner"></span><span>Loading jobs…</span></div>
+              </div>
+            </div>
+          </details>
+
+          <details class="side-section" id="repair-section" hidden open>
+            <summary><span>AI repair</span><span class="soft-badge" id="repair-count">0</span></summary>
+            <div class="side-section-body">
+              <p class="section-help">Record the sample bug using QA or Test, then stop recording. Repair sends the configured source and recorded QA to Claude. Original files stay unchanged.</p>
+              <button class="button button-primary button-wide" id="submit-repair" type="button" disabled>Analyze &amp; repair recording</button>
+              <div class="jobs-list" id="repair-list" aria-live="polite"></div>
+            </div>
+          </details>
+
+          <details class="side-section" open>
+            <summary><span>Live sessions</span><span class="soft-badge" id="live-sessions-count">0</span></summary>
+            <div class="side-section-body">
+              <div class="sessions-list" id="live-sessions-list" aria-live="polite">
+                <div class="loading-card"><span class="spinner"></span><span>Loading sessions…</span></div>
+              </div>
+            </div>
+          </details>
+
+          <details class="side-section app-logs-section" id="app-logs-section" hidden>
+            <summary><span>App logs</span><span class="soft-badge" id="app-logs-state">Idle</span></summary>
+            <div class="side-section-body">
+              <div class="app-logs-toolbar">
+                <p class="section-help">Automatic click, screen, and lifecycle observations. Inputs and payloads are never shown.</p>
+                <div class="app-logs-actions">
+                  <button class="button button-secondary" id="app-logs-refresh" type="button">Refresh</button>
+                  <button class="button button-secondary" id="app-logs-download" type="button" disabled>Download JSON</button>
+                </div>
+              </div>
+              <p class="app-logs-summary" id="app-logs-summary">Expand this section to read automatic observations.</p>
+              <div class="app-logs-list" id="app-logs-list" role="list" aria-live="polite">
+                <div class="empty-card">No automatic observations yet.</div>
+              </div>
+            </div>
+          </details>
+
+          <div class="timeline-heading">
+            <h3>Event timeline</h3>
+            <button class="text-button" id="export-recording" data-testid="export-recording" type="button" disabled>Export JSON</button>
+          </div>
+          <button class="text-button" id="export-script" type="button" disabled>Export Python replay</button>
+          <div class="timeline" id="timeline" aria-live="polite">
+            <div class="empty-timeline"><span class="empty-line"></span><p>Record a session to see events here.</p></div>
+          </div>
+          <div class="session-panel-foot">Inputs are sequenced at release. Text values stay out of recordings.</div>
+        </aside>
+      </main>
+    </div>
+
+    <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <script type="module" src="./boot.js"></script>
+  </body>
+</html>

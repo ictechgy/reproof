@@ -1,0 +1,9 @@
+{
+  "source": "owned synthetic output from scripts/qa-record-replay.py",
+  "sha256": "b6207eaa2b8c782123e8bcf4a90b2a37405411cc750275610db0b9da11e0b80a",
+  "bytes": 4027,
+  "width": 96,
+  "height": 160,
+  "frames": 11,
+  "physicalDevice": false
+}

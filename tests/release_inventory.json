@@ -1,0 +1,1089 @@
+{
+  "version": 1,
+  "goals": {
+    "G0": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g0-contract-boundaries",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_release_contracts.ContractTests",
+            "tests.test_release_contracts.ReleaseCheckHarnessTests",
+            "tests.test_release_boundaries",
+            "tests.test_release_semantics",
+            "tests.test_release_harness"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G1": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g1a-host-authority",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_clock_sync",
+            "tests.test_live_authority",
+            "tests.test_authority_recovery_migration",
+            "tests.test_authority_process",
+            "tests.test_clock_sync_boundaries",
+            "tests.test_host_authority_boundaries"
+          ],
+          "environment": "local-macos-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g1b-native-authority-integration",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_live_authority_integration",
+            "tests.test_g1b_legacy_adapters",
+            "tests.test_storage",
+            "tests.test_live_model",
+            "tests.test_live_lifecycle",
+            "tests.test_live_pointer",
+            "tests.test_live_rejections",
+            "tests.test_app_log_providers",
+            "tests.test_live_iphone",
+            "tests.test_live_repair",
+            "tests.test_live_android",
+            "tests.test_live_android_profile",
+            "tests.test_live_android_repair",
+            "tests.test_live_jobs",
+            "tests.test_replay",
+            "tests.test_profile_replay",
+            "tests.test_ios_auto_runner",
+            "tests.test_ios_repair",
+            "tests.test_live_worker.WorkerProtocolUnitTests",
+            "tests.test_g1b_descriptor_boundaries",
+            "tests.test_g1b_inflight_authority",
+            "tests.test_g1b_lab_boundaries",
+            "tests.test_g1b_lease_boundaries",
+            "tests.test_g1b_native_handshake",
+            "tests.test_g1b_native_receipts",
+            "tests.test_instrumentation_capture",
+            "tests.test_live_app_logs",
+            "tests.test_live_android_capture"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g1b-worker-transport",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_live_worker.WorkerTransportTests",
+            "tests.test_g1b_remote_authority"
+          ],
+          "environment": "local-macos-loopback",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g1b-native-compilation",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_g1b_native_compile.G1bNativeCompileTests",
+            "tests.test_g1b_native_compile.G1bNativeExecutableBoundaryTests"
+          ],
+          "environment": "local-macos-java17-android-sdk-xcode",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 300,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G8A": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g8a-protected-route",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_execution_protocol",
+            "tests.test_execution_backend",
+            "tests.test_execution_trust_boundaries",
+            "tests.test_doctor_input_boundaries",
+            "tests.test_repair_backend_doctor"
+          ],
+          "environment": "local-macos-python-swift-read-only",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 90,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G1A": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g1a-host-authority",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_clock_sync",
+            "tests.test_live_authority",
+            "tests.test_authority_recovery_migration",
+            "tests.test_authority_process",
+            "tests.test_clock_sync_boundaries",
+            "tests.test_host_authority_boundaries"
+          ],
+          "environment": "local-macos-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G1B": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g1b-native-authority-integration",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_live_authority_integration",
+            "tests.test_g1b_legacy_adapters",
+            "tests.test_storage",
+            "tests.test_live_model",
+            "tests.test_live_lifecycle",
+            "tests.test_live_pointer",
+            "tests.test_live_rejections",
+            "tests.test_app_log_providers",
+            "tests.test_live_iphone",
+            "tests.test_live_repair",
+            "tests.test_live_android",
+            "tests.test_live_android_profile",
+            "tests.test_live_android_repair",
+            "tests.test_live_jobs",
+            "tests.test_replay",
+            "tests.test_profile_replay",
+            "tests.test_ios_auto_runner",
+            "tests.test_ios_repair",
+            "tests.test_live_worker.WorkerProtocolUnitTests",
+            "tests.test_g1b_descriptor_boundaries",
+            "tests.test_g1b_inflight_authority",
+            "tests.test_g1b_lab_boundaries",
+            "tests.test_g1b_lease_boundaries",
+            "tests.test_g1b_native_handshake",
+            "tests.test_g1b_native_receipts",
+            "tests.test_instrumentation_capture",
+            "tests.test_live_app_logs",
+            "tests.test_live_android_capture"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g1b-worker-transport",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_live_worker.WorkerTransportTests",
+            "tests.test_g1b_remote_authority"
+          ],
+          "environment": "local-macos-loopback",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g1b-native-compilation",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_g1b_native_compile.G1bNativeCompileTests",
+            "tests.test_g1b_native_compile.G1bNativeExecutableBoundaryTests"
+          ],
+          "environment": "local-macos-java17-android-sdk-xcode",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 300,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G2": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g2-durable-store-and-recovery",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_evidence_store",
+            "tests.test_recording_recovery"
+          ],
+          "environment": "local-python-owned-temp-multiprocess",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g2-lab-policy-and-clock-integration",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_g2_lab_integration",
+            "tests.test_g2_recording_clock"
+          ],
+          "environment": "local-python-synthetic-provider",
+          "effects": [
+            "filesystem"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g2-independent-boundaries",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_g2_storage_boundaries",
+            "tests.test_g2_recording_boundaries",
+            "tests.test_g2_lab_boundaries",
+            "tests.test_g2_capture_boundaries",
+            "tests.test_g2_clock_boundaries"
+          ],
+          "environment": "local-python-owned-temp-process-native-parser",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g2-existing-clock-contracts",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_clock_sync",
+            "tests.test_clock_sync_boundaries"
+          ],
+          "environment": "actual-host-monotonic-clock-and-owned-clock-doubles",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G3": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g3-protocol-state-and-g2-boundaries",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_video_protocol",
+            "tests.test_video_state_machine",
+            "tests.test_g2_storage_boundaries",
+            "tests.test_g2_recording_boundaries",
+            "tests.test_g2_lab_boundaries",
+            "tests.test_g2_capture_boundaries",
+            "tests.test_g2_clock_boundaries"
+          ],
+          "environment": "local-python-owned-temp-process-avfoundation-protocol",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g3-independent-boundaries",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_g3_protocol_boundaries",
+            "tests.test_g3_state_boundaries"
+          ],
+          "environment": "local-owned-store-process-and-stdio-boundaries",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g3-real-avfoundation-acceptance",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_video_native_acceptance"
+          ],
+          "environment": "local-macos-swift-avfoundation-parent-avassetreader",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G4": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g4-fixture-loopback-boundaries",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_fixture_allocations"
+          ],
+          "environment": "local-python-owned-temp-loopback-process",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g4-prepared-replay-qualification",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_scenario_runner",
+            "tests.test_qualification",
+            "tests.test_issue_sessions"
+          ],
+          "environment": "local-python-synthetic-provider-loopback-fixture",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g4-parent-regressions",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_g4_approval_boundaries",
+            "tests.test_g4_attempt_boundaries",
+            "tests.test_g4_cleanup_boundaries",
+            "tests.test_g4_device_boundaries",
+            "tests.test_g4_fixture_boundaries",
+            "tests.test_g4_locator_boundaries",
+            "tests.test_g4_observation_boundaries",
+            "tests.test_g4_preparation_boundaries",
+            "tests.test_g4_transport_boundaries"
+          ],
+          "environment": "local-python-independent-process-loopback-regressions",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G5": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g5-access-http-and-revocation",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_project_access",
+            "tests.test_worker_enrollment",
+            "tests.test_g5_parent_regressions",
+            "tests.test_g5_job_sessions",
+            "tests.test_g5_worker_processes"
+          ],
+          "environment": "local-python-owned-temp-loopback-shared-coordinator",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g5-enrollment-and-migration",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_enrollment",
+            "tests.test_release_migrations"
+          ],
+          "environment": "local-python-owned-temp-multiprocess-storage",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g5-affected-live-regressions",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_live_server",
+            "tests.test_live_media",
+            "tests.test_live_jobs",
+            "tests.test_live_operations",
+            "tests.test_live_worker",
+            "tests.test_live_model",
+            "tests.test_issue_sessions",
+            "tests.test_g1b_remote_authority",
+            "tests.test_live_authority",
+            "tests.test_authority_recovery_migration",
+            "tests.test_g1b_lab_boundaries"
+          ],
+          "environment": "local-python-owned-temp-loopback-live-regressions",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G6": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g6-profiles-inventory-and-project-authority",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_worker_profiles",
+            "tests.test_g6_ios_identity",
+            "tests.test_g6_profile_contract_edges",
+            "tests.test_g6_inventory_authority",
+            "tests.test_g6_inventory_admission",
+            "tests.test_g6_project_grants",
+            "tests.test_g6_worker_configuration"
+          ],
+          "environment": "owned-macos-loopback-synthetic-native-adapters",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g6-durable-artifact-lifecycle",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_worker_artifacts",
+            "tests.test_g6_response_framing",
+            "tests.test_g6_transfer_http",
+            "tests.test_g6_transfer_lifecycle",
+            "tests.test_g6_transfer_budget",
+            "tests.test_g6_evidence_recovery",
+            "tests.test_g6_artifact_policy",
+            "tests.test_g6_artifact_namespace",
+            "tests.test_g6_worker_lifecycle",
+            "tests.test_g6_allocation_crash",
+            "tests.test_g6_transfer_process"
+          ],
+          "environment": "owned-temp-multiprocess-loopback-disk-faults",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g6-actual-workers-reservations-and-cleanup",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_worker_recovery",
+            "tests.test_g6_worker_cli_processes",
+            "tests.test_g6_remote_cleanup"
+          ],
+          "environment": "same-mac-worker-cli-processes-synthetic-hardware",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G7": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g7-packages-issues-http-cli",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_issue_package",
+            "tests.test_issue_workflow",
+            "tests.test_issue_http",
+            "tests.test_g7_issue_control",
+            "tests.test_issue_media",
+            "tests.test_issue_configuration",
+            "tests.test_issue_cli",
+            "tests.test_g7_record_replay.NativeDescriptorTests"
+          ],
+          "environment": "owned-loopback-python-and-native-media-decoder",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback",
+            "native-compile"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g7-current-and-legacy-browser-logic",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_g7_browser_logic"
+          ],
+          "environment": "installed-node-browser-logic",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g7-live-device-catalog-refresh",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_g7_catalog_refresh"
+          ],
+          "environment": "installed-agent-browser-owned-loopback-synthetic-reservations",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback",
+            "browser"
+          ],
+          "timeoutSeconds": 90,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g7-actual-record-replay-browser",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_g7_record_replay.RecordReplayGateTests"
+          ],
+          "environment": "same-mac-owned-processes-avfoundation-agent-browser",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback",
+            "native-compile",
+            "browser"
+          ],
+          "timeoutSeconds": 600,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G8B": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g8b-wire-sealed-files-resources-and-cli",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_execution_wire",
+            "tests.test_execution_artifacts",
+            "tests.test_execution_resources",
+            "tests.test_execution_guest_package",
+            "tests.test_execution_cli"
+          ],
+          "environment": "owned-local-sockets-files-and-explicit-nonbootable-resource-fixtures",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g8b-guest-supervision-and-qualification-control",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_execution_journal",
+            "tests.test_execution_runtime",
+            "tests.test_execution_guest",
+            "tests.test_execution_guest_probe",
+            "tests.test_execution_qualification"
+          ],
+          "environment": "owned-multiprocess-journals-and-explicit-vm-protocol-doubles",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 90,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g8b-fixed-native-compile-and-host-denial",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_execution_native"
+          ],
+          "environment": "installed-apple-sdk-real-native-tools-without-vm-boot",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G9": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g9-source-policy-proposals-and-durable-jobs",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_project_repair",
+            "tests.test_repair_baseline",
+            "tests.test_project_agents",
+            "tests.test_repair_journal",
+            "tests.test_project_repair_jobs"
+          ],
+          "environment": "owned-source-fixtures-real-g4-baselines-and-local-adapter-doubles",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g9-protected-provenance-validation-replay-and-quarantine",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_repair_execution",
+            "tests.test_repair_signing",
+            "tests.test_repair_mobile",
+            "tests.test_trusted_validation",
+            "tests.test_repair_candidate_binding",
+            "tests.test_project_repair_verification"
+          ],
+          "environment": "explicit-vm-and-disposable-device-doubles-with-real-g4-interpreter",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 90,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g9-project-authorized-http-cli-and-qa-entrypoints",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_live_project_repair",
+            "tests.test_repair_configuration",
+            "tests.test_project_repair_cli",
+            "tests.test_protected_repair_qa"
+          ],
+          "environment": "owned-loopback-services-cli-processes-and-explicit-protected-doubles",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 90,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "g9-actual-browser-proposals-and-protected-protocol-results",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_project_repair_browser",
+            "tests.test_g7_browser_logic"
+          ],
+          "environment": "installed-agent-browser-owned-loopback-and-explicit-vm-device-doubles",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback",
+            "browser"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "D4_ANDROID_RECOVERY": {
+      "available": true,
+      "checks": [
+        {
+          "id": "d4-android-recovery-finalization",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_live_authority",
+            "tests.test_authority_recovery_migration",
+            "tests.test_native_recovery_leases",
+            "tests.test_android_recovery_descriptors",
+            "tests.test_android_recovery",
+            "tests.test_android_fixture_recovery",
+            "tests.test_android_recovery_helper",
+            "tests.test_android_recovery_finalization",
+            "tests.test_android_recovery_discarded",
+            "tests.test_repair_android_operation",
+            "tests.test_android_mobile_operation_integration",
+            "tests.test_android_native_call_storage",
+            "tests.test_android_native_process",
+            "tests.test_execution_journal",
+            "tests.test_repair_scope_journal",
+            "tests.test_signing_recovery_journal",
+            "tests.test_android_recovery_materials",
+            "tests.test_android_native_inspector",
+            "tests.test_android_metadata_crash"
+          ],
+          "environment": "local-macos-cached-sdk-native-guardian-owned-protocol",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback",
+            "native-compile"
+          ],
+          "timeoutSeconds": 300,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "D4_RECOVERY_SERVICE": {
+      "available": true,
+      "checks": [
+        {
+          "id": "d4-authenticated-recovery-service",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_protected_recovery_service",
+            "tests.test_protected_recovery_http",
+            "tests.test_protected_service_configuration",
+            "tests.test_protected_mobile_inputs",
+            "tests.test_issue_configuration",
+            "tests.test_project_access",
+            "tests.test_g5_parent_regressions",
+            "tests.test_issue_http",
+            "tests.test_protected_recovery_process"
+          ],
+          "environment": "local-macos-owned-authenticated-http-cached-sdk-native-guardian",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback",
+            "native-compile"
+          ],
+          "timeoutSeconds": 300,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "D4_SERVICE_ASSEMBLY": {
+      "available": true,
+      "checks": [
+        {
+          "id": "d4-current-protected-service-assembly",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_protected_service_assembly",
+            "tests.test_execution_backend",
+            "tests.test_execution_qualification",
+            "tests.test_execution_runtime",
+            "tests.test_repair_composition",
+            "tests.test_repair_composition_lifecycle",
+            "tests.test_android_signing_owner_composition",
+            "tests.test_android_mobile_operation_integration",
+            "tests.test_protected_validation",
+            "tests.test_protected_signing_inputs",
+            "tests.test_protected_tool_inputs",
+            "tests.test_project_repair_verification",
+            "tests.test_protected_service_materials",
+            "tests.test_repair_android_signing",
+            "tests.test_ios_native_pipeline"
+          ],
+          "environment": "local-macos-owned-signing-sdk-explicit-vm-mobile-qualification-doubles",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback",
+            "native-compile"
+          ],
+          "timeoutSeconds": 300,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "D4_IOS_DEVICE_QUERIES": {
+      "available": true,
+      "checks": [
+        {
+          "id": "d4-pinned-ios-device-queries",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_ios_device_tools",
+            "tests.test_live_iphone",
+            "tests.test_worker_profiles",
+            "tests.test_ios_observation",
+            "tests.test_ios_auto_live"
+          ],
+          "environment": "owned-native-protocol-double-no-coredevice-service-or-device",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "D4_IOS_MOBILE_PREPARATION": {
+      "available": true,
+      "checks": [
+        {
+          "id": "d4-ios-mobile-preparation",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_ios_mobile_operation",
+            "tests.test_ios_artifact_transfer",
+            "tests.test_ios_artifact_transfer_regressions",
+            "tests.test_ios_artifact_staging",
+            "tests.test_execution_journal",
+            "tests.test_repair_mobile",
+            "tests.test_repair_mobile_failures",
+            "tests.test_ios_mobile_recovery",
+            "tests.test_ios_native_pipeline"
+          ],
+          "environment": "owned-ipa-preparation-recovery-native-ios-signing-vm-mobile-doubles",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback",
+            "native-compile"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "D4_IOS_MOBILE_INPUTS": {
+      "available": true,
+      "checks": [
+        {
+          "id": "d4-registered-ios-mobile-inputs",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_ios_mobile_inputs",
+            "tests.test_ios_device_tools",
+            "tests.test_protected_mobile_inputs",
+            "tests.test_protected_service_configuration",
+            "tests.test_protected_service_assembly",
+            "tests.test_protected_service_materials",
+            "tests.test_protected_recovery_service",
+            "tests.test_protected_recovery_http",
+            "tests.test_protected_recovery_process"
+          ],
+          "environment": "registered-runtime-owned-ipa-data-real-cached-tool-metadata-android-protocol-doubles",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback",
+            "native-compile"
+          ],
+          "timeoutSeconds": 300,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    }
+  }
+}

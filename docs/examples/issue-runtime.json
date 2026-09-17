@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "kind": "reproloop-issue-runtime",
+  "projects": [
+    {
+      "projectId": "checkout",
+      "projectDigest": "cde0432a894ef1f23bf2af046f6b2d6796b3ee5994b7ff0cd0c74066423a85a9",
+      "runtimePolicy": {
+        "schemaVersion": 1,
+        "class": "mobile-device",
+        "network": "loopback",
+        "candidateCanEdit": false,
+        "enforcedControls": [
+          "host_authority"
+        ],
+        "attestations": []
+      },
+      "validationRecipeIds": [
+        "regression_ui"
+      ],
+      "fixtures": [
+        {
+          "applicationId": "ios_app",
+          "fixtureId": "seed_account",
+          "endpointId": "fixture_service",
+          "baseUrl": "http://127.0.0.1:8091",
+          "checkRecipeIds": [
+            "check_account"
+          ],
+          "cleanupRecipeId": "cleanup_account",
+          "payload": {}
+        }
+      ],
+      "variables": [],
+      "observations": [
+        {
+          "observationId": "screen",
+          "providerIncarnation": "owned_counter_backend",
+          "baseUrl": "http://127.0.0.1:8091",
+          "coverage": [
+            "snapshot"
+          ]
+        }
+      ]
+    }
+  ]
+}
