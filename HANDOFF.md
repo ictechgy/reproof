@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-18 by opencode (r62)_
+_Last updated: 2026-09-18 by devin (r63)_
 
 ## Goal
 
@@ -268,6 +268,58 @@ _Last updated: 2026-09-18 by opencode (r62)_
   설정은 저장소에 없음(pyproject.toml에 setuptools뿐, ruff/mypy 정의 없음).
 - 커밋·브랜치·push 없음. 다음 세션에서 위 미커밋 diff를 검토 후 커밋하거나 이월 판단.
 
+## r63 결과 (2026-09-18, r62 잔여 개선 완료 — 저널 아카이빙 + 복구 분리 + qualification 경계)
+
+- **요청**: HANDOFF(r62)의 안전한 재개 프롬프트 그대로 — 미커밋 diff 검토·커밋 후
+  "적용하지 않은 것" 3건을 순서대로 진행.
+- **커밋(전부 `main`)**:
+  - `2df13b1` — r62 미커밋분 커밋: BlobSet manifest/digest 해시 캐싱(41 테스트 통과 확인 후).
+  - `f5dc0c6` — HANDOFF r62 갱신분 커밋.
+  - `8463b8c` — 실행 저널 terminal 레코드 아카이빙.
+  - `7ff93c1` — 플랫폼 복구 종결 로직 `journal_recovery.py` 분리.
+  - (아래 qualification 경계 변경은 별도 커밋 — 해시는 git log 참고.)
+- **저널 512건 terminal 아카이빙(`reproloop/execution/journal.py`, 옵션 A 구현)**:
+  - `archive/<operation_id>`에 레코드당 1파일(canonical JSON: `schemaVersion/operationId/
+    requestDigest/state/reservedBytes`), temp+`os.replace` 원자 커밋, 0600.
+  - `state.json`에 `archive: {count, digest}` 메타데이터 — 아카이브 집합 전체에 대한
+    aggregate 바인딩. 기존 저널(archive 디렉터리 없음)은 그대로 읽힘.
+  - fail-closed 조건 전부 구현: terminal+`reservedBytes==0`+`runs/<id>` 디렉터리 부재만
+    이동 / archive 파일 commit → state 삭제 순서 / archived ID 영구 재사용 거부 /
+    `require_available`·`admit`이 거절 전 아카이빙 시도 / 변조·삭제·불일치·외국 레코드 거절.
+  - 크래시 윈도우: archive commit 후 state 미갱신이면 orphan이 `runs`에 terminal로 남고,
+    다음 로드·아카이빙에서 내용 일치 검증 후 채택.
+  - `docs/REPAIR-EXECUTION.md:166`의 "512 identities·무음 eviction 금지" 문구를
+    아카이브 동작에 맞게 갱신. 테스트 12개 추가(`tests/test_execution_journal.py`),
+    저널 관련 suite 통과.
+- **저널-복구 결합 분리(`reproloop/execution/journal_recovery.py` 신규)**:
+  - `finish_mobile_recovery`·`finish_ios_native_recovery`·`finish_ios_preparation_recovery`·
+    `consume_ios_native_disposal`·`finish_signing_recovery` 5개 본문을 이동.
+    `RunStore`는 lazy import delegate 메서드만 유지(공개 API·호출부 ~30곳 무수정).
+    journal.py에서 플랫폼 모듈 직접 import 제거 → 순환 참조 위험 축소.
+  - 복구 관련 129 테스트 중 126 통과. 실패 3건은 전부 네이티브 툴체인 환경 문제로
+    변경 전 stash 상태에서도 동일 재현 확인: Android guardian 컴파일 실패,
+    iOS native pipeline·signing — `Xcode-27.0.0-beta.app`의 `MacOSX27.0.sdk` sysroot 부재.
+- **qualification 시간 제한·취소 경계(`reproloop/ios_device_qualification.py`)**:
+  - `_devicectl` — `subprocess.run(timeout=60)` 고정을 Popen+poll로 교체.
+    `deadline_monotonic`·`cancellation` 인수 추가, 호출당 상한은 `min(60s, 잔여 데드라인)`.
+    취소/만료 시 `SIGKILL`로 프로세스 그룹(`start_new_session`) 정리 후 fail.
+  - `PhysicalHelperSession.wait` — 전체 잔여를 한 번에 `wait(timeout=)` 하던 것을
+    0.2초 poll 루프로 교체, 매 반복 취소·데드라인 검사.
+  - `_probe_network_boundary` — 비터널 주소 스캔이 데드라인/취소로 잘리면
+    `nonTunnelScanComplete: false`로 기록하고 probe 실패(fail-closed). 잘린 스캔의
+    `reachable==0`을 "전부 닫힘" 증거로 쓰지 않는다. connect 타임아웃도 잔여 데드라인으로 상한.
+  - `_probe_process_termination` — helper 프로세스 소멸 대기 루프에 취소·데드라인 검사와
+    `observationComplete` 증거 추가. `_probe_state_cleanup` — uninstall 루프에 경계 검사와
+    `uninstallCompleted` 증거 추가. 모든 subject devicectl 호출에 경계 전파.
+  - 테스트 4개 추가(측정 중 취소가 probe 경계에서 중단, helper 대기 중 취소,
+    잘린 스캔 fail-closed, subject 호출에 데드라인 전달). **18개 전부 통과**
+    (`python3 -m unittest tests.test_ios_device_qualification`).
+  - 잔여 known gap: `device_status`의 `select_iphone`(query_client 없음)은 내부
+    devicectl 호출당 30초 고정 상한으로만 묶여 있고 qualification 데드라인을 직접 받지
+    않는다(≤60초 residual, probe 경계에서 전체 데드라인은 여전히 강제됨).
+- **다음 세션**: qualification 경계 커밋까지가 r63 범위. 실주행(QA-iPhone 재연결·
+  `run-issue-lifecycle.py`)은 사용자 승인 후.
+
 ## r61 결과 (2026-09-17, 실주행 runner 준비 + 기기 차단 + README 퇴고 + git init)
 
 - **실주행 runner 작성**: `artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`.
@@ -308,11 +360,11 @@ _Last updated: 2026-09-18 by opencode (r62)_
   git grep으로 확인했다(서명 자료는 저장소 밖 `~/secure/`에 있다). 원격 remote·push는
   아직 없다.
 
-## Current Status (r51 기준 + r62 갱신)
+## Current Status (r51 기준 + r63 갱신)
 
 - 저장소 위치: `/Users/repro/Desktop/repro-loop`. **r61부터 git 저장소다**
-  (`main`, 커밋 `57ca994`). r62 성능 개선 2파일은 **미커밋 working tree에 있다**.
-  remote는 아직 없다.
+  (`main`). r63에서 r62 잔여 개선 3건(저널 아카이빙·복구 분리·qualification 경계)을
+  완료·커밋했다 — 최신 커밋은 `git log` 참고(r63 절에 나열). remote는 아직 없다.
   로컬 AGENTS.md는 없고 대화에 제공된 전역 지침을 적용했다.
 - **r51 소프트웨어·로컬 검증 완료:** iOS 초기화 정책/SDK, trusted adapter와 3회 G4 재생,
   원본 복원, native 재시작 복구, fixture 정리, 서비스 factory·자료 입력·인증 복구 CLI.
@@ -418,8 +470,8 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
    (`artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`,
    오프라인 계약 검증 완료). 차단 요소는 QA-iPhone 연결 뿐이다 — `devicectl`이
    `unavailable`이면 USB 재연결·잠금 해제 후 `ready: True`를 확인하고 runner를 실행한다.
-   **r62 코드 개선 작업이 선행된다** — r62 "적용하지 않은 것"(저널 아카이빙, 복구
-   결합 분리, qualification 취소 경계)을 먼저 마무리하고 실주행을 돌린다.
+   r62 잔여 개선(저널 아카이빙·복구 분리·qualification 취소 경계)은 **r63에서 완료**됐다 —
+   남은 선행 조건은 QA-iPhone 가용성과 실기기 작업에 대한 사용자 승인 뿐이다.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
    대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요), cleanup 기기 dispatch 구간
@@ -437,10 +489,9 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
 
 안전한 재개 프롬프트:
 
-> `/Users/repro/Desktop/repro-loop`의 HANDOFF.md를 읽어줘. 저장소는 git(`main`,
-> 커밋 `57ca994`)이고 r62에서 BlobSet 해시 캐싱 2파일(`reproloop/execution/artifacts.py`,
-> `tests/test_execution_artifacts.py`)이 미커밋 상태다(산출물·실행 테스트 41개 통과).
-> 먼저 `git diff`로 두 파일을 검토·커밋해줘. 그다음 r62 "적용하지 않은 것" 목록에서
-> 저널 512건 terminal 아카이빙(옵션 A 설계는 r62 절에 있음)을 fail-closed 조건을 지켜
-> 구현하고, 이어서 저널-복구 코드 결합 분리와 qualification 취소 경계를 진행해줘.
-> 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
+> `/Users/repro/Desktop/repro-loop`의 HANDOFF.md를 읽어줘. 저장소는 git `main`이고
+> r63까지의 개선(BlobSet 캐싱·저널 terminal 아카이빙·복구 분리·qualification 취소 경계)이
+> 전부 커밋됐다 — 최신 커밋은 `git log`로 확인해줘. 남은 일은 실주행이다: QA-iPhone을 USB로
+> 재연결·잠금 해제해 `devicectl`이 `ready: True`를 보고하면
+> `artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`로
+> 라이프사이클을 돌린다. 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
