@@ -6,7 +6,9 @@ import time
 import unittest
 
 from reproloop.execution.backend import ExecutionDenied, QualificationAuthority
-from reproloop.ios_device_qualification import PROBES, qualify_ios_device
+from reproloop.ios_device_qualification import (
+    IOSDeviceQualificationError, PROBES, _probe_network_boundary, qualify_ios_device,
+)
 
 UDID = "00008150-000000000000001C"
 TUNNEL = "fd71:14f:92fb::1"
@@ -17,7 +19,8 @@ class HelperDouble:
     """Scripted helper HTTP surface; records every request for assertions."""
 
     def __init__(self, subject, *, reject_unauthenticated=True, exit_code=0, leave_running=False,
-                 retire_status=202, interfaces=None, accept_foreign_activation=False, port=1):
+                 retire_status=202, interfaces=None, accept_foreign_activation=False, port=1,
+                 cancel_in_wait=False):
         self.subject = subject
         self.reject_unauthenticated = reject_unauthenticated
         self.exit_code = exit_code
@@ -28,6 +31,7 @@ class HelperDouble:
         self.port = port
         self.wired = True
         self.interfaces = [TUNNEL] if interfaces is None else interfaces
+        self.cancel_in_wait = cancel_in_wait
         self.incarnations = {"host": "h-1", "helper": "x-1", "provider": "p-1"}
         self.configuration_digest = "c" * 64
         self.retired = False
@@ -58,7 +62,12 @@ class HelperDouble:
             return 202, {"accepted": True}
         raise AssertionError(path)
 
-    def wait(self, *, deadline_monotonic):
+    def wait(self, *, deadline_monotonic, cancellation=None):
+        if self.cancel_in_wait and cancellation is not None:
+            cancellation.set()
+        if cancellation is not None and cancellation.is_set():
+            self.subject.helper_running = False
+            raise IOSDeviceQualificationError("Helper XCTest was cancelled")
         self.subject.helper_running = self.leave_running
         summary = {"passedTests": 1, "failedTests": 0, "skippedTests": 0, "totalTestCount": 1} if self.exit_code == 0 else None
         return {"returncode": self.exit_code, "testSummary": summary}
@@ -81,21 +90,21 @@ class SubjectDouble:
         self.uninstalled = []
         self.sessions = []
 
-    def device_status(self):
+    def device_status(self, *, cancellation=None, deadline_monotonic=None):
         return {"ready": self.ready, "paired": True, "developerMode": True, "wired": True, "tunnelConnected": True,
                 "udid": self.udid, "tunnelAddress": TUNNEL}
 
-    def lock_state(self):
+    def lock_state(self, *, cancellation=None, deadline_monotonic=None):
         return {"passcodeRequired": self.locked}
 
-    def installed_bundles(self):
+    def installed_bundles(self, *, cancellation=None, deadline_monotonic=None):
         return list(self.installed)
 
-    def process_executables(self):
+    def process_executables(self, *, cancellation=None, deadline_monotonic=None):
         return ["file:///sbin/launchd"] + (["file:///private/var/containers/Bundle/Application/X/ReproLiveTests-Runner.app/ReproLiveTests-Runner"]
                                             if self.helper_running else [])
 
-    def uninstall(self, bundle):
+    def uninstall(self, bundle, *, cancellation=None, deadline_monotonic=None):
         self.installed.remove(bundle)
         self.uninstalled.append(bundle)
 
@@ -215,6 +224,62 @@ class IOSDeviceQualificationTests(unittest.TestCase):
         self.assertIsNone(qualification)
         self.assertEqual(report["probes"][-1]["probeId"], "backend-scope")
         self.assertFalse(report["probes"][-1]["evidence"]["retirementAccepted"])
+
+    def test_cancellation_during_measurement_stops_at_probe_boundary(self):
+        subject = SubjectDouble()
+        cancellation = threading.Event()
+        original = subject.device_status
+        def cancelling(**kwargs):
+            cancellation.set()
+            return original(**kwargs)
+        subject.device_status = cancelling
+        _, report, qualification = self._qualify(subject, cancellation=cancellation)
+        self.assertIsNone(qualification)
+        self.assertEqual([item["probeId"] for item in report["probes"]], ["device-boundary"])
+        self.assertFalse(report["probes"][0]["passed"])
+
+    def test_cancellation_during_helper_wait_fails_termination(self):
+        subject = SubjectDouble(cancel_in_wait=True)
+        cancellation = threading.Event()
+        _, report, qualification = self._qualify(subject, cancellation=cancellation)
+        self.assertIsNone(qualification)
+        self.assertEqual([item["probeId"] for item in report["probes"]],
+                         ["device-boundary", "network-boundary", "backend-scope", "process-termination"])
+        self.assertFalse(report["probes"][-1]["passed"])
+        self.assertEqual(subject.sessions[-1].closed, 1)
+
+    def test_truncated_interface_scan_is_not_evidence_of_closure(self):
+        subject = SubjectDouble()
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        try:
+            helper = HelperDouble(subject, interfaces=[TUNNEL, "127.0.0.1"], port=listener.getsockname()[1])
+            status = {"ready": False, "networkInterfaces": [TUNNEL, "127.0.0.1"]}
+            passed, evidence = _probe_network_boundary(helper, status, None, time.monotonic() - 1)
+            self.assertFalse(passed)
+            self.assertFalse(evidence["nonTunnelScanComplete"])
+            self.assertEqual(evidence["nonTunnelReachableCount"], 0)
+            passed, evidence = _probe_network_boundary(helper, status, None, time.monotonic() + 30)
+            self.assertFalse(passed)
+            self.assertTrue(evidence["nonTunnelScanComplete"])
+            self.assertEqual(evidence["nonTunnelReachableCount"], 1)
+        finally:
+            listener.close()
+
+    def test_subject_calls_receive_measurement_deadline(self):
+        subject = SubjectDouble()
+        observed = []
+        original = subject.lock_state
+        def recording(**kwargs):
+            observed.append(kwargs)
+            return original(**kwargs)
+        subject.lock_state = recording
+        self._qualify(subject)
+        self.assertEqual(len(observed), 1)
+        self.assertGreater(observed[0]["deadline_monotonic"], time.monotonic())
+        self.assertIn("cancellation", observed[0])
 
     def test_cancellation_leaves_backend_unqualified(self):
         subject = SubjectDouble()

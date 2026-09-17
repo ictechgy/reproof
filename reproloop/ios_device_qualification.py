@@ -43,14 +43,33 @@ class IOSDeviceQualificationError(RuntimeError):
     """Static, non-sensitive probe failure; never carries device identifiers."""
 
 
-def _devicectl(*arguments, timeout=60):
+def _devicectl(*arguments, timeout=60, deadline_monotonic=None, cancellation=None):
     """Run the pinned devicectl with JSON output and return only ``result``."""
     with tempfile.TemporaryDirectory(prefix="repro-ios-qualification-") as directory:
         output = Path(directory) / "result.json"
-        run = subprocess.run(["/usr/bin/xcrun", "devicectl", *arguments, "--json-output", str(output)],
-                             env=dict(_ENV, HOME=os.environ.get("HOME", "/var/empty")),
-                             stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout)
-        if run.returncode or not output.is_file():
+        stop = time.monotonic() + timeout
+        if deadline_monotonic is not None:
+            stop = min(stop, deadline_monotonic)
+        process = subprocess.Popen(["/usr/bin/xcrun", "devicectl", *arguments, "--json-output", str(output)],
+                                   env=dict(_ENV, HOME=os.environ.get("HOME", "/var/empty")),
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   start_new_session=True)
+        try:
+            while process.poll() is None:
+                if _external_cancelled(cancellation) or time.monotonic() >= stop:
+                    raise IOSDeviceQualificationError("devicectl command interrupted")
+                time.sleep(min(0.2, max(0.05, stop - time.monotonic())))
+        finally:
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+        if process.returncode or not output.is_file():
             raise IOSDeviceQualificationError("devicectl command failed")
         value = json.loads(output.read_text())
         if value.get("info", {}).get("outcome") != "success":
@@ -98,13 +117,16 @@ class PhysicalHelperSession:
     def request(self, method, path, body=None, *, token=""):
         return _request(self.address, self.port, method, path, self.token if token == "" else token, body)
 
-    def wait(self, *, deadline_monotonic):
+    def wait(self, *, deadline_monotonic, cancellation=None):
         """Wait for xcodebuild; read the XCTest summary only after exit 0."""
         if self._returncode is None:
-            try:
-                self._process.wait(timeout=max(0.1, deadline_monotonic - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                raise IOSDeviceQualificationError("Helper XCTest did not finish in time") from None
+            while self._process.poll() is None:
+                remaining = deadline_monotonic - time.monotonic()
+                if remaining <= 0:
+                    raise IOSDeviceQualificationError("Helper XCTest did not finish in time") from None
+                if _external_cancelled(cancellation):
+                    raise IOSDeviceQualificationError("Helper XCTest was cancelled") from None
+                time.sleep(min(0.2, remaining))
             self._returncode = self._process.returncode
             if self._returncode == 0:
                 result = subprocess.run(["/usr/bin/xcrun", "xcresulttool", "get", "test-results", "summary", "--path",
@@ -140,25 +162,29 @@ class PhysicalIOSProbeSubject:
     port: int = 8766
     _device: object = field(default=None, repr=False)
 
-    def device_status(self):
+    def device_status(self, *, cancellation=None, deadline_monotonic=None):
         self._device = select_iphone(self.public_id)
         return {**public_device_status(self._device), "udid": self._device.udid,
                 "tunnelAddress": self._device.tunnel_address, "wired": self._device.wired}
 
-    def lock_state(self):
-        return _devicectl("device", "info", "lockState", "--device", self._device.identifier)
+    def lock_state(self, *, cancellation=None, deadline_monotonic=None):
+        return _devicectl("device", "info", "lockState", "--device", self._device.identifier,
+                          deadline_monotonic=deadline_monotonic, cancellation=cancellation)
 
-    def installed_bundles(self):
-        rows = _devicectl("device", "info", "apps", "--device", self._device.identifier)["apps"]
+    def installed_bundles(self, *, cancellation=None, deadline_monotonic=None):
+        rows = _devicectl("device", "info", "apps", "--device", self._device.identifier,
+                          deadline_monotonic=deadline_monotonic, cancellation=cancellation)["apps"]
         return sorted(row["bundleIdentifier"] for row in rows if row["bundleIdentifier"] in HELPER_BUNDLES)
 
-    def process_executables(self):
-        rows = _devicectl("device", "info", "processes", "--device", self._device.identifier)["runningProcesses"]
+    def process_executables(self, *, cancellation=None, deadline_monotonic=None):
+        rows = _devicectl("device", "info", "processes", "--device", self._device.identifier,
+                          deadline_monotonic=deadline_monotonic, cancellation=cancellation)["runningProcesses"]
         return sorted(row.get("executable", "") for row in rows)
 
-    def uninstall(self, bundle):
+    def uninstall(self, bundle, *, cancellation=None, deadline_monotonic=None):
         require(bundle in HELPER_BUNDLES, "Only helper bundles are removed by qualification")
-        _devicectl("device", "uninstall", "app", "--device", self._device.identifier, bundle)
+        _devicectl("device", "uninstall", "app", "--device", self._device.identifier, bundle,
+                   deadline_monotonic=deadline_monotonic, cancellation=cancellation)
 
     @contextmanager
     def open_helper_session(self):
@@ -225,9 +251,9 @@ def _authority_fields(status, operation_id, sequence, payload):
               "payloadDigest": digest(payload)}
 
 
-def _probe_device_boundary(subject, expected_udid):
-    status = subject.device_status()
-    lock = subject.lock_state()
+def _probe_device_boundary(subject, expected_udid, cancellation, deadline):
+    status = subject.device_status(cancellation=cancellation, deadline_monotonic=deadline)
+    lock = subject.lock_state(cancellation=cancellation, deadline_monotonic=deadline)
     evidence = {"ready": status["ready"] is True, "paired": status["paired"] is True,
                 "developerMode": status["developerMode"] is True, "wired": status["wired"] is True,
                 "tunnelConnected": status["tunnelConnected"] is True,
@@ -245,7 +271,7 @@ def _is_private_ula(address):
         return False
 
 
-def _probe_network_boundary(session, status):
+def _probe_network_boundary(session, status, cancellation, deadline):
     none_code, _ = session.request("GET", "/status", token=None)
     wrong_code, _ = session.request("GET", "/status", token="x" * 43)
     interfaces = status.get("networkInterfaces")
@@ -253,10 +279,16 @@ def _probe_network_boundary(session, status):
     alternates = sorted({item for item in interfaces if isinstance(item, str) and item != session.address}
                         ) if type(interfaces) is list else None
     reachable = 0
+    scanned = True
     if alternates is not None:
         for address in alternates:
+            if _external_cancelled(cancellation) or time.monotonic() >= deadline:
+                # 잘린 스캔은 "도달 0"으로 기록하지 않는다 — 미측정은 실패다.
+                scanned = False
+                break
             try:
-                with socket.create_connection((address, session.port), timeout=2):
+                with socket.create_connection((address, session.port),
+                                              timeout=max(0.05, min(2, deadline - time.monotonic()))):
                     reachable += 1
             except OSError:
                 pass
@@ -265,15 +297,16 @@ def _probe_network_boundary(session, status):
                 "authenticatedStatus": status.get("ready") is False,
                 "interfacesReported": alternates is not None,
                 "nonTunnelInterfaceCount": len(alternates) if alternates is not None else None,
-                "nonTunnelReachableCount": reachable}
+                "nonTunnelReachableCount": reachable,
+                "nonTunnelScanComplete": scanned}
     passed = (evidence["transportWired"] and evidence["listenAddressPrivateULA"]
               and evidence["missingTokenRejected"] and evidence["wrongTokenRejected"]
               and evidence["authenticatedStatus"] and evidence["interfacesReported"]
-              and reachable == 0)
+              and scanned and reachable == 0)
     return passed, evidence
 
 
-def _probe_backend_scope(session, status):
+def _probe_backend_scope(session, status, cancellation, deadline):
     incarnations_match = all(status.get(key + "Incarnation") == value for key, value in session.incarnations.items())
     startup_payload = {"kind": "ios-device-qualification-startup", "configurationDigest": session.configuration_digest}
     fields = _authority_fields(status, "ios-qual-startup", 1, startup_payload)
@@ -307,24 +340,34 @@ def _probe_backend_scope(session, status):
     return all(evidence.values()), evidence
 
 
-def _probe_process_termination(subject, session, deadline):
-    result = session.wait(deadline_monotonic=deadline)
+def _probe_process_termination(subject, session, cancellation, deadline):
+    result = session.wait(deadline_monotonic=deadline, cancellation=cancellation)
     summary = result["testSummary"] or {}
-    remaining = _helper_executables(subject.process_executables())
-    while remaining and time.monotonic() < deadline:
-        time.sleep(2)
-        remaining = _helper_executables(subject.process_executables())
+    remaining = _helper_executables(subject.process_executables(cancellation=cancellation,
+                                                              deadline_monotonic=deadline))
+    while remaining and time.monotonic() < deadline and not _external_cancelled(cancellation):
+        time.sleep(min(2, max(0.05, deadline - time.monotonic())))
+        remaining = _helper_executables(subject.process_executables(cancellation=cancellation,
+                                                                    deadline_monotonic=deadline))
     evidence = {"xcodebuildExitZero": result["returncode"] == 0,
                 "singleTestPassed": summary.get("passedTests") == 1 and summary.get("failedTests") == 0
                                     and summary.get("skippedTests") == 0 and summary.get("totalTestCount") == 1,
-                "helperProcessesAbsent": not remaining}
+                "helperProcessesAbsent": not remaining,
+                "observationComplete": not _external_cancelled(cancellation)
+                                       and (not remaining or time.monotonic() < deadline)}
     return all(evidence.values()), evidence
 
 
-def _probe_state_cleanup(subject, session):
-    for bundle in subject.installed_bundles():
-        subject.uninstall(bundle)
-    evidence = {"helperBundlesAbsent": subject.installed_bundles() == [], "stagedFilesRemoved": session.close() is True}
+def _probe_state_cleanup(subject, session, cancellation, deadline):
+    for bundle in subject.installed_bundles(cancellation=cancellation, deadline_monotonic=deadline):
+        if _external_cancelled(cancellation) or time.monotonic() >= deadline:
+            break
+        subject.uninstall(bundle, cancellation=cancellation, deadline_monotonic=deadline)
+    bounded = not _external_cancelled(cancellation) and time.monotonic() < deadline
+    evidence = {"helperBundlesAbsent": subject.installed_bundles(cancellation=cancellation,
+                                                                 deadline_monotonic=deadline) == [],
+                "stagedFilesRemoved": session.close() is True,
+                "uninstallCompleted": bounded}
     return all(evidence.values()), evidence
 
 
@@ -338,21 +381,21 @@ def _measure(subject, expected_udid, cancellation, deadline):
         return probes[-1]["passed"]
 
     try:
-        passed, evidence = _probe_device_boundary(subject, expected_udid)
+        passed, evidence = _probe_device_boundary(subject, expected_udid, cancellation, deadline)
         if not record(PROBES[0], passed, evidence):
             return probes
         with subject.open_helper_session() as session:
             status = _await_status(session, cancellation, deadline)
-            passed, evidence = _probe_network_boundary(session, status)
+            passed, evidence = _probe_network_boundary(session, status, cancellation, deadline)
             if not record(PROBES[1], passed, evidence):
                 return probes
-            passed, evidence = _probe_backend_scope(session, status)
+            passed, evidence = _probe_backend_scope(session, status, cancellation, deadline)
             if not record(PROBES[2], passed, evidence):
                 return probes
-            passed, evidence = _probe_process_termination(subject, session, deadline)
+            passed, evidence = _probe_process_termination(subject, session, cancellation, deadline)
             if not record(PROBES[3], passed, evidence):
                 return probes
-            passed, evidence = _probe_state_cleanup(subject, session)
+            passed, evidence = _probe_state_cleanup(subject, session, cancellation, deadline)
             record(PROBES[4], passed, evidence)
     except (IOSDeviceQualificationError, ContractError, LiveError, OSError, ValueError, KeyError, TypeError,
             subprocess.SubprocessError, http.client.HTTPException) as error:
