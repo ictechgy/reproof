@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated: 2026-09-16 by Devin (r53)_
+_Last updated: 2026-09-17 by Devin (r61)_
 
 ## Goal
 
@@ -236,9 +236,50 @@ _Last updated: 2026-09-16 by Devin (r53)_
   WWDR G3(`~/secure/AppleWWDRCAG3.cer`)는 dev cert 체인용이며 이 필드에는 쓰이지 않는다.
   p12의 실제 발급본(serial `4903…`, 7/8)을 identity cert로 사용 — 프로파일이 두 발급본 모두 허용.
 
-## Current Status (r51 기준, 변경 없음)
+## r61 결과 (2026-09-17, 실주행 runner 준비 + 기기 차단 + README 퇴고 + git init)
 
-- 저장소 위치: `/Users/repro/Desktop/repro-loop`. Git 저장소가 아니므로 branch/commit/PR은 없다.
+- **실주행 runner 작성**: `artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`.
+  활성화(activate-service.py와 동일 경로)에 이어 record → stop → save_specification →
+  approve → replay(3회 캠페인) → `repairs.start(mode: verify)`까지 한 스크립트로 구동한다.
+  물리 iOS는 locator·semantic observe를 지원하지 않으므로:
+  - 입력은 `parameters.{x,y}` 좌표 탭 + `geometry`(width/height/rotation/version)만 사용한다.
+    `workflow.input`에는 `controllerId`/`epoch`/`sequence`/`operationId`가 필요하다.
+  - 버튼 위치는 `tap-target-probe.swift`(Vision OCR)가 세션 프레임에서 텍스트로 찾는다 —
+    이전 실기기 프레임에서 `Add`를 (0.480, 0.439)로 확인했다.
+  - 관측은 `DeviceFrameObservationAdapter`(로컬 클래스)를
+    `runtime.service.runner.observations.register('screen', …)`로 등록한다 — 프레임을
+    `scripts/capture-text-probe.swift`로 OCR해 카운터 값을 `text` property로 돌려준다.
+    project.json이 observation `screen`을 선언한다.
+  - `iphone_device()`는 `ios-app` kind만 받으므로(이 프로필은 `ios-ipa` 선언) 디바이스
+    디스크립터+provider factory를 직접 만든다. `capabilities`에 `applicationIdentity`/
+    `applicationProfile`/`applicationProfileDigest`가 필요하다(r60 항목 4와 동일 요구).
+    `original.ipa` 내 `Payload/ReproSample.app/ReproSample`과 설치용 `.app` 바이너리의
+    sha256 일치를 스크립트가 직접 고정한다(IPA 컨테이너 digest ≠ .app tree digest이므로
+    전체 트리 비교는 유효하지 않다 — 바이너리 수준 대조가 정석).
+  - 첫 프레임 대기는 `lab.frame` 재시도 60회×0.5초, 실패 시 `frame_pending`.
+- **오프라인 계약 검증 완료**: `get_session`(controllerId/epoch), `frame()` 필드,
+  `save_specification`/`get`(campaign 포함)/`jobs.start`·`get`(`{'repair':…}`, TERMINAL 집합)
+  반환 구조를 코드와 대조해 확인했다. 실주행은 아직 없다.
+- **차단: QA-iPhone 연결 끊김** — `devicectl`이 `unavailable`을 보고한다
+  (`wired: False`, `tunnelConnected: False`). 기기가 돌아오면 status 재확인 후
+  runner를 실행하면 된다. 사용자가 "잠시 후 계속"을 선택해 이 상태에서 멈췄다.
+- **README 퇴고(영어 기본 + 한글)**: `README.md`를 영어로 재작성(오픈소스 표준),
+  `README.ko.md`를 한글로 분리했다. 구조를 "소개 → 현재 상태(검증됨/남은 것 구분) →
+  제품 방향 → 샘플 대상 → iOS → Android → 수정 루프 → 결과 → 테스트 → 구성 → Live 콘솔"로
+  정리하고, stale 주장(활성화 전 시점 기술)을 r60 결과로 갱신했다. 한글판은 claude CLI
+  2회 리뷰를 거쳤다(번역투 12건·용어 통일·사실 정밀화 반영). PRODUCT-DELIVERY-PLAN.md는
+  r51 시점에 머물러 있어 README에 "계획 문서는 r51 기준" 주석을 달았다 — 계획 문서 자체
+  갱신은 아직이다.
+- **git 초기화**: 저장소를 git으로 만들었다. `main` 브랜치, 초기 커밋 `7a59898`
+  (766 파일, ~10.5MB). `artifacts/`(8.4GB)·Xcode/Gradle 빌드 산출물·`.kotlin/`·
+  `.omc/`·`.DS_Store`는 `.gitignore`로 제외. 커밋된 파일에 비밀 패턴 없음을
+  git grep으로 확인했다(서명 자료는 저장소 밖 `~/secure/`에 있다). 원격 remote·push는
+  아직 없다.
+
+## Current Status (r51 기준 + r61 갱신)
+
+- 저장소 위치: `/Users/repro/Desktop/repro-loop`. **r61부터 git 저장소다**
+  (`main`, 초기 커밋 `7a59898`). remote는 아직 없다.
   로컬 AGENTS.md는 없고 대화에 제공된 전역 지침을 적용했다.
 - **r51 소프트웨어·로컬 검증 완료:** iOS 초기화 정책/SDK, trusted adapter와 3회 G4 재생,
   원본 복원, native 재시작 복구, fixture 정리, 서비스 factory·자료 입력·인증 복구 CLI.
@@ -340,6 +381,10 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
    원본 defect 3회 재현 → local-patch(`patch/ios-sample-fix.json`) 적용 →
    host-build 후보 빌드 → signed candidate IPA → QA-iPhone 재생 3회 → 검증.
    이 구간(executor.submit → protected repair 실행)의 실주행 기록이 아직 없다.
+   **r61에서 전체 라이프사이클 runner가 준비됐다**
+   (`artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`,
+   오프라인 계약 검증 완료). 차단 요소는 QA-iPhone 연결 뿐이다 — `devicectl`이
+   `unavailable`이면 USB 재연결·잠금 해제 후 `ready: True`를 확인하고 runner를 실행한다.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
    대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요), cleanup 기기 dispatch 구간
@@ -358,7 +403,8 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
 안전한 재개 프롬프트:
 
 > `/Users/repro/Desktop/repro-loop`의 HANDOFF.md와 docs/IOS-PROTECTED-SERVICE.md,
-> docs/PROTECTED-SERVICE-CONFIGURATION.md를 읽어줘. r52~r53에서 QA-iPhone 실기기 qualification을
-> 구현·실측했고, r54에서 선택적 비격리 `host-build` 실행 클래스를 추가했다(테스트 16개 통과).
-> VM 없이 진행하려면 host-build 설정(hostPath + host-build route)으로, 격리 증명이면
-> build-guest VM bundle 준비(Next Steps 1)로 이어가줘. QA-iPhone은 잠금 해제 상태여야 한다.
+> docs/PROTECTED-SERVICE-CONFIGURATION.md를 읽어줘. 저장소는 git이다(`main`, `7a59898`).
+> r60에서 QA-iPhone 실기기 보호 서비스가 `activated`까지 통과했고, r61에서 실주행 runner
+> `artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`를 준비했다
+> (record→spec→approve→replay×3→repair verify). QA-iPhone이 `ready: True`면 그 runner를
+> 실행해 첫 실제 repair 기록을 만들어줘. 기기가 안 보이면 USB 재연결·잠금 해제부터 확인.
