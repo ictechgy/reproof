@@ -59,11 +59,26 @@ class RunStore:
                             raise RunDenied("Private execution directory required")
                     finally:
                         os.close(descriptor)
+                # Older journals have no archive directory; it appears on the
+                # first archival under the control lock, never on open.
+                try:
+                    os.lstat(self.root / "archive")
+                except FileNotFoundError:
+                    pass
+                else:
+                    descriptor = open_directory(self.root / "archive")
+                    try:
+                        info = os.fstat(descriptor)
+                        if info.st_mode & 0o077 or info.st_uid != os.getuid():
+                            raise RunDenied("Private execution directory required")
+                    finally:
+                        os.close(descriptor)
                 self._load()
                 return
             _directory(self.root)
             _directory(self.root / "runs")
             _directory(self.root / "cancellations")
+            _directory(self.root / "archive")
             with self._control():
                 if not (self.root / "state.json").exists():
                     self._write({"schemaVersion": 1, "environmentDigest": environment_digest, "runs": {}})
@@ -151,7 +166,7 @@ class RunStore:
     def _load(self):
         try:
             value = decode_json(read_regular(self.root, "state.json", maximum=256 * 1024))
-            exact(value, ("schemaVersion", "environmentDigest", "runs"), ('scope',))
+            exact(value, ("schemaVersion", "environmentDigest", "runs"), ('scope', 'archive'))
             require(type(value["schemaVersion"]) is int and value["schemaVersion"] == 1
                     and value["environmentDigest"] == self.environment_digest, "Journal mismatch")
             require(type(value["runs"]) is dict and len(value["runs"]) <= MAX_RUNS, "Journal limit")
@@ -169,6 +184,22 @@ class RunStore:
                 bounded_int(record["reservedBytes"], "reserved bytes", 0, 512 * 1024 ** 3)
                 require(record["state"] not in TERMINAL or record["reservedBytes"] == 0,
                         "Journal accounting mismatch")
+            archived = value.get('archive')
+            if archived is None:
+                official = 0
+            else:
+                exact(archived, ('count', 'digest'))
+                bounded_int(archived['count'], 'archived records', 1, 2 ** 31 - 1)
+                validate_digest(archived['digest'])
+                official = archived['count']
+            names = self._archive_names()
+            pending = names & set(value['runs'])
+            # A committed archive file whose record still sits in runs is a
+            # crash orphan; every other unaccounted name is foreign. Removal of
+            # a committed record lowers the count and is refused here.
+            require(len(names) - len(pending) == official
+                    and all(value['runs'][name]['state'] in TERMINAL for name in pending),
+                    'Journal archive mismatch')
             return value
         except (ArtifactError, ProtocolError, ContractError, TypeError):
             raise RunDenied("Execution journal rejected") from None
@@ -189,18 +220,228 @@ class RunStore:
         except OSError:
             raise RunDenied("Execution journal write failed") from None
 
+    def _archive_root(self, *, create=False):
+        """Open the terminal-record archive; absent means nothing was moved yet."""
+        path = self.root / "archive"
+        if create:
+            try:
+                os.mkdir(path, 0o700)
+            except FileExistsError:
+                pass
+            except OSError:
+                raise RunDenied("Execution archive unavailable") from None
+        else:
+            try:
+                os.lstat(path)
+            except FileNotFoundError:
+                return None
+            except OSError:
+                raise RunDenied("Execution archive unavailable") from None
+        try:
+            descriptor = open_directory(path)
+        except ArtifactError:
+            raise RunDenied("Execution archive unavailable") from None
+        info = os.fstat(descriptor)
+        if info.st_uid != os.getuid() or info.st_mode & 0o077:
+            os.close(descriptor)
+            raise RunDenied("Private execution archive required")
+        return descriptor
+
+    def _archive_names(self):
+        """Operation ids with a committed archive record; dotfiles are internal."""
+        descriptor = self._archive_root()
+        if descriptor is None:
+            return frozenset()
+        try:
+            names = set()
+            for name in os.listdir(descriptor):
+                if name.startswith('.'):
+                    continue
+                validate_id(name)
+                names.add(name)
+            return frozenset(names)
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def _archive_document(descriptor, operation_id):
+        """Read one committed terminal record; reject anything but exact bytes."""
+        try:
+            fd = os.open(operation_id, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                         dir_fd=descriptor)
+        except FileNotFoundError:
+            raise
+        except OSError:
+            raise RunDenied("Execution archive unavailable") from None
+        with os.fdopen(fd, "rb") as stream:
+            before = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid()
+                    or before.st_mode & 0o077 or before.st_size > 4096):
+                raise RunDenied("Execution archive rejected")
+            raw = stream.read(4097)
+            after = os.fstat(stream.fileno())
+            if (len(raw) != before.st_size
+                    or (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+                    != (after.st_size, after.st_mtime_ns, after.st_ctime_ns)):
+                raise RunDenied("Execution archive changed")
+            try:
+                document = decode_json(raw)
+                exact(document, ("schemaVersion", "operationId", "requestDigest",
+                                 "state", "reservedBytes"))
+                require(document["schemaVersion"] == 1
+                        and document["operationId"] == operation_id
+                        and document["state"] in TERMINAL
+                        and document["reservedBytes"] == 0, "Invalid archived record")
+                validate_digest(document["requestDigest"])
+            except (ContractError, ProtocolError, TypeError):
+                raise RunDenied("Execution archive rejected") from None
+            return document
+
+    def _archived_record(self, operation_id):
+        """Committed terminal record, or None when no archive entry exists."""
+        descriptor = self._archive_root()
+        if descriptor is None:
+            return None
+        try:
+            try:
+                return self._archive_document(descriptor, operation_id)
+            except FileNotFoundError:
+                return None
+        finally:
+            os.close(descriptor)
+
+    def _is_archived(self, operation_id):
+        """Whether any archive entry permanently claims this operation identity."""
+        descriptor = self._archive_root()
+        if descriptor is None:
+            return False
+        try:
+            try:
+                os.stat(operation_id, dir_fd=descriptor, follow_symlinks=False)
+            except FileNotFoundError:
+                return False
+            except OSError:
+                raise RunDenied("Execution archive unavailable") from None
+            return True
+        finally:
+            os.close(descriptor)
+
+    def _archivable_ids(self, runs):
+        """Terminal, zero-reservation records with no remaining run directory."""
+        eligible = []
+        try:
+            descriptor = open_directory(self.root / "runs")
+        except ArtifactError:
+            raise RunDenied("Execution journal unavailable") from None
+        try:
+            for operation_id, record in runs.items():
+                if record["state"] not in TERMINAL or record["reservedBytes"] != 0:
+                    continue
+                try:
+                    os.stat(operation_id, dir_fd=descriptor, follow_symlinks=False)
+                except FileNotFoundError:
+                    eligible.append(operation_id)
+                except OSError:
+                    continue
+        finally:
+            os.close(descriptor)
+        return eligible
+
+    def _archive_terminal(self, value):
+        """Move clean terminal records to durable per-run archive files.
+
+        The caller holds _control and ``value`` is its loaded state. Every
+        record commits to archive/<id> before state.json drops it, so a crash
+        leaves an adoptable orphan, never a lost identity. Existing entries
+        must replay the exact recorded set; unknown or altered content refuses.
+        """
+        eligible = self._archivable_ids(value["runs"])
+        if not eligible:
+            return
+        descriptor = self._archive_root(create=True)
+        try:
+            records = {}
+            for name in os.listdir(descriptor):
+                if name.startswith("."):
+                    continue
+                try:
+                    validate_id(name)
+                except ContractError:
+                    raise RunDenied("Execution archive rejected") from None
+                try:
+                    records[name] = self._archive_document(descriptor, name)
+                except FileNotFoundError:
+                    raise RunDenied("Execution archive changed during merge") from None
+            previous = value.get("archive")
+            official = {name: document for name, document in records.items()
+                        if name not in value["runs"]}
+            expected = digest([official[name] for name in sorted(official)])
+            if ((previous is None) != (not official)
+                    or previous is not None and (previous["count"] != len(official)
+                                                 or previous["digest"] != expected)):
+                raise RunDenied("Execution archive mismatch")
+            for name, document in records.items():
+                record = value["runs"].get(name)
+                if record is not None and (name not in eligible
+                        or document["requestDigest"] != record["requestDigest"]
+                        or document["state"] != record["state"]):
+                    raise RunDenied("Execution archive mismatch")
+            for operation_id in eligible:
+                if operation_id in records:
+                    continue
+                record = value["runs"][operation_id]
+                document = {"schemaVersion": 1, "operationId": operation_id,
+                            "requestDigest": record["requestDigest"],
+                            "state": record["state"], "reservedBytes": 0}
+                temporary = "." + uuid.uuid4().hex
+                try:
+                    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                                 | os.O_NOFOLLOW, 0o600, dir_fd=descriptor)
+                    with os.fdopen(fd, "wb") as stream:
+                        stream.write(canonical(document))
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    os.replace(temporary, operation_id,
+                               src_dir_fd=descriptor, dst_dir_fd=descriptor)
+                except OSError:
+                    try:
+                        os.unlink(temporary, dir_fd=descriptor)
+                    except OSError:
+                        pass
+                    raise RunDenied("Execution archive write failed") from None
+                records[operation_id] = document
+            os.fsync(descriptor)
+            merged = [records[name] for name in sorted(records)]
+            value["archive"] = {"count": len(merged), "digest": digest(merged)}
+            for operation_id in eligible:
+                del value["runs"][operation_id]
+            self._write(value)
+        finally:
+            os.close(descriptor)
+
     def status(self, operation_id):
         validate_id(operation_id)
         value = self._load()["runs"].get(operation_id)
+        archived = self._archived_record(operation_id)
         if value is None:
-            raise RunDenied("Unknown execution operation")
+            if archived is None:
+                raise RunDenied("Unknown execution operation")
+            return {"requestDigest": archived["requestDigest"], "state": archived["state"],
+                    "reservedBytes": archived["reservedBytes"]}
+        if archived is not None and (value["state"] not in TERMINAL
+                or archived["requestDigest"] != value["requestDigest"]
+                or archived["state"] != value["state"]):
+            raise RunDenied("Execution archive mismatch")
         return dict(value)
 
     def require_available(self):
         """Read-only preflight; admission still rechecks under the kernel lock."""
         with self._control():
             runs = self._load()['runs']
-            if len(runs) >= MAX_RUNS or any(item['state'] not in TERMINAL for item in runs.values()):
+            if any(item['state'] not in TERMINAL for item in runs.values()):
+                raise RunDenied('Execution scope is busy or quarantined')
+            if (len(runs) >= MAX_RUNS
+                    and len(runs) - len(self._archivable_ids(runs)) >= MAX_RUNS):
                 raise RunDenied('Execution scope is busy or quarantined')
 
     def require_scope_available(self, kind, scope_digest):
@@ -537,7 +778,11 @@ class RunStore:
                         if item["state"] == "admitted":
                             item["state"] = "quarantined"
                     self._write(value)
-                if (operation_id in value["runs"] or len(value["runs"]) >= MAX_RUNS
+                if operation_id in value["runs"] or self._is_archived(operation_id):
+                    raise RunDenied("Execution admission refused")
+                if len(value["runs"]) >= MAX_RUNS:
+                    self._archive_terminal(value)
+                if (len(value["runs"]) >= MAX_RUNS
                         or any(item["state"] == "quarantined" for item in value["runs"].values())):
                     raise RunDenied("Execution admission refused")
                 reserved = sum(item["reservedBytes"] for item in value["runs"].values())

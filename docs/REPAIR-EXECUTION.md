@@ -163,8 +163,12 @@ directory is private to its owner and remains canonical for that VM identity.
 Budget at least the complete logical raw-disk plus auxiliary-storage size for
 one writable clone, even when the filesystem supports copy-on-write.
 One machine identity is tied to one immutable environment and canonical state
-root. The journal retains at most 512 operation identities and refuses new work
-when full; it does not silently evict replay/cleanup history or reset an identity.
+root. The journal retains at most 512 live operation identities; when full,
+admission first moves terminal records with zero reservation and no remaining
+run directory into durable per-identity files under `archive/`, committed
+before state.json drops them. Archived identities are never reusable and a
+missing, foreign, or altered archive record refuses the journal rather than
+resetting an identity; no replay/cleanup history is silently evicted.
 Changing the image, installed catalog or toolchain requires an explicitly
 provisioned and qualified environment with its own machine identity.
 
