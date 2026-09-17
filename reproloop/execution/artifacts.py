@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import os
 from pathlib import Path
@@ -82,6 +82,8 @@ def read_regular(root, relative, *, maximum=MAX_TRANSFER_BYTES):
 @dataclass(frozen=True, slots=True)
 class BlobSet:
     entries: tuple[tuple[str, bytes], ...]
+    _files: tuple[tuple[str, str, int], ...] = field(init=False, repr=False, compare=False)
+    _digest: str = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
         try:
@@ -91,20 +93,26 @@ class BlobSet:
             require(sum(len(data) for _, data in self.entries) <= MAX_TRANSFER_BYTES,
                     "Transfer limit exceeded")
             object.__setattr__(self, "entries", tuple(sorted(self.entries)))
-            validate_manifest(self.manifest)
-            require(len(canonical(self.manifest)) <= 200 * 1024, "Manifest limit exceeded")
+            object.__setattr__(self, "_files", tuple(
+                (path, hashlib.sha256(data).hexdigest(), len(data)) for path, data in self.entries))
+            files = [{"path": path, "digest": file_digest, "size": size}
+                     for path, file_digest, size in self._files]
+            object.__setattr__(self, "_digest", digest(files))
+            manifest = {"digest": self._digest, "files": files}
+            validate_manifest(manifest)
+            require(len(canonical(manifest)) <= 200 * 1024, "Manifest limit exceeded")
         except (ContractError, ProtocolError, TypeError):
             raise ArtifactError("Invalid sealed files") from None
 
     @property
     def manifest(self):
-        files = [{"path": path, "digest": hashlib.sha256(data).hexdigest(), "size": len(data)}
-                 for path, data in self.entries]
-        return {"digest": digest(files), "files": files}
+        files = [{"path": path, "digest": file_digest, "size": size}
+                 for path, file_digest, size in self._files]
+        return {"digest": self._digest, "files": files}
 
     @property
     def digest(self):
-        return self.manifest["digest"]
+        return self._digest
 
     @classmethod
     def from_directory(cls, root, paths, *, max_bytes=MAX_TRANSFER_BYTES):

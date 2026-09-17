@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from reproloop.execution import artifacts, wire
@@ -43,6 +44,29 @@ class ExecutionArtifactsTests(unittest.TestCase):
         with self.assertRaises(artifacts.ArtifactError):
             authority.validate(artifacts.BlobSet((("app.zip", b"bad"),)), policy_id="desktop-app",
                                project_digest="a" * 64, execution_class="desktop-guest")
+
+    def test_manifest_and_digest_reuse_frozen_hashes(self):
+        blobs = artifacts.BlobSet((("b", b"second"), ("a", b"first")))
+        expected = blobs.manifest
+        with patch.object(artifacts.hashlib, "sha256", wraps=artifacts.hashlib.sha256) as hash_bytes:
+            for _ in range(3):
+                self.assertEqual(blobs.manifest, expected)
+                self.assertEqual(blobs.digest, expected["digest"])
+            hash_bytes.assert_not_called()
+
+    def test_manifest_mutation_does_not_change_frozen_hashes(self):
+        blobs = artifacts.BlobSet((("b", b"second"), ("a", b"first")))
+        expected = blobs.manifest
+        changed = blobs.manifest
+        changed["digest"] = "0" * 64
+        changed["files"][0]["digest"] = "0" * 64
+        changed["files"].clear()
+        self.assertEqual(blobs.manifest, expected)
+        self.assertEqual(blobs.digest, artifacts.digest(expected["files"]))
+        reordered = artifacts.BlobSet(tuple(reversed(blobs.entries)))
+        self.assertEqual(blobs, reordered)
+        self.assertEqual(blobs.digest, reordered.digest)
+        self.assertNotEqual(blobs.digest, artifacts.BlobSet((("a", b"changed"), ("b", b"second"))).digest)
 
     def test_freeze_protects_original_and_roundtrips_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:
