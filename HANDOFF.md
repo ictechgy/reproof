@@ -446,7 +446,48 @@ UI-only regression을 가진 다른 샘플이 필요하다.
 `device-regression`(기기 validation) → `candidate_mismatch`(replay verdict) →
 `mobile_quarantined`(cleanup 미확인, 자원 보류). r65에서 1·3·5번을 실증했다.
 
-## Current Status (r51 기준 + r65 갱신)
+## r66 결과 (2026-09-20, 실기기 중단/복원력 검증 + 재부팅 내구성 발견)
+
+**시나리오**: 라이프사이클 실행 중 candidate cleanup 단계에서 runner를 `kill -9`.
+(관찰상 kill은 restore-original dispatch 직후·original sanitation XCTest 직전에
+떨어졌다 — 당시 observer 미기동으로 validation이 즉시 실패해 cleanup이
+진행 중이었다. replay XCTest 도중의 kill은 별도 변형으로 남는다.)
+
+검증된 동작:
+
+1. **크래시 상태가 durable하게 남는다** — 저널 `repair_e514…_mobile`이
+   `admitted` + `reservedBytes: 5,039,029,347`으로 잔존, op dir은 install/
+   restore-original dispatch까지 기록된 채 중단. stale lease 마커
+   (`protected-repair-mobile-device-6e8967bb…`)도 남았다.
+2. **runner 자식은 부모 죽음에 살아남는다** — `fixture-service.py`가 포트를
+   잡은 채 고아로 생존. xcodebuild/devicectl 고아는 없었다(해당 시점에
+   활성 세션 없음).
+3. **다음 라이프사이클은 compose에서 거절된다** — `ProtectedMobileSupervisor.
+   ready()` → `store.require_available()`이 비종결 run을 발견해
+   `RunDenied('Execution scope is busy or quarantined')` →
+   `protected_service_mobile` → 라이프사이클 `failed`. **고아 불확실 작업이
+   있으면 새 admit 이전에 compose 자체가 잠긴다** — admit 시점의 자동 격리
+   전환보다 앞선 방어선이며, 어떤 경로로도 조용한 재시작이 불가능하다.
+4. **운영자 종결 후 완전 복귀** — 기기 상태 검증(restore-original이
+   `tool-succeeded`로 끝나 원본 복원 완료·프로세스 0) 후 run을 `failed` +
+   `reservedBytes: 0`으로 종결·run/ops 디렉토리 제거·고아 fixture 종료 →
+   다음 실행이 qualification→…→repair `verified`까지 완주
+   (`repair_75d22ebb731e449da8bd511e03abc15f`).
+
+**재부팅 내구성 발견(실 결함)**: `IOSMobileOperationStore`가 `intent.json`의
+configuration digest에 `operationsIdentity`(st_dev+inode+mode+uid)를 넣어
+검증한다. macOS 재부팅/재마운트로 `st_dev`가 재할당되면(관찰: 16777234→
+16777230, inode 동일) digest가 어긋나 compose가 `protected_service_mobile`로
+**영구 거절**된다 — inode만으로 교체 감지는 충분하므로 st_dev 바인딩은
+재부팅마다 서비스를 깨는 취약점. 복구는 `mobile-owner/`를 아카이브+재생성
+(전부 terminal run일 때 안전). 코드 수정 후보: durable identity에서 st_dev
+제외(같은 부팅 내 일관성만 검사)하거나 명시적 re-key 경로 추가.
+
+**부수 발견**: `RepairJournal`/`open_directory`는 경로의 symlink 구성요소를
+거절한다 — `$TMPDIR`(`/var/folders` → `/private/var`) 아래 work root는 항상
+실패한다. 작업 디렉토리는 실경로에 둘 것.
+
+## Current Status (r51 기준 + r66 갱신)
 
 - 저장소 위치: `/Users/repro/Desktop/repro-loop`. **r61부터 git 저장소다**
   (`main`). r63에서 r62 잔여 개선 3건(저널 아카이빙·복구 분리·qualification 경계)을
@@ -551,14 +592,21 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
 3. **후보 빌드/재현 실주행 — r64에서 완주** — QA-iPhone 실기기에서 qualification→
    record→approve→replay(`reproduced`)→repair **`verified`**까지 전체 보호
    라이프사이클이 완주했다(r64 절의 run/증거 식별자 참고). r65에서 negative
-   path 3종(protected_path·regression_failed·mobile_quarantined)도 실기기
-   증명했다. 이제 이 구간을 반복·변형할 수 있다: 다른 fixture/case 조합,
-   세션 중단/재시작 복원력, replay 수준 불일치(editable 범위 확장이나
-   UI-only regression 샘플 필요). r64 수정분은 `main`에 머지됐다.
+   path 3종(protected_path·regression_failed·mobile_quarantined), r66에서
+   중단/복원력(SIGKILL → 고아 admitted → compose 거절 → 운영자 종결 →
+   verified 복귀)까지 실기기 증명했다. 남은 변형: replay XCTest 도중의 kill
+   (고아 xcodebuild/터널 홀드 발생), 다른 fixture/case 조합, replay 수준
+   불일치(editable 범위 확장이나 UI-only regression 샘플 필요).
+   r64 수정분은 `main`에 머지됐다.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
    대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요), cleanup 기기 dispatch 구간
-   (helper cleanup 명령·sanitation 관측·hold 소비 — 활성화됐으니 이제 측정 가능).
+   (helper cleanup 명령·sanitation 관측·hold 소비 — 활성화됐으니 이제 측정 가능),
+   **`IOSMobileOperationStore`의 `operationsIdentity`에 st_dev가 포함돼 재부팅마다
+   compose가 영구 거절되는 문제**(r66 절 — durable identity에서 st_dev 제외 또는
+   명시적 re-key 경로 필요). 또한 실기기 실행 전에 observer
+   (`artifacts/product-delivery/d6-service-activation-r1/observer-service.py`)를
+   띄워야 한다 — 미기동 시 `ios-device-regression` validation이 즉시 실패한다.
    `environmentDigest`도 등록 route digest로 교체할 것(현재 대역 값). r58이 발견한 draft 설정
    결함 3건(hyphenated id·devicectl 런처 pin·IPA 중첩 코드)은 r59에서 원천 수정됐다.
 5. **D5 수용(사용자 환경)** — 회사 앱·승인된 AI·두 Mac이 오면 회사 회귀와 단절/재시작/정리 실패 수용 검사.
@@ -573,9 +621,8 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
 안전한 재개 프롬프트:
 
 > `/Users/repro/Desktop/repro-loop`의 HANDOFF.md를 읽어줘. 저장소는 git `main`이고
-> r64에서 QA-iPhone 실기기 보호 라이프사이클이 repair `verified`까지, r65에서 negative path
-> 3종(protected_path·regression_failed·mobile_quarantined)까지 실기기 증명됐다 — 전부
-> 커밋됨. 다음 실주행(변형 시나리오·중단/복원력)은 QA-iPhone USB 연결·잠금 해제 후
-> `artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`로
-> 돌린다. negative 후보는 `patch/ios-sample-badfix.json`으로 patchFile을 바꿔 주입한다.
+> r64(verified 완주)·r65(negative 3종)·r66(SIGKILL 중단/복원력)까지 실기기 증명됐다 —
+> 전부 커밋됨. 실기기 실행 전 observer-service.py 기동이 필요하고, 재부팅 후엔
+> mobile-owner의 st_dev 바인딩 때문에 compose가 거절되므로 아카이브+재생성한다.
+> 다음 실주행은 QA-iPhone USB 연결·잠금 해제 후 run-issue-lifecycle.py로 돌린다.
 > 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
