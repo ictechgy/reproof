@@ -487,6 +487,24 @@ configuration digest에 `operationsIdentity`(st_dev+inode+mode+uid)를 넣어
 거절한다 — `$TMPDIR`(`/var/folders` → `/private/var`) 아래 work root는 항상
 실패한다. 작업 디렉토리는 실경로에 둘 것.
 
+**r66 변형 2 — replay XCTest 도중 kill(더 깊은 크래시 지점)**: observer 기동 +
+정상 패치로 candidate replay 세션이 올라간 뒤(`command-xctest-candidate-001-work`
+출현 + 8초) runner를 `kill -9`. 결과:
+
+- 저널 동일하게 `admitted` + ~5GB 보류, 다음 실행도 같은 compose 거절 게이트로
+  차단됨.
+- **터널 홀드 프로세스(`devicectl device motion spatial-orientation`)가 고아로
+  영구 생존** — 세션 종료 시 해제되는 설계라 runner가 죽으면 CoreDevice 터널을
+  누가 잡은 채로 남는다. 수동 종료 필요. 후속 후보: 부모 사망 감지 후 자체 종료
+  (파이프/watchdog).
+- 기기 측 XCTest 세션은 runner 사망과 함께 정리됐다(work dir 상태 `host-stopped`,
+  기기 프로세스 0) — **기기 측 세션은 호스트 죽음을 따라가지만 호스트 측
+  고아(터널 홀드·fixture 서비스)는 남는다**.
+- cleanup이 한 번도 디스패치되지 않았으므로 **candidate 앱이 기기에 설치된 채로
+  남았다** — 운영자 종결 시 프로세스뿐 아니라 *설치된 앱의 정체*까지 확인해야
+  한다(이번엔 sanitized original .app을 devicectl로 수동 복원).
+- 종결 후 재실행 → `repair_684974f275824c93be2e830de5464e87` `verified` 완주.
+
 ## Current Status (r51 기준 + r66 갱신)
 
 - 저장소 위치: `/Users/repro/Desktop/repro-loop`. **r61부터 git 저장소다**
@@ -593,10 +611,10 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
    record→approve→replay(`reproduced`)→repair **`verified`**까지 전체 보호
    라이프사이클이 완주했다(r64 절의 run/증거 식별자 참고). r65에서 negative
    path 3종(protected_path·regression_failed·mobile_quarantined), r66에서
-   중단/복원력(SIGKILL → 고아 admitted → compose 거절 → 운영자 종결 →
-   verified 복귀)까지 실기기 증명했다. 남은 변형: replay XCTest 도중의 kill
-   (고아 xcodebuild/터널 홀드 발생), 다른 fixture/case 조합, replay 수준
-   불일치(editable 범위 확장이나 UI-only regression 샘플 필요).
+   중단/복원력 2회(cleanup 도중 kill + replay XCTest 도중 kill → 고아 admitted
+   → compose 거절 → 운영자 종결 → verified 복귀)까지 실기기 증명했다. 남은
+   변형: 다른 fixture/case 조합, replay 수준 불일치(editable 범위 확장이나
+   UI-only regression 샘플 필요), 터널 홀드 고아 자체 종료 후속.
    r64 수정분은 `main`에 머지됐다.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
