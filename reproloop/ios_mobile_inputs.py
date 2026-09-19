@@ -73,7 +73,8 @@ class IOSBaselineReference:
             _require(executable in hashes and all(type(info.get(name)) is str and info[name]
                 for name in ('CFBundleShortVersionString','CFBundleVersion')))
             return body,{'treeDigest':contracts.digest(hashes),'bytes':total,'bundleId':self.bundle_id,
-                'bundleVersion':info['CFBundleShortVersionString'],'bundleBuild':info['CFBundleVersion']}
+                'bundleVersion':info['CFBundleShortVersionString'],'bundleBuild':info['CFBundleVersion'],
+                'members':hashes}
         except (contracts.ContractError,OSError,RuntimeError,TypeError,ValueError,KeyError,
                 zipfile.BadZipFile,plistlib.InvalidFileException):
             raise ProtectedMobileInputsError() from None

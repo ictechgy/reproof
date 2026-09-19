@@ -133,7 +133,7 @@ def _tree_bytes(root):
     return manifest,sum((Path(root)/name).stat().st_size for name in manifest)
 
 
-def validate_signed_products(products,app,profile=None):
+def validate_signed_products(products,app,profile=None,ipa=None):
     products=Path(products).resolve();app=Path(app).resolve()
     if profile is not None and not isinstance(profile,IosAppProfile):
         profile=validate_ios_profile(profile)
@@ -153,8 +153,23 @@ def validate_signed_products(products,app,profile=None):
           and info.get('CFBundleVersion')==artifact['bundleBuild'],
           'app_changed','iOS bundle identity differs from the selected profile',400)
     actual=digest(manifest)
-    check(actual==artifact['sha256'] and size==artifact['bytes'],
-          'app_changed','iOS application artifact differs from the selected profile',400)
+    if artifact['kind']=='ios-ipa':
+        # ios-ipa는 살균된 승인 증거(IPA 컨테이너 해시)를 선언한다. 설치 아티팩트는
+        # 완전 서명된 .app이므로 선언 페이로드가 설치 트리에 파일 단위로 포함돼야
+        # 한다. 초과 파일은 앱 자체 코드 서명이 함께 봉인한다.
+        from ..ios_mobile_inputs import IOSBaselineReference,ProtectedMobileInputsError
+        check(ipa is not None,'missing_artifact','ios-ipa profiles require the declared IPA artifact for staging validation',400)
+        try:
+            _body,identity=IOSBaselineReference('original',data['bundle'],Path(ipa).resolve(),artifact['sha256'],artifact['bytes']).read()
+        except ProtectedMobileInputsError:
+            check(False,'app_changed','Declared iOS IPA artifact is unreadable or changed',400)
+        check(bool(identity['members'])
+              and all(manifest.get(relative)==checksum
+                      for relative,checksum in identity['members'].items()),
+              'app_changed','Selected iOS application does not contain the declared IPA payload',400)
+    else:
+        check(actual==artifact['sha256'] and size==artifact['bytes'],
+              'app_changed','iOS application artifact differs from the selected profile',400)
     return dict(profile.application_identity,signatureVerified=True)
 
 
@@ -181,6 +196,8 @@ class TunnelClient:
                 code=value.get('error')
                 if response.status==409 and code=='authority_rejected':
                     raise LiveError('authority_rejected','iPhone helper rejected expired authority',409)
+                if response.status==404 and code=='frame_unavailable':
+                    raise LiveError('frame_unavailable','Device bridge has no captured frame yet',404)
                 raise LiveError('device_bridge_error','Device bridge rejected the operation',409)
             if binary:return raw
             value=json.loads(raw);check(isinstance(value,dict),'device_bridge_error','Invalid device bridge response')
@@ -189,8 +206,9 @@ class TunnelClient:
 
 
 class PhysicalIosProvider(IosProvider):
+    ipa=None
     def __init__(self,device,products,app,identity,port=8766,*,fixture='counter',record_sdk=False,app_logs_only=False,
-                 profile=None):
+                 profile=None,ipa=None):
         if profile is not None and not isinstance(profile,IosAppProfile):profile=validate_ios_profile(profile)
         if profile is not None:
             _require_ios_runtime_capabilities(profile, app)
@@ -201,7 +219,7 @@ class PhysicalIosProvider(IosProvider):
             fixture=None;record_sdk=False
             app_logs_only=profile.data['capabilities']['logAdapter'] is not None
         super().__init__(device.udid,products,identity['bundle'],identity,app=app,fixture=fixture,record_sdk=record_sdk,app_logs_only=app_logs_only)
-        self.profile=profile
+        self.profile=profile;self.ipa=ipa
         self.device=device;self.app=Path(app).resolve();self.port=port;self.last_native_frame=0
         self.transport=TunnelClient(device.tunnel_address,port,self.token);self.frame_mutex=threading.Lock()
         check(profile is not None or fixture in {'counter','duplicate-submit','reset'},'invalid_fixture','Unsupported sample fixture',400)
@@ -219,7 +237,7 @@ class PhysicalIosProvider(IosProvider):
               'native_protocol_mismatch','iPhone helper handshake did not complete')
         self._check_permit(permit)
         if self.profile is not None:
-            validate_signed_products(self.products,self.app,profile=self.profile)
+            validate_signed_products(self.products,self.app,profile=self.profile,ipa=self.ipa)
             self._check_permit(permit)
         _devicectl('device','install','app','--device',self.device.identifier,str(self.app),timeout=90)
         if self.profile is None:
@@ -273,7 +291,7 @@ class PhysicalIosProvider(IosProvider):
         self.capture_started_at=int(time.time()*1000)
         if self.device_authority is None:self.lease=Lease('ios-device:'+self.udid)
         self.lease.__enter__()
-        validated=validate_signed_products(self.products,self.app,profile=self.profile)
+        validated=validate_signed_products(self.products,self.app,profile=self.profile,ipa=self.ipa)
         expected={key:self.identity.get(key) for key in ('bundle','artifactDigest')}
         check({key:validated.get(key) for key in expected}==expected,
               'app_changed','Prepared app artifact changed')
@@ -333,14 +351,21 @@ class PhysicalIosProvider(IosProvider):
             stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
         self.monitor=threading.Thread(target=self._poll,daemon=True);self.monitor.start()
     def _receive_frame(self):
-        if getattr(self,'native_frame_buffered',False):
-            raw=self.transport.call(f'/frames/after/{self.last_native_frame}',binary=True)
-            try:frame=json.loads(raw)
-            except (TypeError,UnicodeDecodeError,json.JSONDecodeError) as exc:
-                raise LiveError('invalid_frame','Native buffered frame is invalid') from exc
-            check(isinstance(frame,dict),'invalid_frame','Native buffered frame is invalid',400)
-        else:
-            frame=self.transport.call('/frame')
+        try:
+            if getattr(self,'native_frame_buffered',False):
+                raw=self.transport.call(f'/frames/after/{self.last_native_frame}',binary=True)
+                try:frame=json.loads(raw)
+                except (TypeError,UnicodeDecodeError,json.JSONDecodeError) as exc:
+                    raise LiveError('invalid_frame','Native buffered frame is invalid') from exc
+                check(isinstance(frame,dict),'invalid_frame','Native buffered frame is invalid',400)
+            else:
+                frame=self.transport.call('/frame')
+        except LiveError as exc:
+            # helper는 첫 프레임 버퍼링 전에 ready를 보고한다. 첫 프레임 대기 중의
+            # 빈 버퍼 응답만 재시도하고 나머지 브리지 거절은 그대로 실패시킨다.
+            # 첫 프레임이 계속 없으면 세션은 connecting에 머물러 발급 측 데드라인이 종료한다.
+            if exc.code=='frame_unavailable' and self.last_native_frame==0:return
+            raise
         require_runtime_frame(self.profile,frame.get('width'),frame.get('height'),frame.get('orientation'))
         frame_id=frame.get('nativeFrameId')
         check(type(frame_id) is int and frame_id>0,'invalid_frame','Device frame identity missing')
@@ -447,11 +472,20 @@ class PhysicalIosProvider(IosProvider):
                 check(time.monotonic()<deadline,'native_timeout','iPhone input acknowledgement timed out');continue
             expected={'pending','id','ok','timing'}|({'error'} if 'error' in result else set())
             if permit is not None:expected.add('authority')
+            cleanup_evidence=action=='authority_cleanup' and result.get('ok') is True
+            if cleanup_evidence:expected.add('cleanupEvidence')
             check(set(result)==expected and result.get('pending') is False
                   and result.get('id')==command_id and type(result.get('ok')) is bool
                   and result.get('timing')=='best-effort'
                   and (permit is None or _exact_flat_mapping(result.get('authority'),command['authority'])),
                   'injection_unknown','iPhone acknowledgement identity differs')
+            if cleanup_evidence:
+                evidence=result.get('cleanupEvidence')
+                check(type(evidence) is dict and set(evidence)=={'bundleId','state','observer'}
+                      and evidence.get('bundleId')==self.bundle
+                      and evidence.get('state')=='not-running'
+                      and evidence.get('observer')=='xctest-application-state',
+                      'injection_unknown','iPhone cleanup evidence is invalid')
             if (action=='reset' or restart_logs) and self.auto_profile is not None:
                 if self.app_logs_only:self._wait_for_app_log_marker()
                 else:self._wait_for_auto_marker()

@@ -163,6 +163,75 @@ class GeneralApplicationProfileTests(unittest.TestCase):
                 validate_signed_products(products, app,
                                          profile=validate_ios_profile(wrong))
 
+    def test_ios_ipa_signed_product_validation_binds_declared_payload_subset(self):
+        import zipfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            products = root / "products"
+            runner = products / "Debug-iphoneos" / "GeneralTests-Runner.app"
+            host = products / "Debug-iphoneos" / "ReproLiveHost.app"
+            app = root / "Checkout.app"
+            for item in (runner, host, app):
+                item.mkdir(parents=True)
+                (item / "embedded.mobileprovision").write_bytes(b"synthetic-test-profile")
+            (app / "Info.plist").write_bytes(plistlib.dumps({
+                "CFBundleIdentifier": "com.example.checkout",
+                "CFBundlePackageType": "APPL",
+                "CFBundleExecutable": "Checkout",
+                "CFBundleShortVersionString": "1.4",
+                "CFBundleVersion": "27",
+            }))
+            (app / "PkgInfo").write_bytes(b"APPL????")
+            (app / "Checkout").write_bytes(b"synthetic-executable")
+            (app / "_CodeSignature").mkdir()
+            (app / "_CodeSignature" / "CodeResources").write_bytes(b"sealed-resources")
+            # 선언 IPA 페이로드에 없는 초과 파일 — 앱 자체 서명이 봉인한다.
+            (app / "extra.dylib").write_bytes(b"sealed-debug-extra")
+            ipa = root / "original.ipa"
+            with zipfile.ZipFile(ipa, "w") as archive:
+                for name in ("Info.plist", "PkgInfo", "Checkout",
+                             "_CodeSignature/CodeResources",
+                             "embedded.mobileprovision"):
+                    archive.write(app / name, f"Payload/Checkout.app/{name}")
+            body = ipa.read_bytes()
+            document = physical_ios_document()
+            document["artifact"]["kind"] = "ios-ipa"
+            document["artifact"]["sha256"] = hashlib.sha256(body).hexdigest()
+            document["artifact"]["bytes"] = len(body)
+            profile = validate_ios_profile(document)
+            with patch("reproloop.live.iphone.subprocess.run",
+                       return_value=Mock(returncode=0)):
+                identity = validate_signed_products(products, app,
+                                                    profile=profile, ipa=ipa)
+            self.assertEqual(identity["bundle"], "com.example.checkout")
+            self.assertEqual(identity["artifactDigest"],
+                             hashlib.sha256(body).hexdigest())
+
+            # ipa 없이 ios-ipa를 검증하면 명시적으로 거절한다.
+            with patch("reproloop.live.iphone.subprocess.run",
+                       return_value=Mock(returncode=0)), self.assertRaises(Exception):
+                validate_signed_products(products, app, profile=profile)
+
+            # 선언 페이로드 내용이 설치 트리에서 바뀌면 거절한다.
+            (app / "PkgInfo").write_bytes(b"tampered-payload")
+            with patch("reproloop.live.iphone.subprocess.run",
+                       return_value=Mock(returncode=0)), self.assertRaises(Exception):
+                validate_signed_products(products, app, profile=profile, ipa=ipa)
+
+            # 선언 멤버가 설치 트리에 없으면 거절한다.
+            (app / "PkgInfo").write_bytes(b"APPL????")
+            (app / "Checkout").unlink()
+            with patch("reproloop.live.iphone.subprocess.run",
+                       return_value=Mock(returncode=0)), self.assertRaises(Exception):
+                validate_signed_products(products, app, profile=profile, ipa=ipa)
+
+            # 선언 IPA 자체가 바뀌면 컨테이너 바인딩이 거절한다.
+            (app / "Checkout").write_bytes(b"synthetic-executable")
+            ipa.write_bytes(body + b"changed")
+            with patch("reproloop.live.iphone.subprocess.run",
+                       return_value=Mock(returncode=0)), self.assertRaises(Exception):
+                validate_signed_products(products, app, profile=profile, ipa=ipa)
+
     def test_general_providers_do_not_select_sample_reset_or_sdk_defaults(self):
         ios = validate_ios_profile(physical_ios_document())
         device = Mock(udid="private-udid", tunnel_address="fd00::2")
