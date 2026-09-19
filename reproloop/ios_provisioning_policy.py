@@ -40,6 +40,10 @@ _ERROR_CODES = frozenset({
     "profile_invalid", "unsupported_entitlement", "unsupported_pattern",
     "policy_invalid",
 })
+# Apple system keychain-access groups granted by standard team provisioning
+# profiles. They are not team-prefixed, so the team-scope pattern check cannot
+# reason about them; they are enumerated here instead of widening the pattern.
+_APPLE_SYSTEM_KEYCHAIN_GROUPS = frozenset({"com.apple.token"})
 
 
 class ProvisioningPolicyError(ValueError):
@@ -314,6 +318,8 @@ def _profile_entitlements_allowed(profile_entitlements, expected,
     if type(profile_groups) is not list or not profile_groups:
         return "entitlement_not_allowed"
     for group in profile_groups:
+        if group in _APPLE_SYSTEM_KEYCHAIN_GROUPS:
+            continue
         _terminal_pattern(group, scope=application_identifier_prefix)
     for group in expected_groups:
         if not any(_terminal_matches(pattern, group) for pattern in profile_groups):

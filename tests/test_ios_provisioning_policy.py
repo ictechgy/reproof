@@ -123,6 +123,24 @@ class IOSProvisioningPolicyTests(unittest.TestCase):
                 self.assertFalse(assessment.valid)
                 self.assertEqual(assessment.reason_code, reason)
 
+    def test_apple_system_keychain_group_grants_are_enumerated_not_scoped(self):
+        from reproloop.ios_provisioning_policy import (ProvisioningPolicyError,
+            decoded_profile_digest)
+
+        profile = deepcopy(self.profile)
+        profile["Entitlements"]["keychain-access-groups"] = [
+            TEAM + ".com.example.*", "com.apple.token"]
+        assessment = self.assess(
+            profile, expected_profile_digest=decoded_profile_digest(profile))
+        self.assertTrue(assessment.valid)
+
+        profile = deepcopy(self.profile)
+        profile["Entitlements"]["keychain-access-groups"] = [
+            TEAM + ".com.example.*", "com.apple.unlisted"]
+        with self.assertRaises(ProvisioningPolicyError) as raised:
+            self.assess(profile)
+        self.assertEqual(raised.exception.code, "unsupported_pattern")
+
     def test_application_identifier_and_keychain_wildcards_are_terminal_and_scoped(self):
         profile = deepcopy(self.profile)
         profile["Entitlements"]["application-identifier"] = TEAM + ".*." + BUNDLE
