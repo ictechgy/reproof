@@ -410,7 +410,43 @@ authorityRoot `3f9a1c45`)만 제거했다. `6e8967bb`(현재 mobile scope)는 �
 cleanup 타임아웃·이 문서). `main` 워킹 트리는 깨끗하다. 디버그용
 `DIAG`/`traceback.print_exc` 계측은 검증 후 전부 제거했다.
 
-## Current Status (r51 기준 + r64 갱신)
+## r65 결과 (2026-09-19, 실기기 negative path 검증 — 거절 경로 3종 증명)
+
+r64가 성공 경로(`verified`)를 증명했다면, r65는 보호 검증이 **틀린 후보를 정확히
+거절하는지** 실기기에서 확인했다. `issues.json`의 `repair.agent.patchFile`을
+일시적으로 bad patch(`patch/ios-sample-badfix.json`, 유지됨)로 바꿔 주입했다 —
+patchFile은 경로 참조라 digest 재바인딩 없이 교체 가능하다.
+
+세 번의 실주행:
+
+1. **editable 경로 외 패치 → `protected_path` 거절** — patch가
+   `CounterViewController.swift`(project `editablePaths`는 `CounterLogic.swift`
+   하나뿐)를 건드리자 후보 빌드 전에 거절됐다. 모바일 run 레코드조차 생성되지
+   않음 — 가장 얕은 방어선.
+2. **`return 3` 후보 → 기기 regression validation `failed`** — editable 경로만
+   건드리는 후보는 빌드·서명·설치까지 진행되고, `ios-device-regression`
+   (`external-observation`, observer 소켓 경유 화면 판독)이 counter=3을 읽어
+   `status: failed`로 거절했다. replay 시도는 한 번도 디스패치되지 않았다
+   (`attempts: []`). 이 run의 cleanup은 잔여 앱 프로세스로 종료 미확인 →
+   `mobile_quarantined` + ~5GB reservedBytes 보류 — **확인 불가 정리를
+   "깨끗"으로 보고하지 않고 격리·보류하는 fail-closed도 설계대로 동작**.
+   (수동 종결 후 재시도)
+3. **같은 `return 3` 후보 재시도 → `failed` + `regression_failed`** — validation
+   `failed` 후 cleanup이 전부 확인됨(processes/fixtures/sanitation/scopeReleased),
+   저널 `failed` + `reservedBytes: 0`, 기기 프로세스 0개. 설계된 clean rejection.
+
+구조적 발견: 이 샘플 프로젝트는 `editablePaths`가 `CounterLogic.swift` 하나이고
+후보 빌드는 `ReproSample` scheme만 컴파일한다(LogicTests 미실행). 따라서
+**`candidate_mismatch`(기기 replay verdict 불일치)는 이 프로젝트 구조상 도달
+불가** — defect-preserving 후보는 전부 device-regression validation이 먼저
+거절한다. replay 수준 불일치를 검증하려면 editable 범위를 넓히거나
+UI-only regression을 가진 다른 샘플이 필요하다.
+
+거절 계층 요약(얕은→깊은): `protected_path`(패치 경계) → 빌드 실패 →
+`device-regression`(기기 validation) → `candidate_mismatch`(replay verdict) →
+`mobile_quarantined`(cleanup 미확인, 자원 보류). r65에서 1·3·5번을 실증했다.
+
+## Current Status (r51 기준 + r65 갱신)
 
 - 저장소 위치: `/Users/repro/Desktop/repro-loop`. **r61부터 git 저장소다**
   (`main`). r63에서 r62 잔여 개선 3건(저널 아카이빙·복구 분리·qualification 경계)을
@@ -514,10 +550,11 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
    재생성 시에는: materials `configurationDigest` 갱신 + stale lease 마커 cutover(r60 항목 9 참고).
 3. **후보 빌드/재현 실주행 — r64에서 완주** — QA-iPhone 실기기에서 qualification→
    record→approve→replay(`reproduced`)→repair **`verified`**까지 전체 보호
-   라이프사이클이 완주했다(r64 절의 run/증거 식별자 참고). 이제 이 구간을
-   반복·변형할 수 있다: 다른 fixture/case 조합, 실패 후보(불일치 verdict→quarantine
-   경로) 주입, 세션 중단/재시작 복원력 등. r64 수정분은 `fix/ios-device-lifecycle`
-   브랜치에 커밋됐다 — 다음 실주행 전 머지 여부를 결정할 것.
+   라이프사이클이 완주했다(r64 절의 run/증거 식별자 참고). r65에서 negative
+   path 3종(protected_path·regression_failed·mobile_quarantined)도 실기기
+   증명했다. 이제 이 구간을 반복·변형할 수 있다: 다른 fixture/case 조합,
+   세션 중단/재시작 복원력, replay 수준 불일치(editable 범위 확장이나
+   UI-only regression 샘플 필요). r64 수정분은 `main`에 머지됐다.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
    대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요), cleanup 기기 dispatch 구간
@@ -535,10 +572,10 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
 
 안전한 재개 프롬프트:
 
-> `/Users/repro/Desktop/repro-loop`의 HANDOFF.md를 읽어줘. 저장소는 git이고
-> r64에서 QA-iPhone 실기기 보호 라이프사이클이 repair `verified`까지 완주했다. r64의 실기기
-> 경로 수정분(터널 홀드·record 모드·entitlement·finalization 분류 등)은
-> `fix/ios-device-lifecycle` 브랜치에 커밋돼 있다 — `main` 머지 여부를 나에게 물어봐줘.
-> 다음 실주행(변형 시나리오·실패 후보·복원력)은 QA-iPhone USB 연결·잠금 해제 후
+> `/Users/repro/Desktop/repro-loop`의 HANDOFF.md를 읽어줘. 저장소는 git `main`이고
+> r64에서 QA-iPhone 실기기 보호 라이프사이클이 repair `verified`까지, r65에서 negative path
+> 3종(protected_path·regression_failed·mobile_quarantined)까지 실기기 증명됐다 — 전부
+> 커밋됨. 다음 실주행(변형 시나리오·중단/복원력)은 QA-iPhone USB 연결·잠금 해제 후
 > `artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`로
-> 돌린다. 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
+> 돌린다. negative 후보는 `patch/ios-sample-badfix.json`으로 patchFile을 바꿔 주입한다.
+> 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
