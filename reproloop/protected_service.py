@@ -323,7 +323,7 @@ def compose_ios_protected_service(configuration, issue_configuration, runtime_bu
                 qualification=mobile_qualifications[row['id']],route_document=row['mobile']['route'],
                 store=_journal(row['mobile']['journal']),work_root=row['mobile']['ownerRoot'],
                 adapter_id=row['mobile']['route']['backendId'],validation_inputs=validators[row['id']],
-                validation_secrets=validation_secrets)
+                validation_secrets=validation_secrets,cleanup_timeout_seconds=60)
             executor=ProtectedRepairExecutor(builder,signer,supervisor)
             executor.ready(project_digest=row['projectDigest'],build_recipe_id=row['build']['route']['recipeId'],
                 validation_recipe_ids=[item['recipeId'] for item in row['validation']['plan']['checks']],
