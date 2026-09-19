@@ -31,7 +31,13 @@ MAX_PROFILE_BYTES = 4 * 1024 * 1024
 MAX_RETAINED_PROFILE_BYTES = 64 * 1024 * 1024
 _SIGNED_DATA = bytes.fromhex('2a864886f70d010702')
 _DATA = bytes.fromhex('2a864886f70d010701')
-_DIGESTS = frozenset(bytes.fromhex('6086480165030402' + suffix) for suffix in ('01', '02', '03'))
+# SHA-256/384/512 plus SHA-1 ('2b0e03021a'): Apple's provisioning-profile CMS
+# is still issued with sha1WithRSAEncryption by the Apple iPhone CA, so real
+# profiles cannot pass a SHA-2-only gate. Signature validity is still decided
+# by the pinned signer certificate and anchors in the sandboxed openssl step.
+_DIGESTS = frozenset(
+    {bytes.fromhex('2b0e03021a')}
+    | {bytes.fromhex('6086480165030402' + suffix) for suffix in ('01', '02', '03')})
 
 
 class IOSCmsError(RuntimeError):
@@ -93,7 +99,7 @@ def _algorithm(value):
 
 
 def _preflight(body):
-    """Bound DER SignedData and require modern digests before native parsing."""
+    """Bound DER SignedData and require allowlisted digests before native parsing."""
     tag, value, end = _tlv(body)
     _require(tag == 0x30 and end == len(body))
     outer = _children(value, 2)
