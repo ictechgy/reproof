@@ -380,8 +380,18 @@ final class LiveControlTests: XCTestCase {
                UUID(uuidString: runID)?.uuidString.lowercased() == runID {
                 activeAutoRunID = runID
                 activeAutoProfileDigest = digest
-                launchEnvironment = ["REPRO_MODE": "observe", "REPRO_RUN_ID": runID,
-                                     "REPRO_AUTO_PROFILE_DIGEST": digest]
+                // uikit-runtime-v1 대상은 record 모드로만 arm된다; REPRO_LIVE_CASE가
+                // 선언되면 샘플 케이스 계약으로 실행하고, 없으면 관찰 전용
+                // uikit-observation-v2 대상으로 실행한다.
+                if let sampleCase = environment["REPRO_LIVE_CASE"],
+                   sampleCase.range(of: "^[a-z][a-z0-9-]{0,63}$", options: .regularExpression) != nil {
+                    launchEnvironment = ["REPRO_MODE": "record", "REPRO_RUN_ID": runID,
+                                         "REPRO_AUTO_PROFILE_DIGEST": digest,
+                                         "REPRO_CASE": sampleCase]
+                } else {
+                    launchEnvironment = ["REPRO_MODE": "observe", "REPRO_RUN_ID": runID,
+                                         "REPRO_AUTO_PROFILE_DIGEST": digest]
+                }
             }
             if let policy = environment["REPRO_LIVE_SANITATION_POLICY_DIGEST"] {
                 guard policy.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
@@ -1462,7 +1472,10 @@ private struct NativeFrameBuffer {
     func after(_ cursor: Int64) throws -> Frame? {
         guard let newest = frames.last?.id else { return nil }
         guard cursor <= newest else { throw ReadError.cursorAhead }
-        return frames.first(where: { $0.id > cursor }) ?? frames.last
+        // id > cursor인 프레임만 반환한다 — cursor == newest일 때 최신 프레임을
+        // 다시 돌려주면 소비자의 단조 증가 검증(native_id <= cursor 거부)이
+        // 중복 프레임을 프로토콜 위반으로 격리한다.
+        return frames.first(where: { $0.id > cursor })
     }
 }
 

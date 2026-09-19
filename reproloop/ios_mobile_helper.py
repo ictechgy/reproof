@@ -392,9 +392,13 @@ class IOSHelperChannel:
             "ready", "stopped", "capabilities", "protocolVersion", "helperVersion",
             "helperIncarnation", "hostIncarnation", "providerIncarnation", "nativeIncarnation",
             "nativeClockId", "nativeTimeMs", "targetBundle", "applicationProfileDigest",
-            "retirementVersion", "authoritySequence",
+            "retirementVersion", "authoritySequence", "networkInterfaces",
         }
         if not set(status) <= allowed:
+            _fail("ios_helper_protocol")
+        interfaces = status.get("networkInterfaces")
+        if interfaces is not None and (type(interfaces) is not list or len(interfaces) > 256
+                or not all(type(item) is str and 0 < len(item) <= 64 for item in interfaces)):
             _fail("ios_helper_protocol")
         if {'retirementVersion', 'authoritySequence'} & set(status):
             if (type(status.get('retirementVersion')) is not int or status['retirementVersion'] != 1
@@ -469,6 +473,12 @@ class IOSHelperChannel:
         try:
             value = self._transport.call("/status", timeout=timeout)
         except Exception:
+            # During the startup poll the helper socket legitimately does not
+            # exist yet: XCTest takes tens of seconds to install and launch
+            # the test runner before its listener binds. Refusals inside the
+            # initial window are "not ready", not a transport failure.
+            if allow_initial:
+                return None
             _fail("ios_helper_transport")
         self._check_permit(permit, cancellation, deadline_monotonic, digest)
         return self._validate_status(value, allow_initial=allow_initial)

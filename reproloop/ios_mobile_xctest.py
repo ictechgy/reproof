@@ -93,6 +93,51 @@ def _bounds(owner, cancellation, deadline, *, role='candidate'):
         require_cleanup_callback(owner)
 
 
+_TUNNEL_HOLD_SETTLE_SECONDS = 2.0
+
+
+def _spawn_tunnel_hold(devicectl, identifier, work_root, deadline_monotonic):
+    """Hold one CoreDevice tunnel open so the rendered helper bind address survives.
+
+    The device's tunnel ULA is renegotiated whenever the last CoreDevice
+    connection drops. The address captured by the ``details`` query would go
+    stale before xcodebuild attaches its own session, leaving the helper unable
+    to bind. A long-running ``motion spatial-orientation`` monitor keeps one
+    connection — and therefore the advertised address — alive from the query
+    through the helper's first bind. ``notification observe`` is unsuitable:
+    its Darwin-notification subscription breaks the XCTest launch handshake
+    ("Failed to read socket ID from device").
+    """
+    seconds = int(min(560, max(30, deadline_monotonic - time.monotonic() - 20)))
+    try:
+        return subprocess.Popen(
+            (str(devicectl), 'device', 'motion', 'spatial-orientation',
+             '--device', identifier,
+             '--session-timeout', str(seconds), '--timeout', str(seconds + 30)),
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, close_fds=True,
+            env={'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
+                 'TMPDIR': str(work_root)})
+    except OSError:
+        return None
+
+
+def _stop_tunnel_hold(process):
+    """Release the held tunnel; the XCTest session owns its own by then."""
+    if process is None:
+        return
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=3)
+        except Exception:
+            try:
+                process.kill()
+                process.wait(timeout=2)
+            except Exception:
+                pass
+
+
 class IOSXCTestRunner:
     def __init__(self, tools, query, native_owner):
         self.tools, self.query, self.native_owner = tools, query, native_owner
@@ -101,6 +146,7 @@ class IOSXCTestRunner:
         self._started = set()
         self._dispatches = {}
         self._sessions = set()
+        self._tunnel_holds = {}
         self._lock = threading.RLock()
         self._verify()
         with native_owner.operations._changed:
@@ -163,75 +209,96 @@ class IOSXCTestRunner:
             contracts.validate_digest(profile_digest)
             acquired = owner._command_lock.acquire(blocking=False); _require(acquired)
             apps = self._checked_apps(role)
-            client = self.query.open_client(native_owner=owner)
-            try: details = client.query('details',cancellation=cancellation,deadline_monotonic=deadline_monotonic).data
-            finally: _require(client.close())
-            address = details.get('connectionProperties',{}).get('tunnelIPAddress')
-            parsed = ipaddress.IPv6Address(address)
-            connection = details.get('connectionProperties',{})
-            _require(type(address) is str and str(parsed) == address and parsed.is_private
-                and not (parsed.is_unspecified or parsed.is_loopback or parsed.is_multicast)
-                and connection.get('pairingState') == 'paired' and connection.get('transportType') == 'wired'
-                and connection.get('tunnelState') == 'connected')
-            name = f'command-xctest-{role}-{iteration:03}-work'
-            _require(name not in owner._command_attempts and name not in os.listdir(owner.command_directory))
-            owner._command_attempts.add(name)
-            os.mkdir(name,mode=0o700,dir_fd=owner.command_directory);os.fsync(owner.command_directory)
-            work = owner.command_root/name
-            directory = _open_child_directory(owner.command_directory,name)
-            token = secrets.token_urlsafe(32)
+            hold = _spawn_tunnel_hold(self.query.tools.devicectl, self.query.identifier,
+                self.query.work_root, deadline_monotonic)
             try:
-                identity = _identity_info(os.fstat(directory))
-                os.mkdir('home',mode=0o700,dir_fd=directory)
-                environment = {'REPRO_LIVE_LISTEN_HOST':address,'REPRO_LIVE_LISTEN_PORT':str(self.tools.port),
-                        'REPRO_LIVE_TOKEN':token,'REPRO_TARGET_BUNDLE':self.query.bundle,
-                        'REPRO_LIVE_GENERAL_PROFILE_DIGEST':profile_digest,'REPRO_LIVE_APPLICATION_ID':application_id,
-                        'REPRO_LIVE_GENERAL_ACTIONS':','.join(actions),'REPRO_LIVE_PROTOCOL_VERSION':'2',
-                        'REPRO_LIVE_HELPER_VERSION':'2','REPRO_LIVE_HELPER_INCARNATION':owner.helper_incarnation,
-                        'REPRO_LIVE_HOST_INCARNATION':owner.device._authority.host_incarnation}
-                # Derive the provider incarnation before the caller requests its permit.
-                payload = {'kind':'ios-fixed-xctest-launch-v1','role':role,'iteration':iteration,
-                    'contextDigest':owner.operation.context.digest,'nativeBindingDigest':owner.binding_digest,
-                    'projectDigest':owner.operations.definition.project_digest,'scopeDigest':owner.operations.definition.scope_digest,
-                    'definitionDigest':self.tools.definition_digest,'queryDefinitionDigest':self.query.definition_digest,
-                    'applicationId':application_id,'profileDigest':profile_digest,'actions':list(actions),
-                    'appDigests':{name:app.app_digest for name,app in apps.items()},
-                    'endpointDigest':contracts.digest({'address':address,'port':self.tools.port,'token':token})}
-                from .ios_instrumentation import profile_from_app
-                automatic = profile_from_app(apps[role]._source)
-                info = plistlib.loads((apps[role]._source/'Info.plist').read_bytes())
-                if automatic is not None and type(info.get('ReproRuntimeIdentitySchemaVersion')) is int \
-                        and info['ReproRuntimeIdentitySchemaVersion'] in (1,2):
-                    build_id = info.get('ReproBuildID')
-                    _require(type(build_id) is str and re.fullmatch(r'[A-Za-z0-9_-]{8,128}',build_id))
-                    runtime = {'bundleId':self.query.bundle,'buildId':build_id,
-                        'profileDigest':automatic.digest,'runId':str(uuid.uuid4())}
-                    payload['runtimeIdentity'] = runtime
-                    environment['REPRO_LIVE_AUTO_RUN_ID'] = runtime['runId']
-                    environment['REPRO_LIVE_AUTO_PROFILE_DIGEST'] = runtime['profileDigest']
-                from .ios_sanitation import policy_from_app
-                sanitation=policy_from_app(apps[role]._source)
-                expected_sanitation=owner.operations.definition.sanitation_policy_digest
-                _require((sanitation.digest if sanitation is not None else None) == expected_sanitation)
-                if sanitation is not None:
-                    _require('runtimeIdentity' in payload and info['ReproRuntimeIdentitySchemaVersion']==2)
-                    payload['runtimeIdentity']['sanitationPolicyDigest']=sanitation.digest
-                    environment['REPRO_LIVE_SANITATION_POLICY_DIGEST']=sanitation.digest
-                environment['REPRO_LIVE_PROVIDER_INCARNATION'] = 'ios-xctest-'+contracts.digest(payload)[:24]
-                payload['providerIncarnation'] = environment['REPRO_LIVE_PROVIDER_INCARNATION']
-                body = self.tools.template.render({role:apps[role]._source for role in ('helper-host','helper-runner')},environment)
-                payload['configurationDigest'] = hashlib.sha256(body).hexdigest()
-                _require(len(body) <= 128*1024)
-                descriptor = os.open('session.xctestrun',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=directory)
-                with os.fdopen(descriptor,'wb') as stream:
-                    stream.write(body);stream.flush();os.fsync(stream.fileno())
-                record = {'schemaVersion':1,'payload':payload,'state':'prepared'}
-                _write_new_at(directory,'intent.json',record);_write_new_at(directory,'state.json',record)
-                _bounds(owner,cancellation,deadline_monotonic,role=role)
-                launch = IOSXCTestLaunch(self,work,json.dumps(identity,sort_keys=True),body,json.dumps(payload,sort_keys=True),address,token)
-                self._launches[id(launch)] = launch
-                return launch
-            finally: os.close(directory)
+                time.sleep(min(_TUNNEL_HOLD_SETTLE_SECONDS,
+                               max(0, deadline_monotonic - time.monotonic() - 1)))
+                _bounds(owner, cancellation, deadline_monotonic, role=role)
+                client = self.query.open_client(native_owner=owner)
+                try: details = client.query('details',cancellation=cancellation,deadline_monotonic=deadline_monotonic).data
+                finally: _require(client.close())
+                address = details.get('connectionProperties',{}).get('tunnelIPAddress')
+                parsed = ipaddress.IPv6Address(address)
+                connection = details.get('connectionProperties',{})
+                _require(type(address) is str and str(parsed) == address and parsed.is_private
+                    and not (parsed.is_unspecified or parsed.is_loopback or parsed.is_multicast)
+                    and connection.get('pairingState') == 'paired' and connection.get('transportType') == 'wired'
+                    and connection.get('tunnelState') == 'connected')
+                name = f'command-xctest-{role}-{iteration:03}-work'
+                _require(name not in owner._command_attempts and name not in os.listdir(owner.command_directory))
+                owner._command_attempts.add(name)
+                os.mkdir(name,mode=0o700,dir_fd=owner.command_directory);os.fsync(owner.command_directory)
+                work = owner.command_root/name
+                directory = _open_child_directory(owner.command_directory,name)
+                token = secrets.token_urlsafe(32)
+                try:
+                    identity = _identity_info(os.fstat(directory))
+                    os.mkdir('home',mode=0o700,dir_fd=directory)
+                    environment = {'REPRO_LIVE_LISTEN_HOST':address,'REPRO_LIVE_LISTEN_PORT':str(self.tools.port),
+                            'REPRO_LIVE_TOKEN':token,'REPRO_TARGET_BUNDLE':self.query.bundle,
+                            'REPRO_LIVE_GENERAL_PROFILE_DIGEST':profile_digest,'REPRO_LIVE_APPLICATION_ID':application_id,
+                            'REPRO_LIVE_GENERAL_ACTIONS':','.join(actions),'REPRO_LIVE_PROTOCOL_VERSION':'2',
+                            'REPRO_LIVE_HELPER_VERSION':'2','REPRO_LIVE_HELPER_INCARNATION':owner.helper_incarnation,
+                            'REPRO_LIVE_HOST_INCARNATION':owner.device._authority.host_incarnation}
+                    # Derive the provider incarnation before the caller requests its permit.
+                    payload = {'kind':'ios-fixed-xctest-launch-v1','role':role,'iteration':iteration,
+                        'contextDigest':owner.operation.context.digest,'nativeBindingDigest':owner.binding_digest,
+                        'projectDigest':owner.operations.definition.project_digest,'scopeDigest':owner.operations.definition.scope_digest,
+                        'definitionDigest':self.tools.definition_digest,'queryDefinitionDigest':self.query.definition_digest,
+                        'applicationId':application_id,'profileDigest':profile_digest,'actions':list(actions),
+                        'appDigests':{name:app.app_digest for name,app in apps.items()},
+                        'endpointDigest':contracts.digest({'address':address,'port':self.tools.port,'token':token})}
+                    from .ios_instrumentation import profile_from_app
+                    automatic = profile_from_app(apps[role]._source)
+                    info = plistlib.loads((apps[role]._source/'Info.plist').read_bytes())
+                    if automatic is not None and type(info.get('ReproRuntimeIdentitySchemaVersion')) is int \
+                            and info['ReproRuntimeIdentitySchemaVersion'] in (1,2):
+                        build_id = info.get('ReproBuildID')
+                        _require(type(build_id) is str and re.fullmatch(r'[A-Za-z0-9_-]{8,128}',build_id))
+                        runtime = {'bundleId':self.query.bundle,'buildId':build_id,
+                            'profileDigest':automatic.digest,'runId':str(uuid.uuid4())}
+                        payload['runtimeIdentity'] = runtime
+                        environment['REPRO_LIVE_AUTO_RUN_ID'] = runtime['runId']
+                        environment['REPRO_LIVE_AUTO_PROFILE_DIGEST'] = runtime['profileDigest']
+                        # uikit-runtime-v1 대상은 observe 모드를 거절하고 record
+                        # 모드+REPRO_CASE만 받아들인다. 프로필이 선언한 케이스의
+                        # 첫 항목이 앱 기본 케이스(ReproCase.current fallback)와
+                        # 일치하므로 그것을 세션 케이스로 고정한다.
+                        cases = automatic.data.get('cases')
+                        if cases is not None:
+                            _require(type(cases) is list and cases
+                                and all(type(item) is str
+                                    and re.fullmatch(r'[a-z][a-z0-9-]{0,63}',item)
+                                    for item in cases))
+                            environment['REPRO_LIVE_CASE'] = cases[0]
+                    from .ios_sanitation import policy_from_app
+                    sanitation=policy_from_app(apps[role]._source)
+                    expected_sanitation=owner.operations.definition.sanitation_policy_digest
+                    _require((sanitation.digest if sanitation is not None else None) == expected_sanitation)
+                    if sanitation is not None:
+                        _require('runtimeIdentity' in payload and info['ReproRuntimeIdentitySchemaVersion']==2)
+                        payload['runtimeIdentity']['sanitationPolicyDigest']=sanitation.digest
+                        environment['REPRO_LIVE_SANITATION_POLICY_DIGEST']=sanitation.digest
+                    environment['REPRO_LIVE_PROVIDER_INCARNATION'] = 'ios-xctest-'+contracts.digest(payload)[:24]
+                    payload['providerIncarnation'] = environment['REPRO_LIVE_PROVIDER_INCARNATION']
+                    body = self.tools.template.render({role:apps[role]._source for role in ('helper-host','helper-runner')},environment)
+                    payload['configurationDigest'] = hashlib.sha256(body).hexdigest()
+                    _require(len(body) <= 128*1024)
+                    descriptor = os.open('session.xctestrun',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=directory)
+                    with os.fdopen(descriptor,'wb') as stream:
+                        stream.write(body);stream.flush();os.fsync(stream.fileno())
+                    record = {'schemaVersion':1,'payload':payload,'state':'prepared'}
+                    _write_new_at(directory,'intent.json',record);_write_new_at(directory,'state.json',record)
+                    _bounds(owner,cancellation,deadline_monotonic,role=role)
+                    launch = IOSXCTestLaunch(self,work,json.dumps(identity,sort_keys=True),body,json.dumps(payload,sort_keys=True),address,token)
+                    self._launches[id(launch)] = launch
+                    self._tunnel_holds[id(launch)] = hold
+                    hold = None
+                    return launch
+                finally: os.close(directory)
+            finally:
+                _stop_tunnel_hold(hold)
         except Exception:
             raise IOSDeviceToolError() from None
         finally:
@@ -284,6 +351,7 @@ class IOSXCTestRunner:
             deadline = min(permit.deadline_ns,self.native_owner.native_deadline_ns,
                 now+int(max(0,deadline_monotonic-time.monotonic())*1_000_000_000))
             session = IOSXCTestSession(self,launch,cancellation,deadline_monotonic)
+            session._tunnel_hold = self._tunnel_holds.pop(id(launch), None)
             session._owns_command_lock = True; acquired = False
             with self._lock:self._sessions.add(session)
             session._start(permit,deadline)
@@ -303,6 +371,9 @@ class IOSXCTestRunner:
         self._closed = True
         with self._lock:sessions = tuple(self._sessions)
         stopped = all([session.close(deadline_monotonic=deadline) for session in sessions])
+        for process in self._tunnel_holds.values():
+            _stop_tunnel_hold(process)
+        self._tunnel_holds.clear()
         if stopped:
             with self.native_owner.operations._changed:
                 self.native_owner.operations._native_clients.discard(self)
@@ -315,6 +386,7 @@ class IOSXCTestSession:
         self.runner,self.launch,self.cancellation,self.deadline = runner,launch,cancellation,deadline
         self._stack = ExitStack();self._processes = _IOSProcessOwner();self._process = None
         self._collectors = [];self._live = None;self._closed = False;self._owns_command_lock = False
+        self._tunnel_hold = None
         self._over_budget = False
         self._finished = False
         self._operation_directory = None
@@ -370,7 +442,7 @@ class IOSXCTestSession:
             self._process_state=self._processes.spawn(command,completion_read=completion_read,
                 live_write=None,collectors=self._collectors,cwd=self.launch._work,stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=descriptors,close_fds=True,
-                start_new_session=True,env={'PATH':'/usr/bin:/bin','LANG':'C','LC_ALL':'C','TMPDIR':str(self.launch._work)})
+                start_new_session=True,env={'PATH':'/usr/bin:/bin','LANG':'C','LC_ALL':'C','TMPDIR':str(self.launch._work/'home')})
             self._process=self._process_state.process
             os.close(completion_read);self._completion_read=None
             self._collectors.extend((_Collector(self._process.stdout,65536),_Collector(self._process.stderr,65536)))
@@ -492,6 +564,8 @@ class IOSXCTestSession:
             if self._finished:return True
             self._closed=True
             self._close_liveness()
+            _stop_tunnel_hold(self._tunnel_hold)
+            self._tunnel_hold=None
             if self._completion_read is not None:
                 try:os.close(self._completion_read)
                 except OSError:pass

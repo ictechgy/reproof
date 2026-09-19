@@ -361,10 +361,11 @@ class PhysicalIosProvider(IosProvider):
             else:
                 frame=self.transport.call('/frame')
         except LiveError as exc:
-            # helper는 첫 프레임 버퍼링 전에 ready를 보고한다. 첫 프레임 대기 중의
-            # 빈 버퍼 응답만 재시도하고 나머지 브리지 거절은 그대로 실패시킨다.
+            # helper는 첫 프레임 버퍼링 전에 ready를 보고한다. 버퍼는 채워진 뒤
+            # 비지 않으므로 frame_unavailable은 "커서보다 새 프레임이 아직 없음"만
+            # 뜻한다 — 다음 폴 주기에 다시 읽는다. 나머지 브리지 거절은 그대로 실패시킨다.
             # 첫 프레임이 계속 없으면 세션은 connecting에 머물러 발급 측 데드라인이 종료한다.
-            if exc.code=='frame_unavailable' and self.last_native_frame==0:return
+            if exc.code=='frame_unavailable':return
             raise
         require_runtime_frame(self.profile,frame.get('width'),frame.get('height'),frame.get('orientation'))
         frame_id=frame.get('nativeFrameId')
