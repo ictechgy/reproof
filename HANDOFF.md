@@ -360,7 +360,57 @@ _Last updated: 2026-09-18 by devin (r63)_
   git grep으로 확인했다(서명 자료는 저장소 밖 `~/secure/`에 있다). 원격 remote·push는
   아직 없다.
 
-## Current Status (r51 기준 + r63 갱신)
+## r64 결과 (2026-09-19, 실기기 보호 라이프사이클 최초 완주 — repair `verified`)
+
+`run-issue-lifecycle.py`가 QA-iPhone에서 **처음으로 끝까지 완주**했다:
+qualification(`qualified`, 26.9s) → compose(`protectedRepairsAttached`) → fixture 준비
+(port 8766) → record(`issue_1c43efc0515641b7a156f8befdb3f3de`) → 승인
+(spec `5850adc1…`) → replay(`reproduced`, 3회 모두 `observed`) → repair
+`repair_4066412435034cb1877d85e7a551a28f_mobile` = **`verified`**.
+cleanup 관측은 `clean=True`(processes/fixtures/sanitation/scopeReleased 전부 True),
+저널은 run `succeeded` + `reservedBytes: 0`, 기기는 프로세스 0개·원본 앱 복원 상태다.
+
+이번 라운드에 누적된 실기기 경로 수정(전부 재생 검증됨):
+
+- **CoreDevice 터널 홀드** — XCTest는 idle ~3–10s면 터널이 죽는다. `devicectl device
+  notification observe`는 XCTest의 socket-ID 핸드셰이크를 깨뜨려 부적합.
+  `devicectl device motion spatial-orientation`(스트리밍)으로 세션 동안 터널을
+  유지하고 `session.close()` 후 해제한다 (`ios_mobile_xctest.py` `_tunnel_holds`).
+- **helper 기동 대기** — XCTest 부팅(~수십 초) 동안 `/status`는 connection refused.
+  `allow_initial` 폴링이 transport 실패를 `None`으로 변환해 바인드까지 재시도한다
+  (`ios_mobile_helper.py`). Android 경로와 같은 의미다.
+- **`/status` 프로토콜** — helper가 진단용 `networkInterfaces`를 보낸다. validator가
+  타입 검사 후 허용하도록 fail-closed 유지하며 추가했다.
+- **runtime-v1 앱 런치 모드** — 샘플의 `uikit-runtime-v1` 프로필은 `REPRO_MODE=record`
+  +`REPRO_CASE`만 수용하고 `observe`는 `uikit-observation-v2` 전용이다. runner가
+  non-observation 프로필에 `REPRO_LIVE_CASE`를 렌더링하고, helper `launchTarget`이
+  그 유무로 record/observe를 선택한다 (`LiveControlTests.swift`). 이전에는 항상
+  observe로 떠서 앱이 identity를 쓰지 않았다.
+- **프레임 폴링 404 계약** — `NativeFrameBuffer.after(cursor)`의 `?? frames.last`
+  폴백이 이미 소비한 프레임을 재반환해 fail-closed 검증을 깼다. 서버는 `id > cursor`
+  없으면 404만 반환하고, 클라이언트는 `last_native_frame > 0` 이후의 404를
+  "새 프레임 없음"으로 허용한다 (record 경로가 암묵 의존하던 동작).
+- **sanitized variant entitlement** — `sample-build-sanitized`만
+  `keychain-access-groups`가 빠져 `keychainAccessGroup(required:)`이 `_exit(78)`로
+  죽었다(= 세션 deadline 격리의 근본 원인). variant에 entitlement 파일 +
+  `CODE_SIGN_ENTITLEMENTS`를 주입하고, `prepare-sanitized-sample.py`의
+  `keychainGroup` 체크를 `codesign --entitlements :-` XML 파싱으로 바꿔
+  `application-identifier` substring false-positive를 없앴다.
+- **네이티브 finalization 분류** — guardian이 `TMPDIR=<work>`를 하드코딩해
+  SwiftPM이 `_Users_repro_.swiftpm.lock`(escaped `~/.swiftpm` + `.lock`)을
+  work 최상위에 만든다. `_GENERATED_WORK_FILES`에 계산된 이름으로 분류해
+  `_command_record` 검증을 통과시켰다 (`ios_mobile_finalization.py`).
+
+재생성/재바인딩: original.ipa 교체로 protected-config 재생성(config digest
+`d0c2272b…`) + materials 재바인딩 + stale mobile scope 마커(`bfa2b936`, 구
+authorityRoot `3f9a1c45`)만 제거했다. `6e8967bb`(현재 mobile scope)는 유지.
+
+**커밋 상태**: 이번 실기기 라운드의 수정은 `fix/ios-device-lifecycle` 브랜치에
+6개 커밋으로 정리됐다(provisioning CMS·keychain 정책·XCTest 세션·finalization·
+cleanup 타임아웃·이 문서). `main` 워킹 트리는 깨끗하다. 디버그용
+`DIAG`/`traceback.print_exc` 계측은 검증 후 전부 제거했다.
+
+## Current Status (r51 기준 + r64 갱신)
 
 - 저장소 위치: `/Users/repro/Desktop/repro-loop`. **r61부터 git 저장소다**
   (`main`). r63에서 r62 잔여 개선 3건(저널 아카이빙·복구 분리·qualification 경계)을
@@ -462,16 +512,12 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
    필요해 네트워크/승인이 있어야 한다.
 2. **서비스 활성화(r60 완료)** — QA-iPhone 샘플 서비스가 실기기에서 `activated`까지 통과했다.
    재생성 시에는: materials `configurationDigest` 갱신 + stale lease 마커 cutover(r60 항목 9 참고).
-3. **후보 빌드/재현 실주행** — 활성화된 executor로 이제 실제 repair 흐름을 돌릴 수 있다:
-   원본 defect 3회 재현 → local-patch(`patch/ios-sample-fix.json`) 적용 →
-   host-build 후보 빌드 → signed candidate IPA → QA-iPhone 재생 3회 → 검증.
-   이 구간(executor.submit → protected repair 실행)의 실주행 기록이 아직 없다.
-   **r61에서 전체 라이프사이클 runner가 준비됐다**
-   (`artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`,
-   오프라인 계약 검증 완료). 차단 요소는 QA-iPhone 연결 뿐이다 — `devicectl`이
-   `unavailable`이면 USB 재연결·잠금 해제 후 `ready: True`를 확인하고 runner를 실행한다.
-   r62 잔여 개선(저널 아카이빙·복구 분리·qualification 취소 경계)은 **r63에서 완료**됐다 —
-   남은 선행 조건은 QA-iPhone 가용성과 실기기 작업에 대한 사용자 승인 뿐이다.
+3. **후보 빌드/재현 실주행 — r64에서 완주** — QA-iPhone 실기기에서 qualification→
+   record→approve→replay(`reproduced`)→repair **`verified`**까지 전체 보호
+   라이프사이클이 완주했다(r64 절의 run/증거 식별자 참고). 이제 이 구간을
+   반복·변형할 수 있다: 다른 fixture/case 조합, 실패 후보(불일치 verdict→quarantine
+   경로) 주입, 세션 중단/재시작 복원력 등. r64 수정분은 `fix/ios-device-lifecycle`
+   브랜치에 커밋됐다 — 다음 실주행 전 머지 여부를 결정할 것.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
    대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요), cleanup 기기 dispatch 구간
@@ -489,9 +535,10 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
 
 안전한 재개 프롬프트:
 
-> `/Users/repro/Desktop/repro-loop`의 HANDOFF.md를 읽어줘. 저장소는 git `main`이고
-> r63까지의 개선(BlobSet 캐싱·저널 terminal 아카이빙·복구 분리·qualification 취소 경계)이
-> 전부 커밋됐다 — 최신 커밋은 `git log`로 확인해줘. 남은 일은 실주행이다: QA-iPhone을 USB로
-> 재연결·잠금 해제해 `devicectl`이 `ready: True`를 보고하면
+> `/Users/repro/Desktop/repro-loop`의 HANDOFF.md를 읽어줘. 저장소는 git이고
+> r64에서 QA-iPhone 실기기 보호 라이프사이클이 repair `verified`까지 완주했다. r64의 실기기
+> 경로 수정분(터널 홀드·record 모드·entitlement·finalization 분류 등)은
+> `fix/ios-device-lifecycle` 브랜치에 커밋돼 있다 — `main` 머지 여부를 나에게 물어봐줘.
+> 다음 실주행(변형 시나리오·실패 후보·복원력)은 QA-iPhone USB 연결·잠금 해제 후
 > `artifacts/product-delivery/d6-service-activation-r1/run-issue-lifecycle.py`로
-> 라이프사이클을 돌린다. 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
+> 돌린다. 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
