@@ -47,7 +47,10 @@ _PRESERVED_WORK_FILES = frozenset(
     ("intent.json", "state.json", "native.json", "session.xctestrun", "stage.json", "helper-control")
 )
 _GENERATED_WORK_FILES = frozenset(
-    ("result.json", "identity.json", "result.xcresult", ".native-session.xctestrun", "home")
+    ("result.json", "identity.json", "result.xcresult", ".native-session.xctestrun", "home",
+     # xcodebuild의 SwiftPM이 세션 TMPDIR(=work)에 쓰는 캐시 잠금 파일 —
+     # ``~/.swiftpm`` 경로가 escape되어 ``_Users_<u>_.swiftpm.lock`` 형태로 떨어진다.
+     os.path.expanduser("~/.swiftpm").replace(os.sep, "_") + ".lock")
 )
 _JOURNAL_FILES = frozenset(("intent.json", "state.json", "native.json", "ack.json"))
 _FINALIZATION_TEMP = re.compile(r"\.native-record-[0-9a-f]{32}\Z")
