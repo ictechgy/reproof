@@ -11,6 +11,7 @@ import plistlib
 import re
 import secrets
 import select
+import signal
 import stat
 import subprocess
 import sys
@@ -96,6 +97,40 @@ def _bounds(owner, cancellation, deadline, *, role='candidate'):
 _TUNNEL_HOLD_SETTLE_SECONDS = 2.0
 
 
+_TUNNEL_HOLD_WATCHDOG = '''
+import os,select,subprocess,sys,time
+live=int(sys.argv[1])
+child=subprocess.Popen(tuple(sys.argv[2:]),stdin=subprocess.DEVNULL,
+    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+while child.poll() is None:
+    # The pipe reports the parent's death or an explicit release the same
+    # way: the runner holds the only write end, so any readability is EOF.
+    if select.select((live,),(),(),.5)[0]:
+        break
+if child.poll() is None:
+    child.terminate()
+    try:child.wait(2)
+    except subprocess.TimeoutExpired:
+        child.kill()
+        try:child.wait(2)
+        except subprocess.TimeoutExpired:pass
+'''
+
+
+class _TunnelHold:
+    """A ``motion spatial-orientation`` hold plus its liveness pipe write end.
+
+    The monitor is wrapped by a watchdog process in the same session. The
+    runner owns the only liveness write end; losing it (release or runner
+    death, including SIGKILL) makes the watchdog terminate the monitor, so
+    the hold cannot outlive its owner.
+    """
+    __slots__ = ('process', 'live_write')
+
+    def __init__(self, process, live_write):
+        self.process = process; self.live_write = live_write
+
+
 def _spawn_tunnel_hold(devicectl, identifier, work_root, deadline_monotonic):
     """Hold one CoreDevice tunnel open so the rendered helper bind address survives.
 
@@ -109,33 +144,50 @@ def _spawn_tunnel_hold(devicectl, identifier, work_root, deadline_monotonic):
     ("Failed to read socket ID from device").
     """
     seconds = int(min(560, max(30, deadline_monotonic - time.monotonic() - 20)))
+    live_read = live_write = None
     try:
-        return subprocess.Popen(
-            (str(devicectl), 'device', 'motion', 'spatial-orientation',
+        live_read, live_write = os.pipe()
+        process = subprocess.Popen(
+            (sys.executable, '-c', _TUNNEL_HOLD_WATCHDOG, str(live_read),
+             str(devicectl), 'device', 'motion', 'spatial-orientation',
              '--device', identifier,
              '--session-timeout', str(seconds), '--timeout', str(seconds + 30)),
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True, close_fds=True,
+            start_new_session=True, close_fds=True, pass_fds=(live_read,),
             env={'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
                  'TMPDIR': str(work_root)})
     except OSError:
+        for descriptor in (live_read, live_write):
+            if descriptor is not None:
+                try: os.close(descriptor)
+                except OSError: pass
         return None
+    os.close(live_read)
+    return _TunnelHold(process, live_write)
 
 
-def _stop_tunnel_hold(process):
+def _stop_tunnel_hold(hold):
     """Release the held tunnel; the XCTest session owns its own by then."""
-    if process is None:
+    if hold is None:
         return
-    if process.poll() is None:
-        process.terminate()
-        try:
-            process.wait(timeout=3)
-        except Exception:
-            try:
-                process.kill()
-                process.wait(timeout=2)
-            except Exception:
-                pass
+    try:
+        os.close(hold.live_write)
+    except OSError:
+        pass
+    hold.live_write = None
+    # Closing the last write end is the same event the watchdog sees on
+    # runner death; it then terminates the monitor and exits.
+    try:
+        hold.process.wait(timeout=4)
+    except subprocess.TimeoutExpired:
+        # The watchdog is its own session leader, so its process group also
+        # names a monitor it has failed to reap.
+        try: os.killpg(hold.process.pid, signal.SIGKILL)
+        except OSError: pass
+        try: hold.process.wait(timeout=2)
+        except Exception: pass
+    except Exception:
+        pass
 
 
 class IOSXCTestRunner:

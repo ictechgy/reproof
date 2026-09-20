@@ -467,3 +467,30 @@ while not pathlib.Path(RELEASE).exists():time.sleep(.01)
     def test_parent_death_reaps_descendant_with_inherited_locks(self):self.exercise_lifetime('descendant-parent')
 
     def test_native_deadline_reaps_descendant_with_inherited_locks(self):self.exercise_lifetime('descendant-deadline')
+
+    def fake_devicectl(self):
+        fake=self.root/'fake-devicectl'
+        fake.write_text('#!/bin/sh\nexec sleep 60\n');fake.chmod(0o700)
+        return fake
+
+    def group_members(self,pgid):
+        return subprocess.run(('pgrep','-g',str(pgid)),capture_output=True,text=True).stdout.split()
+
+    def test_tunnel_hold_watchdog_reaps_the_monitor_when_the_owner_pipe_dies(self):
+        from reproloop.ios_mobile_xctest import _spawn_tunnel_hold
+        hold=_spawn_tunnel_hold(self.fake_devicectl(),'00000000-0000000000000000',self.root,time.monotonic()+60)
+        self.assertIsNotNone(hold)
+        self.g.wait_for(lambda:len(self.group_members(hold.process.pid))==2)
+        # Closing the last write end is exactly what runner death does.
+        os.close(hold.live_write);hold.live_write=None
+        self.assertEqual(hold.process.wait(timeout=6),0)
+        self.assertEqual(self.group_members(hold.process.pid),[])
+
+    def test_tunnel_hold_release_stops_the_monitor(self):
+        from reproloop.ios_mobile_xctest import _spawn_tunnel_hold,_stop_tunnel_hold
+        hold=_spawn_tunnel_hold(self.fake_devicectl(),'00000000-0000000000000000',self.root,time.monotonic()+60)
+        self.assertIsNotNone(hold)
+        self.g.wait_for(lambda:len(self.group_members(hold.process.pid))==2)
+        _stop_tunnel_hold(hold)
+        self.assertEqual(hold.process.wait(timeout=6),0)
+        self.assertEqual(self.group_members(hold.process.pid),[])
