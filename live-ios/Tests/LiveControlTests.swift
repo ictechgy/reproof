@@ -345,7 +345,8 @@ final class LiveControlTests: XCTestCase {
                         error: result.error,
                         timing: "best-effort",
                         authority: command.authority,
-                        cleanupEvidence: result.cleanupEvidence
+                        cleanupEvidence: result.cleanupEvidence,
+                        networkEvidence: result.networkEvidence
                     )
                     lastFrameAt = Date()
                 } else if !draining && Date().timeIntervalSince(lastFrameAt) >= 0.2 {
@@ -402,6 +403,14 @@ final class LiveControlTests: XCTestCase {
                 activeSanitationPolicyDigest = policy
                 launchEnvironment["REPRO_SANITATION_POLICY_DIGEST"] = policy
             }
+            // egress digest는 브리지가 REPRO_LIVE_EGRESS_POLICY_DIGEST에서
+            // 직접 읽는다 — 여기서는 형식만 선검증한다.
+            if let egress = environment["REPRO_LIVE_EGRESS_POLICY_DIGEST"] {
+                guard egress.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
+                    XCTFail("egress_configuration_invalid")
+                    return
+                }
+            }
             targetApplication.launchEnvironment = launchEnvironment
             targetApplication.launch()
             return
@@ -429,6 +438,11 @@ final class LiveControlTests: XCTestCase {
             }
             activeSanitationPolicyDigest = policy
             launchEnvironment["REPRO_SANITATION_POLICY_DIGEST"] = policy
+        }
+        if let egress = environment["REPRO_LIVE_EGRESS_POLICY_DIGEST"],
+           egress.range(of: "^[0-9a-f]{64}$", options: .regularExpression) == nil {
+            XCTFail("egress_configuration_invalid")
+            return
         }
         targetApplication.launchEnvironment = launchEnvironment
         targetApplication.launch()
@@ -599,7 +613,8 @@ final class LiveControlTests: XCTestCase {
             return .cleanupSuccess(CleanupTerminationEvidence(
                 bundleID: targetBundle,
                 state: "not-running",
-                observer: "xctest-application-state"))
+                observer: "xctest-application-state"),
+                network: NativeHTTPBridge.egressBound ? NativeHTTPBridge.networkCounters() : nil)
 
         default:
             return .failure("unsupported_action")
@@ -776,21 +791,36 @@ private struct CleanupTerminationEvidence: Codable {
     }
 }
 
+/// getifaddrs/if_data 기반의 인터페이스 바이트 카운터 스냅샷.
+/// egress 정책이 묶인 세션에서 activate/cleanup 응답에 실려
+/// 후보 윈도우의 네트워크 델타를 fail-closed로 측정한다.
+private struct NetworkCounterEvidence {
+    let sampledAtMs: Int
+    let interfaces: [String: [String: Int]]
+
+    var wireObject: [String: Any] {
+        ["schema": "ios-network-counters", "version": 1,
+         "sampledAtMs": sampledAtMs, "interfaces": interfaces]
+    }
+}
+
 private struct CommandResult {
     let ok: Bool
     let error: String?
     let cleanupEvidence: CleanupTerminationEvidence?
+    let networkEvidence: NetworkCounterEvidence?
 
     static var success: CommandResult {
-        CommandResult(ok: true, error: nil, cleanupEvidence: nil)
+        CommandResult(ok: true, error: nil, cleanupEvidence: nil, networkEvidence: nil)
     }
 
-    static func cleanupSuccess(_ evidence: CleanupTerminationEvidence) -> CommandResult {
-        CommandResult(ok: true, error: nil, cleanupEvidence: evidence)
+    static func cleanupSuccess(_ evidence: CleanupTerminationEvidence,
+                               network networkEvidence: NetworkCounterEvidence? = nil) -> CommandResult {
+        CommandResult(ok: true, error: nil, cleanupEvidence: evidence, networkEvidence: networkEvidence)
     }
 
     static func failure(_ error: String) -> CommandResult {
-        CommandResult(ok: false, error: error, cleanupEvidence: nil)
+        CommandResult(ok: false, error: error, cleanupEvidence: nil, networkEvidence: nil)
     }
 }
 
@@ -1027,7 +1057,8 @@ private protocol LiveBridge: AnyObject {
         nativeTiming: NativeFrameTiming?
     ) throws
     func ack(id: String, ok: Bool, error: String?, timing: String, authority: AuthorityGrant?,
-             cleanupEvidence: CleanupTerminationEvidence?) throws
+             cleanupEvidence: CleanupTerminationEvidence?,
+             networkEvidence: NetworkCounterEvidence?) throws
     func shutdown()
 }
 
@@ -1378,7 +1409,10 @@ private final class BridgeClient: LiveBridge {
     }
 
     func ack(id: String, ok: Bool, error: String?, timing: String, authority: AuthorityGrant?,
-             cleanupEvidence: CleanupTerminationEvidence?) throws {
+             cleanupEvidence: CleanupTerminationEvidence?,
+             networkEvidence: NetworkCounterEvidence?) throws {
+        // 비네이티브 브리지는 egress 증거를 싣지 않는다 — 카운터 검증은
+        // REPRO_LIVE_EGRESS_POLICY_DIGEST가 묶인 네이티브 세션에서만 수행된다.
         _ = try post(path: "ack", payload: AckPayload(
             id: id, ok: ok, error: error, timing: timing, authority: authority,
             cleanupEvidence: cleanupEvidence))
@@ -1510,6 +1544,7 @@ private final class NativeHTTPBridge: LiveBridge {
         let timing: String
         let authority: AuthorityGrant?
         let cleanupEvidence: CleanupTerminationEvidence?
+        let networkEvidence: NetworkCounterEvidence?
     }
 
     private struct StopEnvelope: Decodable {
@@ -1713,8 +1748,17 @@ private final class NativeHTTPBridge: LiveBridge {
         state.unlock()
     }
 
+    /// egress 정책이 묶인 네이티브 세션 여부 — 런너가 xctestrun 환경으로 주입한다.
+    static var egressBound: Bool {
+        guard let digest = ProcessInfo.processInfo.environment["REPRO_LIVE_EGRESS_POLICY_DIGEST"] else {
+            return false
+        }
+        return digest.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
+    }
+
     func ack(id: String, ok: Bool, error: String?, timing: String, authority: AuthorityGrant?,
-             cleanupEvidence: CleanupTerminationEvidence?) throws {
+             cleanupEvidence: CleanupTerminationEvidence?,
+             networkEvidence: NetworkCounterEvidence?) throws {
         guard id.count <= 256, !id.isEmpty else { throw BridgeFailure.invalidResponse }
         state.lock()
         let commandAction = inFlightCommandAction
@@ -1747,10 +1791,17 @@ private final class NativeHTTPBridge: LiveBridge {
         if cleanupEvidence != nil && commandAction != "authority_cleanup" {
             throw BridgeFailure.invalidResponse
         }
+        if networkEvidence != nil && commandAction != "authority_cleanup" {
+            throw BridgeFailure.invalidResponse
+        }
         if cleanupEvidence != nil && !ok {
             throw BridgeFailure.invalidResponse
         }
         if commandAction == "authority_cleanup" && ok && cleanupEvidence == nil {
+            throw BridgeFailure.invalidResponse
+        }
+        // egress 바인딩된 세션은 카운터 증거가 없는 cleanup ack를 거절한다.
+        if commandAction == "authority_cleanup" && ok && Self.egressBound && networkEvidence == nil {
             throw BridgeFailure.invalidResponse
         }
         if let cleanupEvidence {
@@ -1765,7 +1816,8 @@ private final class NativeHTTPBridge: LiveBridge {
         let safeError = error.map { String($0.prefix(64)) }
         let receipt = AckReceipt(id: id, ok: ok, error: safeError,
                                  timing: String(timing.prefix(32)), authority: authority,
-                                 cleanupEvidence: cleanupEvidence)
+                                 cleanupEvidence: cleanupEvidence,
+                                 networkEvidence: networkEvidence)
         state.lock()
         acknowledgements[id] = receipt
         acknowledgementOrder.removeAll { $0 == id }
@@ -1912,7 +1964,10 @@ private final class NativeHTTPBridge: LiveBridge {
             activated = true
             state.broadcast()
             state.unlock()
-            let response: [String: Any] = ["activated": true, "authority": envelope.authority.wireObject]
+            var response: [String: Any] = ["activated": true, "authority": envelope.authority.wireObject]
+            if Self.egressBound, let counters = Self.networkCounters() {
+                response["networkEvidence"] = counters.wireObject
+            }
             respond(connection, status: 200,
                     body: (try? JSONSerialization.data(withJSONObject: response)) ?? errorBody("activate_failed"))
         case ("GET", let path) where path.hasPrefix("/ack/"):
@@ -2026,6 +2081,31 @@ private final class NativeHTTPBridge: LiveBridge {
         return result.sorted()
     }
 
+    /// AF_LINK 엔트리의 if_data에서 누적 rx/tx 바이트를 읽는다.
+    /// 읽기 실패 시 nil을 반환하고 호스트가 fail-closed로 처리한다.
+    static func networkCounters() -> NetworkCounterEvidence? {
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let first = head else { return nil }
+        defer { freeifaddrs(first) }
+        var interfaces: [String: [String: Int]] = [:]
+        var current: UnsafeMutablePointer<ifaddrs>? = first
+        while let item = current {
+            defer { current = item.pointee.ifa_next }
+            guard let socket = item.pointee.ifa_addr,
+                  Int32(socket.pointee.sa_family) == AF_LINK,
+                  let data = item.pointee.ifa_data else { continue }
+            let name = String(cString: item.pointee.ifa_name)
+            guard name.range(of: "^[a-z][a-z0-9_]{0,15}$",
+                             options: .regularExpression) != nil else { continue }
+            let counters = data.assumingMemoryBound(to: if_data.self).pointee
+            interfaces[name] = ["rxBytes": Int(counters.ifi_ibytes),
+                                "txBytes": Int(counters.ifi_obytes)]
+        }
+        guard !interfaces.isEmpty else { return nil }
+        return NetworkCounterEvidence(
+            sampledAtMs: Int(nativeContinuousTimeMS()), interfaces: interfaces)
+    }
+
     private func statusBody() -> Data {
         state.lock()
         var value: [String: Any] = ["ready": readyFlag, "stopped": stopped, "capabilities": capabilities,
@@ -2061,6 +2141,9 @@ private final class NativeHTTPBridge: LiveBridge {
             if let authority = receipt.authority { value["authority"] = authority.wireObject }
             if let cleanupEvidence = receipt.cleanupEvidence {
                 value["cleanupEvidence"] = cleanupEvidence.wireObject
+            }
+            if let networkEvidence = receipt.networkEvidence {
+                value["networkEvidence"] = networkEvidence.wireObject
             }
             state.unlock()
             return (try? JSONSerialization.data(withJSONObject: value, options: [])) ?? errorBody("ack_failed")

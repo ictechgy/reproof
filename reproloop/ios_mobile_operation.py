@@ -57,6 +57,7 @@ class IOSMobileDefinition:
     helper_bundles: tuple = ()
     xctest_definition_digest: str | None = None
     sanitation_policy_digest: str | None = None
+    egress_policy_digest: str | None = None
 
     def __post_init__(self):
         try:
@@ -75,6 +76,9 @@ class IOSMobileDefinition:
             if self.sanitation_policy_digest is not None:
                 contracts.validate_digest(self.sanitation_policy_digest)
                 _require(self.xctest_definition_digest is not None)
+            if self.egress_policy_digest is not None:
+                contracts.validate_digest(self.egress_policy_digest)
+                _require(self.xctest_definition_digest is not None)
         except (contracts.ContractError, ValueError, TypeError):
             raise IOSMobileOperationError() from None
 
@@ -84,8 +88,8 @@ class IOSMobileDefinition:
 
     def public(self):
         return {name: getattr(self, name) for name in self.__dataclass_fields__
-            if name != 'udid' and (name not in {'xctest_definition_digest','sanitation_policy_digest'}
-                or getattr(self,name) is not None)} | {
+            if name != 'udid' and (name not in {'xctest_definition_digest','sanitation_policy_digest',
+                'egress_policy_digest'} or getattr(self,name) is not None)} | {
             'scopeDigest': self.scope_digest, 'executionAuthority': 'none'}
 
     @property

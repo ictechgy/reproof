@@ -332,6 +332,11 @@ class IOSXCTestRunner:
                         _require('runtimeIdentity' in payload and info['ReproRuntimeIdentitySchemaVersion']==2)
                         payload['runtimeIdentity']['sanitationPolicyDigest']=sanitation.digest
                         environment['REPRO_LIVE_SANITATION_POLICY_DIGEST']=sanitation.digest
+                    expected_egress=owner.operations.definition.egress_policy_digest
+                    if expected_egress is not None:
+                        _require('runtimeIdentity' in payload)
+                        payload['runtimeIdentity']['egressPolicyDigest']=expected_egress
+                        environment['REPRO_LIVE_EGRESS_POLICY_DIGEST']=expected_egress
                     environment['REPRO_LIVE_PROVIDER_INCARNATION'] = 'ios-xctest-'+contracts.digest(payload)[:24]
                     payload['providerIncarnation'] = environment['REPRO_LIVE_PROVIDER_INCARNATION']
                     body = self.tools.template.render({role:apps[role]._source for role in ('helper-host','helper-runner')},environment)

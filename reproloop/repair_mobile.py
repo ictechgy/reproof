@@ -278,7 +278,7 @@ class ProtectedMobileSupervisor:
     def _failed(value, context, stage):
         codes = {'cancelled', 'mobile_timeout'} | (
             {'mobile_install_failed', 'artifact_invalid'} if stage == 'install'
-            else {'mobile_replay_failed'})
+            else {'mobile_replay_failed', 'egress_violation'})
         try:
             _require(type(value) is MobileFailureObservation and value.context_digest == context.digest
                 and value.effects_settled is True and type(value.code) is str and value.code in codes,

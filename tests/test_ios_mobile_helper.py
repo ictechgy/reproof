@@ -37,6 +37,9 @@ class OwnedHTTPDouble:
         self.wrong_cleanup_authority = False
         self.stale_cleanup_authority = False
         self.cleanup_ack_failure = False
+        self.network_evidence_mode = "emit"
+        self.egress_delta = 0
+        self._network_tick = 0
         self.frame = {
             "id": "native-1", "nativeFrameId": 1,
             "imageBase64": base64.b64encode(b"jpeg").decode("ascii"),
@@ -75,6 +78,25 @@ class OwnedHTTPDouble:
             "applicationProfileDigest": launch.payload["profileDigest"],
         }
 
+    def _egress_bound(self):
+        runtime = self.launch.payload.get("runtimeIdentity") if self.launch else None
+        return type(runtime) is dict and runtime.get("egressPolicyDigest") is not None
+
+    def _network_evidence(self):
+        # egress 바인딩 세션은 샘플마다 카운터 증거를 싣는다.
+        # 'missing'은 생략, 'malformed'은 호스트 fail-closed 검증을 유도한다.
+        if not self._egress_bound() or self.network_evidence_mode == "missing":
+            return None
+        if self.network_evidence_mode == "malformed":
+            return {"schema": "ios-network-counters", "version": 1, "sampledAtMs": 1,
+                    "interfaces": {"Bad Iface": {"rxBytes": 1, "txBytes": 1}}}
+        self._network_tick += 1
+        offset = self._network_tick * self.egress_delta
+        return {"schema": "ios-network-counters", "version": 1,
+                "sampledAtMs": 100 + self._network_tick,
+                "interfaces": {"en0": {"rxBytes": 1000 + offset, "txBytes": 500 + offset},
+                               "pdp_ip0": {"rxBytes": 100 + offset, "txBytes": 50 + offset}}}
+
     def call(self, path, body=None, timeout=5, binary=False):
         self.calls.append((path, body))
         if path == "/status":
@@ -82,7 +104,11 @@ class OwnedHTTPDouble:
         if path == "/activate":
             self.activated = True
             self.ready = True
-            return {"activated": True, "authority": body["authority"]}
+            response = {"activated": True, "authority": body["authority"]}
+            evidence = self._network_evidence()
+            if evidence is not None:
+                response["networkEvidence"] = evidence
+            return response
         if path.startswith("/frames/after/"):
             cursor = int(path.rsplit("/", 1)[1])
             if self.frame["nativeFrameId"] <= cursor:
@@ -118,6 +144,10 @@ class OwnedHTTPDouble:
                 elif self.cleanup_evidence_mode == "wrong_observer":
                     evidence["observer"] = "helper-claim"
                 result["cleanupEvidence"] = evidence
+            if result["ok"] and body["action"] == "authority_cleanup":
+                network = self._network_evidence()
+                if network is not None:
+                    result["networkEvidence"] = network
             return result
         if path == "/stop":
             if self.release is not None:
@@ -391,6 +421,83 @@ class IOSMobileHelperTests(unittest.TestCase):
                             deadline_monotonic=time.monotonic() + 8,
                             expected_auto_run_id=new_run_id)
         self.assertFalse(any(path == "/command" for path, _ in double.calls))
+
+    def _running_egress(self):
+        # egress 정책이 묶인 정의로 스토어를 교체한다 — prepare가
+        # runtimeIdentity.egressPolicyDigest와 브리지 env를 주입하게 된다.
+        from reproloop.ios_mobile_operation import IOSMobileOperationStore
+        selected = replace(self.case.operations.definition,
+                           egress_policy_digest="e" * 64)
+        self.case.operations = IOSMobileOperationStore(
+            self.case.g.c.runs, selected, self.case.root / "egress-operations")
+        self.addCleanup(self.case.operations.close)
+        return self._running()
+
+    def test_egress_bound_session_carries_counter_evidence(self):
+        owner, _runner, _session, startup, identity, channel, double = \
+            self._running_egress()
+        channel.handshake(startup, cancellation=threading.Event(),
+                          deadline_monotonic=time.monotonic() + 8)
+        activated = channel.activate(
+            startup, identity, cancellation=threading.Event(),
+            deadline_monotonic=time.monotonic() + 8)
+        evidence = activated["networkEvidence"]
+        self.assertEqual(evidence["schema"], "ios-network-counters")
+        self.assertEqual(set(evidence["interfaces"]), {"en0", "pdp_ip0"})
+        self._confirm(owner, startup, "startup")
+        cleanup = self._dispatch(
+            owner, command_payload("cleanup", {}), "command-cleanup", 2)
+        shutdown = channel.shutdown(
+            cleanup, cancellation=threading.Event(),
+            deadline_monotonic=time.monotonic() + 8)
+        end = shutdown["networkEvidence"]
+        self.assertEqual(end["schema"], "ios-network-counters")
+        self.assertEqual(set(end["interfaces"]), {"en0", "pdp_ip0"})
+        # 두 번째 shutdown은 저널된 durable 결과를 재생한다.
+        duplicate = channel.shutdown(
+            cleanup, cancellation=threading.Event(),
+            deadline_monotonic=time.monotonic() + 8)
+        self.assertEqual(duplicate["networkEvidence"], end)
+
+    def test_egress_bound_activate_requires_counter_evidence(self):
+        _owner, _runner, _session, startup, identity, channel, double = \
+            self._running_egress()
+        channel.handshake(startup, cancellation=threading.Event(),
+                          deadline_monotonic=time.monotonic() + 8)
+        double.network_evidence_mode = "missing"
+        with self.assertRaises(IOSDeviceToolError):
+            channel.activate(startup, identity, cancellation=threading.Event(),
+                             deadline_monotonic=time.monotonic() + 8)
+
+    def test_egress_bound_malformed_counter_evidence_fails(self):
+        _owner, _runner, _session, startup, identity, channel, double = \
+            self._running_egress()
+        channel.handshake(startup, cancellation=threading.Event(),
+                          deadline_monotonic=time.monotonic() + 8)
+        double.network_evidence_mode = "malformed"
+        with self.assertRaises(IOSDeviceToolError):
+            channel.activate(startup, identity, cancellation=threading.Event(),
+                             deadline_monotonic=time.monotonic() + 8)
+
+    def test_egress_bound_cleanup_requires_counter_evidence(self):
+        _owner, _runner, _session, cleanup, channel, double = \
+            self._cleanup_ready_egress()
+        double.network_evidence_mode = "missing"
+        with self.assertRaises(IOSDeviceToolError):
+            channel.shutdown(cleanup, cancellation=threading.Event(),
+                             deadline_monotonic=time.monotonic() + 8)
+
+    def _cleanup_ready_egress(self):
+        owner, runner, session, startup, identity, channel, double = \
+            self._running_egress()
+        channel.handshake(startup, cancellation=threading.Event(),
+                          deadline_monotonic=time.monotonic() + 8)
+        channel.activate(startup, identity, cancellation=threading.Event(),
+                         deadline_monotonic=time.monotonic() + 8)
+        self._confirm(owner, startup, "startup")
+        cleanup = self._dispatch(
+            owner, command_payload("cleanup", {}), "command-cleanup-proof", 2)
+        return owner, runner, session, cleanup, channel, double
 
 
 if __name__ == "__main__":

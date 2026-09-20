@@ -68,6 +68,12 @@ class IOSTrustedMobileAdapter:
         self._candidate_profile=None;self._candidate_identity=None;self._installed=False
         self._issues={};self._completed=set();self._service_unknown=False
         self._cleanup_timing=None
+        self._egress_measurements=[]
+
+    @property
+    def egress_measurements(self):
+        """후보 윈도우별 egress 측정 증거 — 성공/실패 무관하게 보존된다."""
+        return copy.deepcopy(self._egress_measurements)
 
     @property
     def cleanup_timing(self):
@@ -139,10 +145,24 @@ class IOSTrustedMobileAdapter:
                     if client.native_owner is self._native)
         except Exception:return False
 
-    def _failure(self, context, code):
+    def _failure(self, context, code, *, detail=None):
         settled=self._settled()
-        return MobileFailureObservation(context.digest,code,contracts.digest({
-            'contextDigest':context.digest,'code':code,'effectsSettled':settled}),settled)
+        evidence={'contextDigest':context.digest,'code':code,'effectsSettled':settled}
+        if detail is not None:evidence['detail']=detail
+        return MobileFailureObservation(context.digest,code,contracts.digest(evidence),settled)
+
+    def _egress_measurement(self, provider):
+        """세션 카운터 윈도우를 정책과 비교한다. 증거 부재/파손은 fail-closed."""
+        if self.config.egress is None:return None
+        from .ios_egress import measurement_evidence
+        window=provider.network_window
+        _require(type(window) is dict and type(window.get('start')) is dict
+            and type(window.get('end')) is dict,'mobile_quarantined')
+        try:
+            return measurement_evidence(self.config.egress,window['start'],window['end'],
+                capture={'mode':'off'})
+        except Exception:
+            _require(False,'mobile_quarantined')
 
     def _install(self, kind, cancellation, deadline):
         installer=self.config.query.open_installer(native_owner=self._native)
@@ -199,6 +219,7 @@ class IOSTrustedMobileAdapter:
             cancellation=_OwnerCancellation(cancellation,self._stopping)
             with self._coordinator.callback(context._operation_binding,'replay',number) as token:
                 runner=None
+                egress_evidence=None
                 try:
                     _active(cancellation,deadline_monotonic)
                     _require(type(number) is int and number==len(self._issues)+1 and number<=3,'mobile_policy_mismatch')
@@ -229,6 +250,11 @@ class IOSTrustedMobileAdapter:
                         _startup_binding=binding,cancellation=cancellation,deadline_monotonic=deadline_monotonic)
                     _require(self._native._sanitation_results.get((contracts.digest(launch.payload),'cleanup')) is not None,
                         'mobile_quarantined')
+                    egress_evidence=self._egress_measurement(provider)
+                    if egress_evidence is not None:
+                        self._egress_measurements.append(
+                            {'attempt':number,**egress_evidence})
+                    _require(egress_evidence is None or egress_evidence['verdict']=='pass','egress_violation')
                     _require(runner.close(deadline_monotonic=deadline_monotonic),'mobile_quarantined')
                     token.complete(contracts.digest(result.public()))
                     return result
@@ -236,7 +262,10 @@ class IOSTrustedMobileAdapter:
                     if isinstance(error,IOSG4Error) and error.unknown:self._service_unknown=True
                     if runner is not None and not runner.close(deadline_monotonic=deadline_monotonic):
                         self._service_unknown=True
-                    result=self._failure(context,'mobile_replay_failed');token.fail(result.evidence_digest)
+                    code=(error.code if isinstance(error,RepairExecutionError)
+                          and error.code in ('egress_violation','mobile_quarantined') else 'mobile_replay_failed')
+                    result=self._failure(context,code,detail=egress_evidence)
+                    token.fail(result.evidence_digest)
                     return result
 
     def _issues_clean(self):

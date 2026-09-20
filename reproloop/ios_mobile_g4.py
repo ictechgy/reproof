@@ -363,6 +363,8 @@ class IOSG4Provider:
         self._close_result = None
         self._close_permit = None
         self._fault = None
+        self._network_start = None
+        self._network_end = None
 
     @staticmethod
     def _validate_selected_artifact(owner, launch, installed_identity, profile):
@@ -400,6 +402,14 @@ class IOSG4Provider:
         except Exception:
             raise IOSG4Error("ios_g4_identity",
                              "Selected archive identity is unavailable", 409) from None
+
+    @property
+    def network_window(self):
+        """세션 경계에서 채취한 카운터 증거 쌍; 정책이 없으면 None."""
+        if self._network_start is None and self._network_end is None:
+            return None
+        return {"start": deepcopy(self._network_start),
+                "end": deepcopy(self._network_end)}
 
     @property
     def pump(self):
@@ -564,9 +574,14 @@ class IOSG4Provider:
             self._handshake = self._helper.handshake(
                 request.permit, cancellation=cancellation,
                 deadline_monotonic=deadline)
-            self._helper.activate(
+            activation = self._helper.activate(
                 request.permit, self.installed_identity,
                 cancellation=cancellation, deadline_monotonic=deadline)
+            if self.native_owner.operations.definition.egress_policy_digest is not None:
+                start = activation.get("networkEvidence")
+                _require(type(start) is dict,
+                         "ios_g4_egress", "Egress counter baseline is unavailable")
+                self._network_start = start
             reader = self.definition.open_runtime_reader(native_owner=self.native_owner)
             try:
                 observation = reader.read(
@@ -576,6 +591,8 @@ class IOSG4Provider:
                 runtime_keys={"bundleId", "buildId", "profileDigest", "runId"}
                 if self.native_owner.operations.definition.sanitation_policy_digest is not None:
                     runtime_keys.add('sanitationPolicyDigest')
+                if self.native_owner.operations.definition.egress_policy_digest is not None:
+                    runtime_keys.add('egressPolicyDigest')
                 _require(type(runtime) is dict
                          and set(runtime) == runtime_keys
                          and observation.bundle_id == runtime["bundleId"]
@@ -652,6 +669,10 @@ class IOSG4Provider:
                 result = self._helper.shutdown(
                     request.permit, cancellation=cancellation,
                     deadline_monotonic=deadline)
+                if self.native_owner.operations.definition.egress_policy_digest is not None:
+                    self._network_end = result.get('networkEvidence')
+                    _require(type(self._network_end) is dict,
+                             'ios_g4_egress', 'Egress counter end sample is unavailable')
                 if sanitation is not None:result['sanitation']=sanitation.public()
             result = self._bounded_cleanup_result(result)
             if self._clock is not None:

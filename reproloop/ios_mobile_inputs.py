@@ -101,6 +101,7 @@ class IOSMobileInputsConfig:
     runtime_policy_digest: str
     xctest: object = field(default=None,repr=False)
     sanitation: object = field(default=None,repr=False)
+    egress: object = field(default=None,repr=False)
 
     @property
     def application_id(self):return self.original_profile.data['applicationId']
@@ -117,7 +118,8 @@ class IOSMobileInputsConfig:
             self.original_profile.digest,contracts.digest(manifest),
             tuple((item.role,item.bundle_id) for item in self.baselines if item.role!='original'),
             self.xctest.definition_digest if self.xctest is not None else None,
-            self.sanitation.digest if self.sanitation is not None else None)
+            self.sanitation.digest if self.sanitation is not None else None,
+            self.egress.digest if self.egress is not None else None)
 
     @property
     def scope_digest(self):return self.definition.scope_digest
@@ -156,6 +158,10 @@ class IOSMobileInputsConfig:
             from .ios_sanitation import IOSSanitationPolicy, validate_ios_sanitation_policy
             _require(type(self.sanitation) is IOSSanitationPolicy and self.xctest is not None
                 and validate_ios_sanitation_policy(self.sanitation.data).digest == self.sanitation.digest)
+        if self.egress is not None:
+            from .ios_egress import IOSEgressPolicy, egress_policy
+            _require(type(self.egress) is IOSEgressPolicy and self.xctest is not None
+                and egress_policy(self.egress.data).digest == self.egress.digest)
         _require(type(self.baselines) is tuple and len(self.baselines) in (1,3)
             and all(type(item) is IOSBaselineReference for item in self.baselines)
             and sum(item.bytes for item in self.baselines)<=MAX_TRANSFER_BYTES)
@@ -209,7 +215,7 @@ def ios_recovery_device_descriptor(row):
     from .protected_mobile_inputs import _recovery_only_provider
     value = _json(row['mobile']['definition'])
     exact(value, ('schemaVersion', 'kind', 'owner', 'udid', 'coreDeviceIdentifier',
-        'runtimeProfile', 'query', 'baselines', 'preparations'), ('xctest', 'sanitation'))
+        'runtimeProfile', 'query', 'baselines', 'preparations'), ('xctest', 'sanitation', 'egress'))
     _require(type(value['schemaVersion']) is int and value['schemaVersion'] == 1
         and value['kind'] == 'ios-mobile-definition-v1')
     profile = validate_ios_profile(_json(value['runtimeProfile']))
@@ -250,7 +256,7 @@ def ios_recovery_device_descriptor(row):
 def load_ios_mobile_profile(row, runtime, lab):
     device=local_ios_device(row,lab)
     source=row['mobile']['definition'];value=_json(source)
-    exact(value,('schemaVersion','kind','owner','udid','coreDeviceIdentifier','runtimeProfile','query','baselines','preparations'),('xctest','sanitation'))
+    exact(value,('schemaVersion','kind','owner','udid','coreDeviceIdentifier','runtimeProfile','query','baselines','preparations'),('xctest','sanitation','egress'))
     _require(type(value['schemaVersion']) is int and value['schemaVersion']==1 and value['kind']=='ios-mobile-definition-v1')
     _require(device['_authority'].get('physicalId')==value['udid'])
     profile=validate_ios_profile(_json(value['runtimeProfile']));data=profile.data
@@ -280,6 +286,11 @@ def load_ios_mobile_profile(row, runtime, lab):
         from .ios_sanitation import validate_ios_sanitation_policy
         sanitation=validate_ios_sanitation_policy(_json(value['sanitation']))
         _require(xctest is not None)
+    egress=None
+    if 'egress' in value:
+        from .ios_egress import egress_policy
+        egress=egress_policy(_json(value['egress']))
+        _require(xctest is not None)
     _require(type(value['baselines']) is list and len(value['baselines']) in (1,3))
     baselines=[]
     for item in value['baselines']:
@@ -296,11 +307,12 @@ def load_ios_mobile_profile(row, runtime, lab):
     if guardian is not None:protected.append(guardian.path)
     if xctest is not None:protected.extend((xctest.xcodebuild,xctest.developer_root,xctest.template.path))
     if sanitation is not None:protected.append(_path(value['sanitation']['path']))
+    if egress is not None:protected.append(_path(value['egress']['path']))
     _require(all(declared.work_root!=path and declared.work_root not in path.parents
                  and path not in declared.work_root.parents for path in protected))
     config=IOSMobileInputsConfig(lab,runtime.service,runtime.registration,row['deviceId'],value['owner'],profile,
         declared,tuple(sorted(baselines,key=lambda item:item.role)),
-        _preparations(value['preparations'],runtime,row['applicationId']),row['runtimePolicyDigest'],xctest,sanitation)
+        _preparations(value['preparations'],runtime,row['applicationId']),row['runtimePolicyDigest'],xctest,sanitation,egress)
     config.validate()
     return LoadedIOSMobileInputs(row['id'],config,source['sha256'],config.snapshot(source['sha256']),
         tuple(protected)+(_path(row['signing']['definition']['path']),_path(row['validation']['observers']['path'])))

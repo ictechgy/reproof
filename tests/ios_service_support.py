@@ -161,7 +161,7 @@ class SanitationHTTPDouble(helper_fixtures.OwnedHTTPDouble):
 class IOSServiceFixture:
     """A reusable real-service fixture; callers own adapter construction."""
 
-    def __init__(self):
+    def __init__(self, egress=None):
         self.temp = tempfile.TemporaryDirectory(prefix="repro-ios-service-")
         self.root = Path(self.temp.name).resolve()
         self.artifacts = artifact_fixtures.IOSArtifactTransferTests(methodName="runTest")
@@ -300,7 +300,7 @@ class IOSServiceFixture:
             self.env.lab, self.env.service, self.registration, "device", "repair",
             self.original_profile, self.query, self.baselines,
             tuple(self.env.preparations()), contracts.digest(g4_support.runtime_policy()),
-            replace(self.xctest.tools, sha256=self.xctest.tools.sha256), sanitation)
+            replace(self.xctest.tools, sha256=self.xctest.tools.sha256), sanitation, egress)
         self.config.validate()
         self.runs = RunStore(self.root / "runs",
                              environment_digest=contracts.digest("ios-service-environment"),
@@ -400,6 +400,10 @@ elif args[:3] == ['device','info','apps']:
                 double = SanitationHTTPDouble(address, port, token,
                     stage_path=fixture.stage_path, mode_path=fixture.mode_path,
                     cancel_event=fixture.cancel_event)
+                # egress 정책이 묶인 fixture는 카운터 증거 방출 모드를 노출한다.
+                double.network_evidence_mode = getattr(
+                    fixture, "network_evidence_mode", "emit")
+                double.egress_delta = getattr(fixture, "egress_delta", 0)
                 double.launch = launch
                 double.release = fixture.xctest.release
                 double.frame.update(width=400, height=800, logicalWidth=400,

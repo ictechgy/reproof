@@ -96,6 +96,8 @@ def _runtime_payload(reader, launch):
     keys={'bundleId', 'buildId', 'profileDigest', 'runId'}
     if reader.native_owner.operations.definition.sanitation_policy_digest is not None:
         keys.add('sanitationPolicyDigest')
+    if reader.native_owner.operations.definition.egress_policy_digest is not None:
+        keys.add('egressPolicyDigest')
     _require(type(runtime) is dict and set(runtime) == keys
              and payload.get('nativeBindingDigest') == reader.native_owner.binding_digest
              and payload.get('contextDigest') == reader.native_owner.operation.context.digest

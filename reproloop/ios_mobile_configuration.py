@@ -51,7 +51,8 @@ def _definition_from_document(value):
     exact(value, ('project_digest', 'application_id', 'runtime_policy_digest', 'device_id',
                    'bundle_id', 'query_definition_digest', 'original_profile_digest',
                    'baseline_digest', 'helper_bundles', 'scopeDigest',
-                   'executionAuthority'), ('xctest_definition_digest','sanitation_policy_digest'))
+                   'executionAuthority'), ('xctest_definition_digest','sanitation_policy_digest',
+                   'egress_policy_digest'))
     require(value['executionAuthority'] == 'none', 'Execution authority is not recoverable')
     helpers = value['helper_bundles']
     require(type(helpers) is list, 'Invalid helper bundle reference')
@@ -73,6 +74,8 @@ def _definition_from_document(value):
            if 'xctest_definition_digest' in value else {}),
         **({'sanitation_policy_digest': value['sanitation_policy_digest']}
            if 'sanitation_policy_digest' in value else {}),
+        **({'egress_policy_digest': value['egress_policy_digest']}
+           if 'egress_policy_digest' in value else {}),
     }
 
 
@@ -115,6 +118,9 @@ class IOSMobileRecoveryConfiguration:
         if 'sanitation_policy_digest' in parsed:
             require('xctest_definition_digest' in parsed, 'Sanitation requires fixed XCTest inputs')
             definition_args.append(parsed['sanitation_policy_digest'])
+        if 'egress_policy_digest' in parsed:
+            require('xctest_definition_digest' in parsed, 'Egress policy requires fixed XCTest inputs')
+            definition_args.append(parsed['egress_policy_digest'])
         selected = IOSMobileDefinition(*definition_args)
         canonical_definition = selected.public()
         canonical_definition['helper_bundles'] = [list(item) for item in selected.helper_bundles]
@@ -164,6 +170,8 @@ class IOSMobileRecoveryConfiguration:
             definition_args.append(definition_values['xctest_definition_digest'])
         if 'sanitation_policy_digest' in definition_values:
             definition_args.append(definition_values['sanitation_policy_digest'])
+        if 'egress_policy_digest' in definition_values:
+            definition_args.append(definition_values['egress_policy_digest'])
         definition = IOSMobileDefinition(*definition_args)
         operations = None
         try:

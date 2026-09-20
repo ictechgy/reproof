@@ -47,36 +47,48 @@ New `egress-policy.json` in the protected configuration, digest-registered in
 
 ```json
 {
-  "kind": "ios-egress-policy-v1",
-  "schemaVersion": 1,
+  "kind": "ios-egress-policy",
+  "version": 1,
   "mode": "deny-all",
-  "allowedFlows": [],
-  "noiseFloorBytes": 0
+  "interfaces": ["en0", "pdp_ip"],
+  "noiseFloorBytes": 1048576,
+  "allowlist": [],
+  "capture": {"rvictl": "optional"}
 }
 ```
 
 `mode: "deny-all"` permits no radio-interface traffic during the candidate
-window. `allowedFlows` is the future allowlist (`{host, port, protocol}`) for
-apps with required fixed endpoints. `noiseFloorBytes` is the measured idle
-delta of this specific device (see §3) — recorded at qualification time, not
-hardcoded.
+window. `interfaces` are prefix-scoped (`pdp_ip` covers `pdp_ip0`, `pdp_ip1`,
+…); loopback/tunnel/bridge prefixes are rejected outright. `allowlist` is the
+future `{host, port}` escape for apps with required fixed endpoints.
+`noiseFloorBytes` is the measured idle delta of this specific device (see §3) —
+recorded at qualification time, not hardcoded.
 
 ### 2. Device-side counters (primary, unprivileged)
 
-The helper host already owns a command channel inside the XCTest session. Add
-a `network-counters` command that returns `getifaddrs(3)` `if_data` byte
-counters for the radio interfaces:
+The XCTest helper samples `getifaddrs(3)` `if_data` byte counters and returns
+them as `networkEvidence` (`schema: ios-network-counters`) on two existing
+journaled boundaries — no new command was added:
 
-- `en0` (Wi-Fi), `pdp_ip0`+ (cellular) — read at candidate-window open and
-  close; the CoreDevice tunnel rides the USB path, so control traffic is not
-  counted.
-- The runtime receipt gains `networkDelta: {wifiBytes, cellularBytes}`.
-- Verdict rule (fail-closed, same shape as `mobile_quarantined`):
-  - `delta > noiseFloorBytes` → candidate is **egress-violated** — report
-    `failed` + new reason `egress_violation`; the replay comparison is not
-    trusted because verdict inputs may have been externally influenced.
-  - Counter read failure (helper error, missing interfaces) → `unknown` →
-    quarantine, never silently clean.
+- **start sample**: the `/activate` response — taken before candidate code
+  runs.
+- **end sample**: the `authority_cleanup` ack inside helper `shutdown` — after
+  the candidate is terminated.
+
+The CoreDevice tunnel rides the USB path, so control traffic is not counted.
+Both samples are journaled as `networkEvidenceDigest` on the control ack and
+surfaced through `IOSG4Provider.network_window`. `IOSTrustedMobileAdapter`
+evaluates `ios_egress.measurement_evidence` after `service.replay()` returns:
+
+- `delta > noiseFloorBytes` → `MobileFailureObservation` with
+  `egress_violation`; the replay comparison is not trusted because verdict
+  inputs may have been externally influenced.
+- Missing or malformed counter evidence (helper omitted it, counters
+  unreadable, bad schema) → fail-closed: activation/cleanup rejects the
+  response and the run ends `mobile_replay_failed`/quarantined — never
+  silently clean.
+- Journaled `authority_cleanup` acks cannot replay without
+  `networkEvidenceDigest` when an egress policy is bound.
 
 ### 3. Host-side capture (optional, privileged)
 
@@ -99,14 +111,18 @@ SSID/VLAN for the QA device is the equivalent physical control.
 
 ## Implementation mapping
 
-| Surface | Change |
+| Surface | Change (implemented) |
 |---|---|
-| `generate-protected-config.py` | emit `egress-policy.json`, register digest in `mobile-definition.json` |
-| `ios_mobile_native.py` / xctest session | call `network-counters` helper command at candidate-window boundaries; carry `networkDelta` into receipts |
-| helper source (`live-ios` host app) | `getifaddrs` reader + `network-counters` command — new helper build ⇒ IPA digest rotation (same flow as r68) |
-| `repair_mobile.py` | verdict rule: `networkDelta` over floor ⇒ `egress_violation` reason |
-| `run-issue-lifecycle.py` | optional rvictl capture wrapper around candidate stage; `egressCapture` field in report |
-| tests | counter-delta verdict unit tests; policy schema validation; capture-unavailable degradation |
+| `reproloop/ios_egress.py` | new module — policy validation, `network_counters` schema check, `counter_delta`, `measurement_evidence` |
+| `generate-protected-config.py` | emits `egress-policy.json`; `egress` reference in `mobile-definition.json`; `egressPolicyDigest` in draft summary |
+| `ios_mobile_inputs.py` / `ios_mobile_operation.py` / `ios_mobile_configuration.py` | `egress` field on `IOSMobileInputsConfig`; `egress_policy_digest` on `IOSMobileDefinition`; recovery config reconstructs it |
+| `ios_mobile_xctest.py` / `ios_xctest_template.py` | `egressPolicyDigest` into `runtimeIdentity` + `REPRO_LIVE_EGRESS_POLICY_DIGEST` env (template whitelist) |
+| helper source (`live-ios/Tests/LiveControlTests.swift`) | `getifaddrs`/`if_data` reader; `networkEvidence` on `/activate` and `authority_cleanup` acks — new helper build ⇒ IPA digest rotation |
+| `ios_mobile_helper.py` | `networkEvidence` validation on activate/cleanup; `networkEvidenceDigest` on journaled acks; cached-replay consistency |
+| `ios_mobile_g4.py` | captures start/end samples into `network_window`; missing evidence → `ios_g4_egress` |
+| `repair_ios.py` / `repair_mobile.py` | `_egress_measurement` verdict; `egress_violation` reason; `egress_measurements` evidence retained per attempt |
+| `run-issue-lifecycle.py` + `rvi_capture.py` | optional rvictl capture around candidate stage; `egressCapture`/`egressMeasurement` report stages |
+| tests | `test_ios_egress.py` (policy/counter/delta/adapter verdicts); egress-bound helper tests in `test_ios_mobile_helper.py` |
 
 ## Open measurements
 

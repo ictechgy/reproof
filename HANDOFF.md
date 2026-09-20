@@ -744,11 +744,44 @@ regression_failed·mobile_quarantined·candidate_mismatch)와 중단/복원력�
 실기기 증명됐다. ~~fixture-service 고아~~도 해소됐다 — 하니스가
 `REPRO_FIXTURE_LIVENESS_FD` 파이프를 넘기고 서비스의 감시 스레드가 EOF를
 보면 `os._exit`한다(runner SIGKILL 시뮬레이션으로 자체 종료 확인,
-liveness 미설정 시 정상 서빙 유지). 대상 앱 egress 격리는
-`docs/IOS-EGRESS-ISOLATION.md`로 설계됐다 — unsupervised 기기는 선언적
-정책+기기 카운터(getifaddrs)+선택적 rvictl 캡처의 증명 계층이고, 강제
-차단은 supervised tier(D5 환경 전제)다. 구현과 기기 유휴 노이즈 플로어
-측정이 남았다.
+liveness 미설정 시 정상 서빙 유지). 대상 앱 egress 격리는 r69에서 구현됐다
+(아래 절 참고).
+
+## r69 결과 (2026-09-20, egress 격리 구현 — fail-closed 계측 계층)
+
+`docs/IOS-EGRESS-ISOLATION.md`의 3계층 설계를 구현했다 — unsupervised QA-iPhone은
+프로그래밍 가능한 하드 차단이 없으므로(r68 실측), 선언+측정+증명으로
+fail-closed한다:
+
+- **정책** — `egress-policy.json`(`kind: ios-egress-policy`, `deny-all`,
+  인터페이스 `en0`+`pdp_ip` prefix 스코프, `noiseFloorBytes`, `allowlist`,
+  `capture.rvictl`)을 `generate-protected-config.py`가 방출하고
+  `mobile-definition.json`의 `egress` 참조(path+sha256)에 핀된다.
+  `IOSMobileDefinition.egress_policy_digest`·복구 설정·runtimeIdentity에
+  `egressPolicyDigest`가 일관 바인딩된다.
+- **측정** — helper(`live-ios`)가 AF_LINK `if_data`의 rx/tx 카운터를 읽어
+  `networkEvidence`(`schema: ios-network-counters`)를 `/activate` 응답과
+  `authority_cleanup` ack에 싣는다 — 신규 명령 없이 기존 저널 경계 재사용.
+  `IOSG4Provider.network_window`가 start/end 쌍을 보관하고, 어댑터가
+  `ios_egress.measurement_evidence`로 `delta > noiseFloorBytes` →
+  `egress_violation`(`MobileFailureObservation` + 증거 detail)를 낸다.
+- **fail-closed** — 카운터 생략/파손 시 activate·cleanup 응답 검증이 거절해
+  run은 `mobile_replay_failed`/quarantine으로 끝나고 통과로 위장할 수 없다.
+  egress 바인딩된 저널 cleanup ack는 `networkEvidenceDigest` 없이 재생 불가.
+  측정 증거는 성공/실패 무관하게 `adapter.egress_measurements`에 보존되고
+  하니스 보고서 `egressMeasurement` 스테이지로 나온다.
+- **선택적 증명** — `capture.rvictl: "optional"`일 때 하니스가
+  `rvi_capture.py`로 RVI attach+pcap을 시도한다. tcpdump/BPF는 root 전용이라
+  보통 `attached`까지만 도달하고, 불가 시 `unavailable`로 강등해 run을 막지
+  않는다(카운터가 주 계측).
+
+검증 — `tests/test_ios_egress.py` 16개(정책·카운터·델타 fail-closed·어댑터
+판정: 통과/`egress_violation`/증거 부재·파손 시 quarantine) +
+`test_ios_mobile_helper.py` egress 4개 포함 20개 + 관련 스위트 회귀 통과.
+Swift는 parse 통과. **미완료**: helper XCTest 재빌드(IPA digest 로테이션 수반)
++ 기기 유휴 노이즈 플로어 실측 + Wi-Fi-off 모드 + 실기기 수용 주행.
+`test_ios_native_pipeline`은 Xcode-27.0.0-beta 경로 부재로 clean tree에서도
+동일하게 실패하는 기존 환경 결함이다.
 
 ## Next Steps (오픈소스 배포 우선순위)
 
@@ -777,8 +810,8 @@ liveness 미설정 시 정상 서빙 유지). 대상 앱 egress 격리는
    r64 수정분은 `main`에 머지됐다.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
-   대상 앱 자체 네트워크 트래픽 격리(설계 완료 —
-   `docs/IOS-EGRESS-ISOLATION.md`, 구현 + 노이즈 플로어 실측 필요).
+   대상 앱 네트워크 격리는 r69에서 구현됐다 — helper 재빌드 + 기기 유휴
+   노이즈 플로어 실측 + 실기기 수용 주행이 남았다.
    ~~터널 홀드 watchdog~~·~~sanctioned 운영자 종결(close-run)~~·~~st_dev durable
    identity 바인딩~~·~~`environmentDigest` 대역 값~~·~~cleanup 기기 dispatch 구간
    계측~~·~~scope authority cutover(`ios-mobile rotate-scope`)~~은

@@ -714,18 +714,27 @@ class IOSHelperChannel:
             except Exception:
                 _fail("ios_helper_handshake")
 
+    def _egress_policy_digest(self):
+        try:
+            return self.owner.operations.definition.egress_policy_digest
+        except Exception:
+            return None
+
     def _require_runtime_identity(self):
         payload = self._session_payload()
         runtime = payload.get("runtimeIdentity")
         keys={"bundleId", "buildId", "profileDigest", "runId"}
         policy=self.owner.operations.definition.sanitation_policy_digest
         if policy is not None:keys.add('sanitationPolicyDigest')
+        egress=self._egress_policy_digest()
+        if egress is not None:keys.add('egressPolicyDigest')
         if (type(runtime) is not dict or set(runtime) != keys
                 or type(runtime.get("bundleId")) is not str or _BUNDLE.fullmatch(runtime.get("bundleId")) is None
                 or type(runtime.get("buildId")) is not str or _BUILD.fullmatch(runtime.get("buildId")) is None
                 or not _valid_digest(runtime.get("profileDigest"))
                 or type(runtime.get("runId")) is not str or _UUID.fullmatch(runtime.get("runId")) is None
-                or runtime.get('sanitationPolicyDigest') != policy):
+                or runtime.get('sanitationPolicyDigest') != policy
+                or runtime.get('egressPolicyDigest') != egress):
             _fail("ios_helper_identity")
         return runtime
 
@@ -847,14 +856,17 @@ class IOSHelperChannel:
         finally:
             os.close(operation)
 
-    @staticmethod
-    def _validate_ack_record(ack, intent):
+    def _validate_ack_record(self, ack, intent):
         base = {
             "schemaVersion", "kind", "operationId", "sequence", "ok", "timing",
             "errorCode", "authorityDigest", "responseDigest", "state"}
         expected = base | ({"cleanupEvidenceDigest"}
                            if intent.get("action") == "authority_cleanup"
                            and type(ack) is dict and ack.get("ok") is True else set())
+        expected |= ({"networkEvidenceDigest"}
+                     if intent.get("action") in {"activate", "authority_cleanup"}
+                     and type(ack) is dict and ack.get("ok") is True
+                     and "networkEvidenceDigest" in ack else set())
         if (type(ack) is not dict or set(ack) != expected
                 or ack.get("schemaVersion") != 1
                 or ack.get("kind") != "ios-helper-control-ack"
@@ -868,7 +880,14 @@ class IOSHelperChannel:
                 or not _valid_digest(ack.get("responseDigest"))
                 or intent.get("action") == "authority_cleanup"
                 and ack.get("ok") is True
-                and not _valid_digest(ack.get("cleanupEvidenceDigest"))):
+                and not _valid_digest(ack.get("cleanupEvidenceDigest"))
+                or "networkEvidenceDigest" in ack
+                and not _valid_digest(ack.get("networkEvidenceDigest"))
+                # egress 바인딩된 cleanup ack는 카운터 다이제스트 없이 재생될 수 없다.
+                or intent.get("action") == "authority_cleanup"
+                and ack.get("ok") is True
+                and self._egress_policy_digest() is not None
+                and "networkEvidenceDigest" not in ack):
             _fail("ios_helper_journal")
 
     def _journal_capacity(self, key, *, reserved=False):
@@ -970,7 +989,7 @@ class IOSHelperChannel:
             "errorCode", "authorityDigest", "responseDigest", "state"}
         if (type(ack) is not dict
                 or not base <= set(ack)
-                or not set(ack) <= base | {"cleanupEvidenceDigest"}):
+                or not set(ack) <= base | {"cleanupEvidenceDigest", "networkEvidenceDigest"}):
             _fail("ios_helper_journal")
         if type(ack["ok"]) is not bool or ack["timing"] != "best-effort":
             _fail("ios_helper_journal")
@@ -978,10 +997,11 @@ class IOSHelperChannel:
             _fail("ios_helper_journal")
         if ack["ok"]:
             result = {"ok": True, "timing": ack["timing"]}
-            if "cleanupEvidenceDigest" in ack:
-                if not _valid_digest(ack["cleanupEvidenceDigest"]):
-                    _fail("ios_helper_journal")
-                result["cleanupEvidenceDigest"] = ack["cleanupEvidenceDigest"]
+            for field in ("cleanupEvidenceDigest", "networkEvidenceDigest"):
+                if field in ack:
+                    if not _valid_digest(ack[field]):
+                        _fail("ios_helper_journal")
+                    result[field] = ack[field]
             return result
         return {"ok": False, "outcome": "rejected", "code": ack["errorCode"] or "input_rejected"}
 
@@ -1001,11 +1021,24 @@ class IOSHelperChannel:
             "nativeBindingDigest": self.owner.binding_digest,
         }
 
+    @staticmethod
+    def _check_network_evidence(value):
+        from .ios_egress import network_counters
+        try:
+            network_counters(value)
+        except Exception:
+            _fail("ios_helper_protocol")
+
     def _validate_activation_ack(self, response, authority):
-        if (type(response) is not dict or set(response) != {"activated", "authority"}
+        expected = {"activated", "authority"}
+        if self._egress_policy_digest() is not None:
+            expected.add("networkEvidence")
+        if (type(response) is not dict or set(response) != expected
                 or response.get("activated") is not True
                 or not _strict_mapping(response.get("authority"), authority)):
             _fail("ios_helper_protocol")
+        if "networkEvidence" in response:
+            self._check_network_evidence(response["networkEvidence"])
 
     def _activate_post(self, permit, cancellation, deadline_monotonic):
         authority = self.owner.native_grant(permit, self._handshake).wire()
@@ -1022,7 +1055,10 @@ class IOSHelperChannel:
                     or existing.get("authorityDigest") != contracts.digest(authority)):
                 _fail("ios_helper_journal")
             self._cached_result(existing)
-            return {"ok": True, "activated": True}
+            result = {"ok": True, "activated": True}
+            if "networkEvidenceDigest" in existing:
+                result["networkEvidenceDigest"] = existing["networkEvidenceDigest"]
+            return result
         try:
             self._check_startup_permit(permit, cancellation, deadline_monotonic)
             timeout = self._remaining_timeout(deadline_monotonic, 5.0)
@@ -1047,8 +1083,14 @@ class IOSHelperChannel:
                 "responseDigest": contracts.digest(response),
                 "state": "acknowledged",
             }
+            if "networkEvidence" in response:
+                ack["networkEvidenceDigest"] = contracts.digest(response["networkEvidence"])
             self._journal_ack(permit.operation_id, intent, ack)
-            return {"ok": True, "activated": True}
+            result = {"ok": True, "activated": True}
+            if "networkEvidence" in response:
+                result["networkEvidence"] = deepcopy(response["networkEvidence"])
+            self._operations[permit.operation_id] = result
+            return result
         except IOSDeviceToolError:
             self._journal_uncertain(permit.operation_id, intent)
             raise
@@ -1154,6 +1196,8 @@ class IOSHelperChannel:
             expected.add("error")
         if cleanup and response.get("ok") is True:
             expected.add("cleanupEvidence")
+            if self._egress_policy_digest() is not None:
+                expected.add("networkEvidence")
         if set(response) != expected or response.get("id") != operation_id:
             _fail("ios_helper_protocol")
         if type(response.get("ok")) is not bool or response.get("timing") != "best-effort":
@@ -1171,6 +1215,8 @@ class IOSHelperChannel:
                     or evidence.get("state") != "not-running"
                     or evidence.get("observer") != "xctest-application-state"):
                 _fail("ios_helper_cleanup")
+            if "networkEvidence" in response:
+                self._check_network_evidence(response["networkEvidence"])
 
     def _invalidate_runtime_after(self, action, expected_auto_run_id):
         if action in {"launch", "terminate", "home"}:
@@ -1226,14 +1272,16 @@ class IOSHelperChannel:
             retained = deepcopy(self._operations.get(permit.operation_id))
             result = retained if retained is not None else self._cached_result(existing)
             if cleanup and result.get("ok") is True:
-                evidence_digest = existing.get("cleanupEvidenceDigest")
-                evidence = result.get("cleanupEvidence")
-                if evidence is not None:
-                    if (not _valid_digest(evidence_digest)
-                            or contracts.digest(evidence) != evidence_digest):
+                for field, digest_field in (("cleanupEvidence", "cleanupEvidenceDigest"),
+                                            ("networkEvidence", "networkEvidenceDigest")):
+                    evidence_digest = existing.get(digest_field)
+                    evidence = result.get(field)
+                    if evidence is not None:
+                        if (not _valid_digest(evidence_digest)
+                                or contracts.digest(evidence) != evidence_digest):
+                            _fail("ios_helper_journal")
+                    elif result.get(digest_field) != evidence_digest:
                         _fail("ios_helper_journal")
-                elif result.get("cleanupEvidenceDigest") != evidence_digest:
-                    _fail("ios_helper_journal")
             expected = self.owner.native_grant(permit, self._handshake).wire()
             if existing.get("authorityDigest") != contracts.digest(expected):
                 _fail("ios_helper_authority")
@@ -1288,6 +1336,8 @@ class IOSHelperChannel:
                        "code": response.get("error") or "input_rejected"})
             if cleanup and response["ok"] is True:
                 result["cleanupEvidence"] = deepcopy(response["cleanupEvidence"])
+                if "networkEvidence" in response:
+                    result["networkEvidence"] = deepcopy(response["networkEvidence"])
             ack = {
                 "schemaVersion": 1,
                 "kind": "ios-helper-control-ack",
@@ -1302,6 +1352,8 @@ class IOSHelperChannel:
             }
             if cleanup and response["ok"] is True:
                 ack["cleanupEvidenceDigest"] = contracts.digest(result["cleanupEvidence"])
+                if "networkEvidence" in result:
+                    ack["networkEvidenceDigest"] = contracts.digest(result["networkEvidence"])
             self._journal_ack(permit.operation_id, intent, ack)
             self._operations[permit.operation_id] = result
             self._operation_sequences[permit.operation_id] = permit.sequence
@@ -1444,6 +1496,8 @@ class IOSHelperChannel:
                 host = self._wait_host(cancellation, deadline_monotonic)
                 result = {
                     "ok": True,
+                    **({"networkEvidence": deepcopy(cleanup_result["networkEvidence"])}
+                       if "networkEvidence" in cleanup_result else {}),
                     "host": dict(host, stopped=True),
                     "helper": {"stopped": stop_result["stopped"],
                                 "terminated": stop_result["stopped"],
