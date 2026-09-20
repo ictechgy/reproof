@@ -259,3 +259,50 @@ class IOSMobileOperationTests(unittest.TestCase):
         self.assertGreater(status['reservedBytes'],0)
         self.assertFalse(status['deviceCleanupConfirmed'])
         self.assertTrue(any(self.operations.root.rglob('transfer/app/Info.plist')))
+
+    def test_store_reopen_normalizes_mount_bound_device_field(self):
+        path=self.operations.root/'intent.json'
+        stored=json.loads(path.read_bytes())
+        self.assertNotIn('device',stored['operationsIdentity'])
+        stored['operationsIdentity']['device']=16777234
+        path.write_bytes(canonical(stored))
+        from reproloop.ios_mobile_operation import IOSMobileOperationStore
+        fresh=IOSMobileOperationStore(self.runs,self.selected,self.operations.root)
+        self.addCleanup(fresh.close)
+        normalized=json.loads(path.read_bytes())
+        self.assertNotIn('device',normalized['operationsIdentity'])
+        self.assertEqual(contracts.digest(normalized),self.operations.configuration_digest)
+        with self.operations.admit(self.context,self.artifacts,self.baselines) as operation:
+            self.prepare(operation)
+            self.assertEqual(self.operations.status(self.context.operation_id)['roles']['candidate']['state'],'prepared')
+
+    def test_durable_identity_tolerates_only_the_device_field(self):
+        path=self.operations.root/'intent.json'
+        stored=json.loads(path.read_bytes())
+        stored['operationsIdentity']['device']=16777234
+        stored['operationsIdentity']['inode']=stored['operationsIdentity']['inode']+1
+        path.write_bytes(canonical(stored))
+        from reproloop.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
+        with self.assertRaises(IOSMobileOperationError):
+            IOSMobileOperationStore(self.runs,self.selected,self.operations.root,create=False)
+
+    def test_tampered_configuration_beside_device_field_is_rejected(self):
+        path=self.operations.root/'intent.json'
+        stored=json.loads(path.read_bytes())
+        stored['operationsIdentity']['device']=16777234
+        stored['environmentDigest']='0'*64
+        path.write_bytes(canonical(stored))
+        from reproloop.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
+        with self.assertRaises(IOSMobileOperationError):
+            IOSMobileOperationStore(self.runs,self.selected,self.operations.root,create=False)
+
+    def test_replaced_operations_directory_is_rejected(self):
+        operations=self.operations.root/'operations'
+        moved=self.operations.root/'operations-moved'
+        os.rename(operations,moved);os.mkdir(operations,0o700)
+        from reproloop.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
+        try:
+            with self.assertRaises(IOSMobileOperationError):
+                IOSMobileOperationStore(self.runs,self.selected,self.operations.root,create=False)
+        finally:
+            os.rmdir(operations);os.rename(moved,operations)

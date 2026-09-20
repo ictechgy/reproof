@@ -68,9 +68,11 @@ def _valid_identity(value, *, directory=False):
 def _same_identity(info, expected, *, directory=False):
     if not _valid_identity(expected, directory=directory):
         return False
-    actual = _identity_info(info)
+    actual = _identity_info(info); expected = dict(expected)
+    # st_dev is reassigned at each mount; inode/mode/uid carry the identity.
+    actual.pop("device"); expected.pop("device")
     if directory:
-        actual.pop("links"); expected = dict(expected); expected.pop("links")
+        actual.pop("links"); expected.pop("links")
     return actual == expected
 
 

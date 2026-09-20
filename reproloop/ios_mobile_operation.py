@@ -136,7 +136,7 @@ class IOSMobileOperationStore:
         self._configuration = {'schemaVersion': 1, 'kind': 'ios-mobile-preparation-v1', 'producerOwnershipVersion': 1,
             'definition': definition.public(), 'ownerRootDigest': contracts.digest(str(self.root)),
             'runStoreRootDigest': contracts.digest(str(run_store.root)),
-            'operationsIdentity': {key:value for key,value in self._operations_identity.items() if key != 'links'},
+            'operationsIdentity': {key:value for key,value in self._operations_identity.items() if key not in ('links','device')},
             'environmentDigest': run_store.environment_digest}
         self._configuration = json.loads(json.dumps(self._configuration))
         self.configuration_digest = contracts.digest(self._configuration)
@@ -155,12 +155,25 @@ class IOSMobileOperationStore:
                 if create:
                     try: _write_new_at(root_fd, 'intent.json', self._configuration)
                     except FileExistsError: pass
-                _require(contracts.digest(_read_json_at(root_fd, 'intent.json')) == self.configuration_digest)
+                stored = _read_json_at(root_fd, 'intent.json')
+                if contracts.digest(stored) != self.configuration_digest:
+                    _require(self._compatible_record(stored))
+                    _replace_at(root_fd, 'intent.json', self._configuration)
                 if create: _retire_record_temps(root_fd)
             finally:
                 os.close(lock)
         finally:
             os.close(root_fd)
+
+    def _compatible_record(self, stored):
+        # Records written while st_dev was part of the durable identity remain
+        # valid once that mount-bound field is stripped.
+        if type(stored) is not dict or type(stored.get('operationsIdentity')) is not dict:
+            return False
+        candidate = dict(stored)
+        candidate['operationsIdentity'] = {
+            key:value for key,value in stored['operationsIdentity'].items() if key != 'device'}
+        return contracts.digest(candidate) == self.configuration_digest
 
     def _operation_root(self, identifier):
         contracts.validate_id(identifier)
