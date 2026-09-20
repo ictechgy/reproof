@@ -569,6 +569,21 @@ close-run`):
   종결, 멱등 재종결, native-bound `--device-clean` 요구, 부트스트랩 재개,
   외래 run 내용 거절, 혼합·누락 입력 거절.
 
+마지막으로 **`environmentDigest` 대역 값**도 같은 브랜치에서 정리했다:
+
+- `run-device-qualification.py`는 `sha256('ios-device-qualification-r1')`을,
+  `native-cleanup-measurement.py`는 하드코드 상수를 environmentDigest로 썼다 —
+  둘 다 등록 route의 `0b68bb2f…`와 다른 대역 identity였다. 이제 둘 다
+  `protected-config-draft/service.json`의 mobile route `environmentDigest`를
+  읽어 qualification·측정 저널이 보호 설정과 같은 환경 identity를 갖는다.
+- `native-cleanup-work/`(placeholder env에 묶인 격리 run 1개를 가진 구형 측정
+  저널)은 env 변경 후 영구 재오픈 불가라 삭제했다 — 스크립트가 다음 측정 시
+  재생성한다. `native-cleanup-measurement.json` 보고서는 보존. scope 리스
+  마커는 실 mobile 저널이 소유 중이라 영향 없음을 확인했다.
+- 주의: `device-qualification-r1.json`·`native-cleanup-measurement.json`의
+  기존 `environmentDigest` 값은 대역 시대의 기록이다 — 실기기 재측정 전까지
+  보고서 값과 등록 route digest가 다른 것은 의도된 이력이다.
+
 ## Current Status (r51 기준 + r66 갱신)
 
 - 저장소 위치: `/Users/repro/Desktop/repro-loop`. **r61부터 git 저장소다**
@@ -686,10 +701,11 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
    대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요), cleanup 기기 dispatch 구간
    (helper cleanup 명령·sanitation 관측·hold 소비 — 활성화됐으니 이제 측정 가능).
    ~~터널 홀드 watchdog~~·~~sanctioned 운영자 종결(close-run)~~·~~st_dev durable
-   identity 바인딩~~은 r67에서 해소됐다. 또한 실기기 실행 전에 observer
+   identity 바인딩~~·~~`environmentDigest` 대역 값~~은 r67에서 해소됐다
+   (D4 측정 스크립트가 등록 route digest를 읽도록 교체). 또한 실기기 실행 전에 observer
    (`artifacts/product-delivery/d6-service-activation-r1/observer-service.py`)를
    띄워야 한다 — 미기동 시 `ios-device-regression` validation이 즉시 실패한다.
-   `environmentDigest`도 등록 route digest로 교체할 것(현재 대역 값). r58이 발견한 draft 설정
+   r58이 발견한 draft 설정
    결함 3건(hyphenated id·devicectl 런처 pin·IPA 중첩 코드)은 r59에서 원천 수정됐다.
 5. **D5 수용(사용자 환경)** — 회사 앱·승인된 AI·두 Mac이 오면 회사 회귀와 단절/재시작/정리 실패 수용 검사.
    `ios-mobile recover`는 준비 전용이므로 native 작업 해제에 사용하지 않는다.
