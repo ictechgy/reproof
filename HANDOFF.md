@@ -547,7 +547,27 @@ r66에서 발견한 재부팅 내구성 결함을 코드로 수정했다:
   딜리버리 스크립트(run-issue-lifecycle.py)의 자식이라 같은 파이프 패턴을
   하니스에 적용할지는 별도 결정.
 
-남은 r66 후속: 수동 저널 편집 대신 sanctioned 운영자 종결(close-run) 경로.
+세 번째 r66 후속인 **sanctioned 운영자 종결(close-run) 경로**도 같은
+브랜치에서 추가했다(`reproloop/ios_mobile_close.py` + `ios-mobile
+close-run`):
+
+- `close_run`이 원본 `operationId`·`requestDigest`를 검증하고, native-bound
+  run은 `--device-clean` 운영자 증명을 요구하며, 저널 종결(`failed`+예약 해제)
+  → 소유 op/run 디렉토리 제거까지 수행한다. 수동 `state.json` 편집과
+  디렉토리 수동 삭제를 대체한다.
+- CLI는 `--config` 공개 참조 경로와 `--owner`/`--runs`/`--udid` 부트스트랩
+  경로 둘 다 지원하며 두 입력 집합의 혼합·누락을 거절한다. 부트스트랩은
+  owner의 `intent.json`에서 정의·환경 digest를 재구성해 참조 없이 재연다.
+- 이미 종결된 run은 `already-terminal`로 멱등 보고하고 외래 디렉토리 내용은
+  거절한다. 검증된 owner가 없으면 디렉토리 제거는 일어나지 않는다.
+- 실스토어 검증: `protected-config-draft`의 live `mobile-owner`를 부트스트랩으로
+  재열어 종결된 실제 run에 `already-terminal` 반환 확인. 발견한 버그 1건 —
+  `_open_bootstrap`이 상대 경로를 그대로 넘겨 `_walk_directory`의 절대 경로
+  요구에 걸려 generic `ios_mobile_operation_unavailable`을 반환하던 것을
+  `resolve()`로 수정.
+- 테스트 5개 추가(`tests/test_ios_mobile_cli.py`, 총 13개 통과): 격리 run
+  종결, 멱등 재종결, native-bound `--device-clean` 요구, 부트스트랩 재개,
+  외래 run 내용 거절, 혼합·누락 입력 거절.
 
 ## Current Status (r51 기준 + r66 갱신)
 
@@ -658,15 +678,15 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
    중단/복원력 2회(cleanup 도중 kill + replay XCTest 도중 kill → 고아 admitted
    → compose 거절 → 운영자 종결 → verified 복귀)까지 실기기 증명했다. 남은
    변형: 다른 fixture/case 조합, replay 수준 불일치(editable 범위 확장이나
-   UI-only regression 샘플 필요), 터널 홀드 고아 자체 종료 후속.
+   UI-only regression 샘플 필요). ~~터널 홀드 고아 자체 종료~~는 r67에서
+   liveness 파이프 watchdog으로 해소됐다.
    r64 수정분은 `main`에 머지됐다.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
    대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요), cleanup 기기 dispatch 구간
-   (helper cleanup 명령·sanitation 관측·hold 소비 — 활성화됐으니 이제 측정 가능),
-   터널 홀드(`devicectl device motion`)의 부모 사망 감지/자체 종료 watchdog(r66),
-   수동 저널 편집 대신 sanctioned 운영자 종결(close-run) 경로(r66). ~~st_dev durable
-   identity 바인딩~~은 r67에서 수정됐다. 또한 실기기 실행 전에 observer
+   (helper cleanup 명령·sanitation 관측·hold 소비 — 활성화됐으니 이제 측정 가능).
+   ~~터널 홀드 watchdog~~·~~sanctioned 운영자 종결(close-run)~~·~~st_dev durable
+   identity 바인딩~~은 r67에서 해소됐다. 또한 실기기 실행 전에 observer
    (`artifacts/product-delivery/d6-service-activation-r1/observer-service.py`)를
    띄워야 한다 — 미기동 시 `ios-device-regression` validation이 즉시 실패한다.
    `environmentDigest`도 등록 route digest로 교체할 것(현재 대역 값). r58이 발견한 draft 설정
@@ -684,7 +704,8 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
 
 > `/Users/repro/Desktop/repro-loop`의 HANDOFF.md를 읽어줘. 저장소는 git `main`이고
 > r64(verified 완주)·r65(negative 3종)·r66(SIGKILL 중단/복원력)까지 실기기 증명됐다.
-> r67에서 st_dev durable identity 결함이 수정돼 재부팅 후에도 compose가 열린다(구형
-> 스토어는 첫 오픈 시 자동 정규화). 실기기 실행 전 observer-service.py 기동이 필요하고,
+> r67에서 st_dev durable identity 결함·터널 홀드 고아 watchdog·운영자
+> close-run 경로(`ios-mobile close-run`)까지 해소됐다(구형 스토어는 첫 오픈 시
+> 자동 정규화). 실기기 실행 전 observer-service.py 기동이 필요하고,
 > 다음 실주행은 QA-iPhone USB 연결·잠금 해제 후 run-issue-lifecycle.py로 돌린다.
 > 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
