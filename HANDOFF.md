@@ -531,8 +531,23 @@ r66에서 발견한 재부팅 내구성 결함을 코드로 수정했다:
   2053개의 실패/에러는 전부 사전 존재 환경 문제(Xcode-27.0.0-beta SDK 경로
   부재·브라우저/워커 환경)로 `main`에서 동일하게 재현됨을 확인했다.
 
-남은 r66 후속: 터널 홀드(`devicectl device motion`)의 부모 사망 감지/자체 종료
-watchdog, 그리고 수동 저널 편집 대신 sanctioned 운영자 종결(close-run) 경로.
+같은 브랜치에서 r66 변형 2의 두 번째 발견인 **터널 홀드 고아**도 수정했다:
+
+- `_spawn_tunnel_hold`가 `devicectl device motion spatial-orientation`을
+  watchdog 프로세스(경량 `-c` 감시자)로 감싼다. runner만 쥐는 liveness
+  파이프를 두고, watchdog은 파이프 EOF를 보면 모니터를 종료한 뒤 스스로
+  끝난다 — 명시적 해제든 runner SIGKILL이든 커널은 같은 EOF를 만든다.
+- `_stop_tunnel_hold`는 파이프 닫기로 통일했고, watchdog가 응답하지 않으면
+  세션 리더 프로세스 그룹 전체를 마지막 수단으로 kill한다.
+- 테스트 2개 추가(`tests/test_ios_mobile_xctest.py`, 총 23개 통과): write
+  end를 닫으면(runner 사망과 동일 이벤트) watchdog이 모니터를 회수하고
+  프로세스 그룹이 비는 것, 명시적 해제도 같은 경로로 정리되는 것.
+- 잔여 한계: watchdog 자체가 SIGKILL되면 모니터는 여전히 고아가 될 수 있다
+  (기존과 동일한 최악 케이스, 더 나빠지지 않음). fixture-service 고아는
+  딜리버리 스크립트(run-issue-lifecycle.py)의 자식이라 같은 파이프 패턴을
+  하니스에 적용할지는 별도 결정.
+
+남은 r66 후속: 수동 저널 편집 대신 sanctioned 운영자 종결(close-run) 경로.
 
 ## Current Status (r51 기준 + r66 갱신)
 
