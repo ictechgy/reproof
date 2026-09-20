@@ -584,6 +584,23 @@ close-run`):
   기존 `environmentDigest` 값은 대역 시대의 기록이다 — 실기기 재측정 전까지
   보고서 값과 등록 route digest가 다른 것은 의도된 이력이다.
 
+추가로 **cleanup 기기 dispatch 구간 계측**도 같은 브랜치에서 구현했다:
+
+- `IOSTrustedMobileAdapter`가 cleanup의 구간별 `monotonic` 경과를 인메모리에
+  기록해 `cleanup_timing` 프로퍼티로 노출한다(durable 계약·evidence digest
+  변경 없음). 최상위 7구간: fixture-verify · restore-original-install ·
+  original-sanitation · post-sanitation-settled · native-disposal ·
+  native-close · scope-release. sanitation 하위 10구간: xctest-prepare
+  (터널 홀드 소비·settle·터널 검증 포함) · session-start · helper-handshake ·
+  helper-activate · initial-observation · cleanup-command ·
+  cleanup-observation · reader-close · helper-shutdown · runner-close
+  (홀드 해제 포함). 실패 시에도 그때까지의 부분 기록이 남는다.
+- `run-issue-lifecycle.py`가 repair 단계 후 `owner._ios_mobile` 어댑터의
+  기록을 `stages.cleanupTiming`으로 보고서에 남긴다 — 다음 실기기 완주부터
+  cleanup 구간 분해가 실측된다.
+- `test_repair_ios.py` 완주 테스트가 구간 순서·세부 구성을 검증한다
+  (8개 통과, `test_repair_mobile`+`test_ios_mobile_xctest` 31개 통과).
+
 ## Current Status (r51 기준 + r66 갱신)
 
 - 저장소 위치: `/Users/repro/Desktop/repro-loop`. **r61부터 git 저장소다**
@@ -698,11 +715,11 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
    r64 수정분은 `main`에 머지됐다.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
-   대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요), cleanup 기기 dispatch 구간
-   (helper cleanup 명령·sanitation 관측·hold 소비 — 활성화됐으니 이제 측정 가능).
+   대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요).
    ~~터널 홀드 watchdog~~·~~sanctioned 운영자 종결(close-run)~~·~~st_dev durable
-   identity 바인딩~~·~~`environmentDigest` 대역 값~~은 r67에서 해소됐다
-   (D4 측정 스크립트가 등록 route digest를 읽도록 교체). 또한 실기기 실행 전에 observer
+   identity 바인딩~~·~~`environmentDigest` 대역 값~~·~~cleanup 기기 dispatch 구간
+   계측~~은 r67에서 해소됐다(계측은 코드만 — 실측값은 다음 실기기 완주 때 채워진다).
+   또한 실기기 실행 전에 observer
    (`artifacts/product-delivery/d6-service-activation-r1/observer-service.py`)를
    띄워야 한다 — 미기동 시 `ios-device-regression` validation이 즉시 실패한다.
    r58이 발견한 draft 설정
