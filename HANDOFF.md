@@ -783,6 +783,46 @@ Swift는 parse 통과. **미완료**: helper XCTest 재빌드(IPA digest 로테�
 `test_ios_native_pipeline`은 Xcode-27.0.0-beta 경로 부재로 clean tree에서도
 동일하게 실패하는 기존 환경 결함이다.
 
+## r70 결과 (2026-09-20, egress 격리 실기기 수용 — `verified` + `egress_violation` 증명)
+
+r69의 미완료 항목을 실기기에서 완결했다(`feature/ios-egress-isolation`):
+
+- **helper 재빌드** — `xcodebuild -project live-ios/ReproLive.xcodeproj -scheme
+  ReproLive -sdk iphoneos -configuration Debug -derivedDataPath
+  helper-build/runner build-for-testing DEVELOPMENT_TEAM=TEAMID0000`로
+  TEST BUILD SUCCEEDED. TeamIdentifier 서명 유지, 두 번들 모두 digest 변경
+  (Host `39f329a5→053c27c7`, Runner `90efdae9→ecaf894b`). 구 산출물은
+  `helper-build/runner-r68/`로 보존.
+- **config 재생성** — `configurationDigest e9c88c5e…`, `egressPolicyDigest
+  ed8ee0d3…`(결정론적 일치). materials `configurationDigest` 갱신으로
+  `bindMaterials` 통과.
+- **scope 마커 정리** — 재생성이 `journal-mobile`·`mobile-owner`를 통째로
+  지우므로(`shutil.rmtree(OUT)`) scope 마커(`6e8967bb…`, root `e54b5265`)는
+  영구 고아가 된다 — `rotate-scope`도 open 가능한 owner가 없어 닿지 못한다.
+  구 저널이 물리적으로 소멸해 live holder가 있을 수 없음을 확인하고 수동
+  제거(r68와 동일). **운영 갭**: 생성기가 저널을 지우는 케이스는
+  rotate-scope가 커버하지 못한다 — 별도 승인 경로 또는 생성기의 저널
+  보존이 필요하다.
+- **노이즈 플로어 실측** — `netstat -I rvi0 -b`는 RVI가 탭 디바이스라 카운터가
+  항상 0으로 나와 호스트 측 측정 불가. 대신 실주행의 `networkEvidence`
+  델타가 곧 실측값: 유휴 윈도우 델타 **2,048B / 120,832B** (matched:
+  `en0`+`pdp_ip0~10`). `noiseFloorBytes` 1MiB는 관측 최대의 ~8.6배로
+  유지(표본 2개 — 더 조이면 iCloud 버스트에 오탐 위험).
+- **정상 run** — `repair_e067e1ae…`: `verified`. 후보 replay 윈도우의
+  `egressMeasurement` 2건 모두 `pass`(policyDigest 일치, `capture.mode: off`).
+- **위반 run** — `repair_45390d05…`: 후보 패치(`ios-sample-egress.json`)가
+  로직 수정(`return 1`) + `viewDidLoad`에 URLSession 다운로드 4×2MB 주입 →
+  `deltaBytes 8,701,952` > floor → **`failed` + `egress_violation`**,
+  measurement `verdict: violation`. 기능 수정은 통과하고 egress로만
+  거절된 격리된 fail-closed. 참고: 로직 미수정 + egress만 넣은 첫 패치는
+  `regression_failed`(`repair_74b177a0…`)로 먼저 걸렸다 — 기능 게이트가
+  우선하는 것도 확인.
+- **RVI 캡처** — 두 run 모두 `unavailable`(rvi-attach-failed). 수동
+  `rvictl -s`는 되는데 run 중에는 실패 — devicectl 세션 경합 추정.
+  비차단 강등은 설계대로 동작(카운터가 주 계측이므로 판정 영향 없음).
+- **미검증 잔여**: Wi-Fi-off 모드(비필수), RVI attach 실패 원인,
+  생성기 저널 보존/승인 경로.
+
 ## Next Steps (오픈소스 배포 우선순위)
 
 1. **빌드 경로 선택(r54 이후)** — `build-guest`(봉인 VM, 격리 증명)와 `host-build`(명시적 opt-in,
@@ -810,8 +850,10 @@ Swift는 parse 통과. **미완료**: helper XCTest 재빌드(IPA digest 로테�
    r64 수정분은 `main`에 머지됐다.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
-   대상 앱 네트워크 격리는 r69에서 구현됐다 — helper 재빌드 + 기기 유휴
-   노이즈 플로어 실측 + 실기기 수용 주행이 남았다.
+   ~~대상 앱 네트워크 격리~~는 r69 구현 + r70 실기기 수용으로 해소됐다
+   (`verified` 유지 + `egress_violation` 실기기 도달). 잔여: Wi-Fi-off
+   모드 미검증, run 중 RVI attach 실패 원인, 생성기가 저널을 지울 때의
+   scope 마커 승인 경로(r70 운영 갭).
    ~~터널 홀드 watchdog~~·~~sanctioned 운영자 종결(close-run)~~·~~st_dev durable
    identity 바인딩~~·~~`environmentDigest` 대역 값~~·~~cleanup 기기 dispatch 구간
    계측~~·~~scope authority cutover(`ios-mobile rotate-scope`)~~은
@@ -838,6 +880,10 @@ Swift는 parse 통과. **미완료**: helper XCTest 재빌드(IPA digest 로테�
 > 실기기 증명됐다.
 > r67에서 st_dev durable identity 결함·터널 홀드 고아 watchdog·운영자
 > close-run 경로(`ios-mobile close-run`)까지 해소됐다(구형 스토어는 첫 오픈 시
-> 자동 정규화). 실기기 실행 전 observer-service.py 기동이 필요하고,
-> 다음 실주행은 QA-iPhone USB 연결·잠금 해제 후 run-issue-lifecycle.py로 돌린다.
+> 자동 정규화). r69~r70에서 대상 앱 egress 격리(fail-closed 카운터 계측)가
+> 구현·실기기 수용됐다(`feature/ios-egress-isolation` 브랜치 — `verified`
+> 유지 + `egress_violation` 도달). 실기기 실행 전 observer-service.py 기동이
+> 필요하고, 다음 실주행은 QA-iPhone USB 연결·잠금 해제 후 run-issue-lifecycle.py로
+> 돌린다. config 재생성은 저널을 지우고 scope 마커를 고아로 만드니
+> 수동 제거가 필요하다(r70 운영 갭).
 > 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
