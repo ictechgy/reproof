@@ -505,6 +505,35 @@ configuration digest에 `operationsIdentity`(st_dev+inode+mode+uid)를 넣어
   한다(이번엔 sanitized original .app을 devicectl로 수동 복원).
 - 종결 후 재실행 → `repair_684974f275824c93be2e830de5464e87` `verified` 완주.
 
+## r67 결과 (2026-09-20, st_dev durable identity 결함 수정 — `fix/ios-st-dev-durable-identity`)
+
+r66에서 발견한 재부팅 내구성 결함을 코드로 수정했다:
+
+- `IOSMobileOperationStore`의 durable `operationsIdentity`에서 `device`(st_dev)
+  필드를 제외했다 — inode/mode/uid만 digest에 바인딩된다. st_dev는 마운트마다
+  재할당되는 식별자라 durable identity가 아니다.
+- 공유 헬퍼 `_same_identity`의 비교에서도 `device`를 제외했다 — 같은 런타임의
+  라이브 검사는 inode 기반 교체 감지를 그대로 유지하며, op 수준 durable 기록
+  (`directoryIdentity`/`producerIdentity`/role 기록)도 재부팅 후 복구 경로에서
+  유효하게 남는다. Android 스토어는 durable config에 fs identity를 두지 않아
+  영향이 없다.
+- 구형 `intent.json`(device 포함)은 **device 필드만 제거했을 때 digest가
+  일치하는 경우에 한해** `_replace_at`으로 정규화 재기록 후 수용한다 —
+  그 외 어떤 필드 변조도 여전히 거절된다(명시적 1회 마이그레이션, 묵시적
+  재해석 아님).
+- 테스트 4개 추가(`tests/test_ios_mobile_operation.py`): 새 스토어는 device를
+  기록하지 않음 + 레거시 device 레코드 정규화 재오픈, device 외 필드 변조
+  (inode/environmentDigest) 거절, operations 디렉토리 교체(신규 inode) 거절.
+- 실제 `mobile-owner` 스토어로 정규화 경로 검증: 레거시 레코드(device=16777230
+  포함)를 열자 device가 제거된 채 원자적으로 재기록됐고 digest가 일치했다 —
+  이제 재부팅해도 아카이브+재생성 없이 compose가 열린다.
+- 검증: `test_ios_mobile_operation` 19개 + iOS 부분집합 70개 통과. 전체 스위트
+  2053개의 실패/에러는 전부 사전 존재 환경 문제(Xcode-27.0.0-beta SDK 경로
+  부재·브라우저/워커 환경)로 `main`에서 동일하게 재현됨을 확인했다.
+
+남은 r66 후속: 터널 홀드(`devicectl device motion`)의 부모 사망 감지/자체 종료
+watchdog, 그리고 수동 저널 편집 대신 sanctioned 운영자 종결(close-run) 경로.
+
 ## Current Status (r51 기준 + r66 갱신)
 
 - 저장소 위치: `/Users/repro/Desktop/repro-loop`. **r61부터 git 저장소다**
@@ -620,9 +649,9 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
    대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요), cleanup 기기 dispatch 구간
    (helper cleanup 명령·sanitation 관측·hold 소비 — 활성화됐으니 이제 측정 가능),
-   **`IOSMobileOperationStore`의 `operationsIdentity`에 st_dev가 포함돼 재부팅마다
-   compose가 영구 거절되는 문제**(r66 절 — durable identity에서 st_dev 제외 또는
-   명시적 re-key 경로 필요). 또한 실기기 실행 전에 observer
+   터널 홀드(`devicectl device motion`)의 부모 사망 감지/자체 종료 watchdog(r66),
+   수동 저널 편집 대신 sanctioned 운영자 종결(close-run) 경로(r66). ~~st_dev durable
+   identity 바인딩~~은 r67에서 수정됐다. 또한 실기기 실행 전에 observer
    (`artifacts/product-delivery/d6-service-activation-r1/observer-service.py`)를
    띄워야 한다 — 미기동 시 `ios-device-regression` validation이 즉시 실패한다.
    `environmentDigest`도 등록 route digest로 교체할 것(현재 대역 값). r58이 발견한 draft 설정
@@ -639,8 +668,8 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
 안전한 재개 프롬프트:
 
 > `/Users/repro/Desktop/repro-loop`의 HANDOFF.md를 읽어줘. 저장소는 git `main`이고
-> r64(verified 완주)·r65(negative 3종)·r66(SIGKILL 중단/복원력)까지 실기기 증명됐다 —
-> 전부 커밋됨. 실기기 실행 전 observer-service.py 기동이 필요하고, 재부팅 후엔
-> mobile-owner의 st_dev 바인딩 때문에 compose가 거절되므로 아카이브+재생성한다.
+> r64(verified 완주)·r65(negative 3종)·r66(SIGKILL 중단/복원력)까지 실기기 증명됐다.
+> r67에서 st_dev durable identity 결함이 수정돼 재부팅 후에도 compose가 열린다(구형
+> 스토어는 첫 오픈 시 자동 정규화). 실기기 실행 전 observer-service.py 기동이 필요하고,
 > 다음 실주행은 QA-iPhone USB 연결·잠금 해제 후 run-issue-lifecycle.py로 돌린다.
 > 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
