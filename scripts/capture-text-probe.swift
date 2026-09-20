@@ -27,6 +27,7 @@ for url in try FileManager.default.contentsOfDirectory(at: directory, includingP
                     "counter": words.contains("Counter"),
                     "name": words.contains("QA"),
                     "count": words.contains("2"),
+                    "nav": words.contains("Next") ? "Next" : "unknown",
                     "observedCount": counts.count == 1 ? counts[0] : "unknown"])
 }
 let encoded = try JSONSerialization.data(withJSONObject: results, options: [.sortedKeys])

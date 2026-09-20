@@ -689,6 +689,58 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
   JSON/CLI flag로 qualification을 만들지 않는다. 실제 환경 측정과 정상 서비스 활성화,
   회사 앱·승인된 AI·서로 다른 두 Mac의 수용은 다음 단계다. D4 전체/D5 완료로 표시하지 않는다.
 
+
+## r68 결과 (2026-09-20, UI-only 샘플로 `candidate_mismatch` 실기기 도달 + 환경 로테이션 cutover 발견)
+
+r65에서 구조적으로 도달 불가였던 마지막 repair verdict `candidate_mismatch`를
+실기기에서 증명했다 — UI-only regression 샘플을 추가해 결정론적 divergence를
+만들었다:
+
+- `scripts/capture-text-probe.swift`가 OCR 결과에 `nav` 프로퍼티를 추가했다 —
+  화면에 "Next" 텍스트가 보이면 `"Next"`, 아니면 `"unknown"`.
+- 두 관측 어댑터(`run-issue-lifecycle.py`·`diagnose-lifecycle-compose.py`)가
+  `screen` 관측으로 `text`+`nav`를 함께 반환한다.
+- 스펙은 계약상 defect/expected 정확히 1개씩만 허용하므로, expected assertion을
+  `all` compound로 합성했다: `text=="1"` AND `nav=="Next"`(coverage properties
+  `['text','nav']`). defect는 `text=="2"` 그대로.
+- `editablePaths`에 `src/Sample/CounterViewController.swift`를 추가하고
+  protected-config를 재생성했다(신규 config digest `2c65c701…`, 신규 journal
+  env digest `7229ffc1…`, materials `configurationDigest` 재바인딩, 구 draft는
+  `protected-config-draft-archived-r68`로 보존).
+- `ios-sample-badfix.json`은 두 edit을 적용한다: `CounterLogic.swift`의
+  `return 2`→`return 1`(regression 통과) + `CounterViewController.swift`의
+  `title:"Next"`→`"Continue"`(UI만 파괴 — LogicTests와 observer
+  `counter.count` 라벨 모두 영향 없음).
+
+실주행 결과 2회(artifacts는 gitignore 대상, 추적 파일 변경은 probe뿐):
+
+| run | 후보 | 결과 |
+|---|---|---|
+| `repair_35849b95f6af42918495964678935fa9` | badfix | `failed` + **`candidate_mismatch`** — validation 통과(라벨 "1"), replay expected:False(nav≠"Next"), cleanup 7세대 전부 complete |
+| `repair_31b8806b8dcb40cba1d1ff9ce366ec35` | 정상 fix | **`verified`** — compound expected가 정상 경로를 깨지 않음을 회귀 확인 |
+
+cleanupTiming 계측(r67 코드)의 첫 실측값도 채워졌다 — `fixture-verify`
+0.1ms → `restore-original-install` ~1.4s → `original-sanitation` 세부 구간
+(xctest-prepare ~2.2s·helper-handshake ~2.4s·helper-activate ~1.4s·
+cleanup-command ~0.2s·cleanup-observation ~0.4s …) → `post-sanitation-settled`
+→ `native-disposal` → `native-close` → `scope-release`까지 단계별로 분해됐다.
+
+**새 운영 발견 — 환경 로테이션 authority cutover**: protected-config 재생성으로
+journal env digest가 `0b68bb2f`→`7229ffc1`로 바뀌자 scope 리스 마커
+(`protected-repair-mobile-device-6e8967bb…`)의 `authorityRoot`가 구 env에 묶여
+있어 compose가 `protected_service_mobile`→`mobile_unavailable`→`Canonical
+authority root mismatch`로 fail-closed 거절됐다. 설계상 정상(다른 환경의 저널이
+같은 물리 scope를 묵시적으로 재해석하는 것을 막는 cutover 게이트)이며, 구 저널
+10개 run 전부 종결 확인 후 stale 마커+lock을 운영자가 제거해 로테이션을 승인했다.
+**close-run이 run 종결을 커버하듯, scope authority cutover에도 sanctioned
+운영자 경로가 없다** — 지금은 tmpdir 마커 수동 제거가 유일한 방법이며 후속
+도구화 후보다.
+
+이제 r64~r68까지 repair verdict 전 경로(verified·protected_path·
+regression_failed·mobile_quarantined·candidate_mismatch)와 중단/복원력이
+실기기 증명됐다. 남은 코드 항목: authority cutover 운영자 도구, 대상 앱
+egress 격리(정책 설계 필요), fixture-service 고아 watchdog 적용 여부 결정.
+
 ## Next Steps (오픈소스 배포 우선순위)
 
 1. **빌드 경로 선택(r54 이후)** — `build-guest`(봉인 VM, 격리 증명)와 `host-build`(명시적 opt-in,
@@ -709,16 +761,18 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
    path 3종(protected_path·regression_failed·mobile_quarantined), r66에서
    중단/복원력 2회(cleanup 도중 kill + replay XCTest 도중 kill → 고아 admitted
    → compose 거절 → 운영자 종결 → verified 복귀)까지 실기기 증명했다. 남은
-   변형: 다른 fixture/case 조합, replay 수준 불일치(editable 범위 확장이나
-   UI-only regression 샘플 필요). ~~터널 홀드 고아 자체 종료~~는 r67에서
-   liveness 파이프 watchdog으로 해소됐다.
+   변형: 다른 fixture/case 조합. ~~replay 수준 불일치~~는 r68에서 UI-only
+   regression 샘플(`nav` 프로퍼티 + `all` compound expected + editablePaths에
+   CounterViewController.swift 추가)로 `candidate_mismatch`까지 실기기 증명됐다.
+   ~~터널 홀드 고아 자체 종료~~는 r67에서 liveness 파이프 watchdog으로 해소됐다.
    r64 수정분은 `main`에 머지됐다.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
    대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요).
    ~~터널 홀드 watchdog~~·~~sanctioned 운영자 종결(close-run)~~·~~st_dev durable
    identity 바인딩~~·~~`environmentDigest` 대역 값~~·~~cleanup 기기 dispatch 구간
-   계측~~은 r67에서 해소됐다(계측은 코드만 — 실측값은 다음 실기기 완주 때 채워진다).
+   계측~~은 r67에서 해소됐고 r68에서 실측값이 채워졌다. 남은 운영 갭:
+   환경 로테이션 시 scope authority cutover의 sanctioned 경로 부재(r68).
    또한 실기기 실행 전에 observer
    (`artifacts/product-delivery/d6-service-activation-r1/observer-service.py`)를
    띄워야 한다 — 미기동 시 `ios-device-regression` validation이 즉시 실패한다.
@@ -736,7 +790,9 @@ schema 1이다. 후보의 `artifact.kind: ios-ipa`는 서명 증명의 IPA SHA/�
 안전한 재개 프롬프트:
 
 > `/Users/repro/Desktop/repro-loop`의 HANDOFF.md를 읽어줘. 저장소는 git `main`이고
-> r64(verified 완주)·r65(negative 3종)·r66(SIGKILL 중단/복원력)까지 실기기 증명됐다.
+> r64(verified 완주)·r65(negative 3종)·r66(SIGKILL 중단/복원력)·r68
+> (UI-only 샘플로 candidate_mismatch 도달 — repair verdict 전 경로 증명)까지
+> 실기기 증명됐다.
 > r67에서 st_dev durable identity 결함·터널 홀드 고아 watchdog·운영자
 > close-run 경로(`ios-mobile close-run`)까지 해소됐다(구형 스토어는 첫 오픈 시
 > 자동 정규화). 실기기 실행 전 observer-service.py 기동이 필요하고,
