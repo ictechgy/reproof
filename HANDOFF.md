@@ -732,14 +732,17 @@ journal env digest가 `0b68bb2f`→`7229ffc1`로 바뀌자 scope 리스 마커
 authority root mismatch`로 fail-closed 거절됐다. 설계상 정상(다른 환경의 저널이
 같은 물리 scope를 묵시적으로 재해석하는 것을 막는 cutover 게이트)이며, 구 저널
 10개 run 전부 종결 확인 후 stale 마커+lock을 운영자가 제거해 로테이션을 승인했다.
-**close-run이 run 종결을 커버하듯, scope authority cutover에도 sanctioned
-운영자 경로가 없다** — 지금은 tmpdir 마커 수동 제거가 유일한 방법이며 후속
-도구화 후보다.
+~~close-run이 run 종결을 커버하듯, scope authority cutover에도 sanctioned
+운영자 경로가 없다~~ — `ios-mobile rotate-scope`으로 해소됐다(같은 브랜치):
+inspect(비파괴 보고) → `confirmation-required`(기대값 없으면 digests만) →
+`--expect-authority-root`가 마커와 일치하고 저널 run 전부 종결일 때만
+`rotated`. `rollback-blocked` 마커는 device-authority 게이트 소유라 거절.
+테스트 3개 + 실스토어 `already-current` 검증 완료.
 
 이제 r64~r68까지 repair verdict 전 경로(verified·protected_path·
 regression_failed·mobile_quarantined·candidate_mismatch)와 중단/복원력이
-실기기 증명됐다. 남은 코드 항목: authority cutover 운영자 도구, 대상 앱
-egress 격리(정책 설계 필요), fixture-service 고아 watchdog 적용 여부 결정.
+실기기 증명됐다. 남은 코드 항목: 대상 앱 egress 격리(정책 설계 필요),
+fixture-service 고아 watchdog 적용 여부 결정.
 
 ## Next Steps (오픈소스 배포 우선순위)
 
@@ -771,8 +774,8 @@ egress 격리(정책 설계 필요), fixture-service 고아 watchdog 적용 여�
    대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요).
    ~~터널 홀드 watchdog~~·~~sanctioned 운영자 종결(close-run)~~·~~st_dev durable
    identity 바인딩~~·~~`environmentDigest` 대역 값~~·~~cleanup 기기 dispatch 구간
-   계측~~은 r67에서 해소됐고 r68에서 실측값이 채워졌다. 남은 운영 갭:
-   환경 로테이션 시 scope authority cutover의 sanctioned 경로 부재(r68).
+   계측~~·~~scope authority cutover(`ios-mobile rotate-scope`)~~은
+   해소됐다(r67~r68).
    또한 실기기 실행 전에 observer
    (`artifacts/product-delivery/d6-service-activation-r1/observer-service.py`)를
    띄워야 한다 — 미기동 시 `ios-device-regression` validation이 즉시 실패한다.
