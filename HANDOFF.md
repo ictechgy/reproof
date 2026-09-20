@@ -741,8 +741,11 @@ inspect(비파괴 보고) → `confirmation-required`(기대값 없으면 digest
 
 이제 r64~r68까지 repair verdict 전 경로(verified·protected_path·
 regression_failed·mobile_quarantined·candidate_mismatch)와 중단/복원력이
-실기기 증명됐다. 남은 코드 항목: 대상 앱 egress 격리(정책 설계 필요),
-fixture-service 고아 watchdog 적용 여부 결정.
+실기기 증명됐다. ~~fixture-service 고아~~도 해소됐다 — 하니스가
+`REPRO_FIXTURE_LIVENESS_FD` 파이프를 넘기고 서비스의 감시 스레드가 EOF를
+보면 `os._exit`한다(runner SIGKILL 시뮬레이션으로 자체 종료 확인,
+liveness 미설정 시 정상 서빙 유지). 남은 코드 항목: 대상 앱 egress
+격리(정책 설계 필요).
 
 ## Next Steps (오픈소스 배포 우선순위)
 
