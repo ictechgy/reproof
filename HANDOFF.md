@@ -800,9 +800,9 @@ r69의 미완료 항목을 실기기에서 완결했다(`feature/ios-egress-isol
   지우므로(`shutil.rmtree(OUT)`) scope 마커(`6e8967bb…`, root `e54b5265`)는
   영구 고아가 된다 — `rotate-scope`도 open 가능한 owner가 없어 닿지 못한다.
   구 저널이 물리적으로 소멸해 live holder가 있을 수 없음을 확인하고 수동
-  제거(r68와 동일). **운영 갭**: 생성기가 저널을 지우는 케이스는
-  rotate-scope가 커버하지 못한다 — 별도 승인 경로 또는 생성기의 저널
-  보존이 필요하다.
+  제거(r68와 동일). **해소됨**: 생성기가 `journal-*`·`*-owner`·`patch/`를
+  스태시-복원하도록 수정 — 저널이 살아남으면 env 변경 시 owner가 open
+  가능해져 `rotate-scope`의 sanctioned 경로가 통한다(크래시 복구 경로 포함).
 - **노이즈 플로어 실측** — `netstat -I rvi0 -b`는 RVI가 탭 디바이스라 카운터가
   항상 0으로 나와 호스트 측 측정 불가. 대신 실주행의 `networkEvidence`
   델타가 곧 실측값: 유휴 윈도우 델타 **2,048B / 120,832B** (matched:
@@ -852,8 +852,9 @@ r69의 미완료 항목을 실기기에서 완결했다(`feature/ios-egress-isol
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
    ~~대상 앱 네트워크 격리~~는 r69 구현 + r70 실기기 수용으로 해소됐다
    (`verified` 유지 + `egress_violation` 실기기 도달). 잔여: Wi-Fi-off
-   모드 미검증, run 중 RVI attach 실패 원인, 생성기가 저널을 지울 때의
-   scope 마커 승인 경로(r70 운영 갭).
+   모드 미검증, run 중 RVI attach 실패 원인.
+   ~~생성기가 저널을 지워 scope 마커가 고아화되는 갭~~은 생성기의
+   상태 디렉토리 스태시-복원으로 해소됐다.
    ~~터널 홀드 watchdog~~·~~sanctioned 운영자 종결(close-run)~~·~~st_dev durable
    identity 바인딩~~·~~`environmentDigest` 대역 값~~·~~cleanup 기기 dispatch 구간
    계측~~·~~scope authority cutover(`ios-mobile rotate-scope`)~~은
@@ -884,6 +885,6 @@ r69의 미완료 항목을 실기기에서 완결했다(`feature/ios-egress-isol
 > 구현·실기기 수용됐다(`feature/ios-egress-isolation` 브랜치 — `verified`
 > 유지 + `egress_violation` 도달). 실기기 실행 전 observer-service.py 기동이
 > 필요하고, 다음 실주행은 QA-iPhone USB 연결·잠금 해제 후 run-issue-lifecycle.py로
-> 돌린다. config 재생성은 저널을 지우고 scope 마커를 고아로 만드니
-> 수동 제거가 필요하다(r70 운영 갭).
+> 돌린다. config 재생성은 이제 저널/owner/패치를 보존하고, env 변경 시
+> scope 마커는 `ios-mobile rotate-scope`로 cutover한다.
 > 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
