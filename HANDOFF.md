@@ -744,8 +744,11 @@ regression_failed·mobile_quarantined·candidate_mismatch)와 중단/복원력�
 실기기 증명됐다. ~~fixture-service 고아~~도 해소됐다 — 하니스가
 `REPRO_FIXTURE_LIVENESS_FD` 파이프를 넘기고 서비스의 감시 스레드가 EOF를
 보면 `os._exit`한다(runner SIGKILL 시뮬레이션으로 자체 종료 확인,
-liveness 미설정 시 정상 서빙 유지). 남은 코드 항목: 대상 앱 egress
-격리(정책 설계 필요).
+liveness 미설정 시 정상 서빙 유지). 대상 앱 egress 격리는
+`docs/IOS-EGRESS-ISOLATION.md`로 설계됐다 — unsupervised 기기는 선언적
+정책+기기 카운터(getifaddrs)+선택적 rvictl 캡처의 증명 계층이고, 강제
+차단은 supervised tier(D5 환경 전제)다. 구현과 기기 유휴 노이즈 플로어
+측정이 남았다.
 
 ## Next Steps (오픈소스 배포 우선순위)
 
@@ -774,7 +777,8 @@ liveness 미설정 시 정상 서빙 유지). 남은 코드 항목: 대상 앱 e
    r64 수정분은 `main`에 머지됐다.
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
-   대상 앱 자체 네트워크 트래픽 격리(별도 egress 정책 필요).
+   대상 앱 자체 네트워크 트래픽 격리(설계 완료 —
+   `docs/IOS-EGRESS-ISOLATION.md`, 구현 + 노이즈 플로어 실측 필요).
    ~~터널 홀드 watchdog~~·~~sanctioned 운영자 종결(close-run)~~·~~st_dev durable
    identity 바인딩~~·~~`environmentDigest` 대역 값~~·~~cleanup 기기 dispatch 구간
    계측~~·~~scope authority cutover(`ios-mobile rotate-scope`)~~은
