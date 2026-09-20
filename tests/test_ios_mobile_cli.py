@@ -214,6 +214,77 @@ class IOSMobilePreparationCLITests(unittest.TestCase):
         self.assertEqual((code, report['status']), (2, 'rejected'))
         self.assertEqual(self.fixture.runs.status(operation)['state'], 'quarantined')
 
+    def _plant_stale_marker(self, authority_root='f' * 64):
+        import hashlib
+        import tempfile
+        scope = self.fixture.operations.definition.scope_digest
+        key = hashlib.sha256(
+            ('protected-repair-mobile-device-' + scope).encode()).hexdigest()
+        directory = Path(tempfile.gettempdir()) / f'reproloop-leases-{os.getuid()}'
+        directory.mkdir(mode=0o700, exist_ok=True)
+        marker = directory / (key + '.authority.json')
+        marker.write_text(json.dumps(
+            {'version': 1, 'state': 'shared', 'authorityRoot': authority_root}) + '\n')
+        lock = directory / (key + '.lock')
+        lock.write_text('x')
+        self.addCleanup(lambda: marker.unlink(missing_ok=True))
+        self.addCleanup(lambda: lock.unlink(missing_ok=True))
+        return marker, lock
+
+    def test_rotate_scope_requires_confirmation_then_rotates(self):
+        code, report = self.command('close-run', '--config', str(self.path), '--operation',
+            self.fixture.context.operation_id, '--request-digest',
+            self.fixture.context.request_digest)
+        self.assertEqual((code, report['status']), (0, 'closed'))
+        stale = 'f' * 64
+        marker, lock = self._plant_stale_marker(stale)
+        code, report = self.command('rotate-scope', '--config', str(self.path))
+        self.assertEqual((code, report['status']), (0, 'confirmation-required'))
+        self.assertEqual((report['markerAuthorityRoot'], report['markerState']),
+                         (stale, 'shared'))
+        self.assertNotEqual(report['computedAuthorityRoot'], stale)
+        self.assertTrue(marker.exists())
+        code, report = self.command('rotate-scope', '--config', str(self.path),
+                                    '--expect-authority-root', '0' * 64)
+        self.assertEqual((code, report['status']), (2, 'rejected'))
+        self.assertTrue(marker.exists())
+        code, report = self.command('rotate-scope', '--config', str(self.path),
+                                    '--expect-authority-root', stale)
+        self.assertEqual((code, report['status']), (0, 'rotated'))
+        self.assertEqual(report['retiredAuthorityRoot'], stale)
+        self.assertFalse(marker.exists())
+        self.assertFalse(lock.exists())
+        code, report = self.command('rotate-scope', '--config', str(self.path))
+        self.assertEqual((code, report['status']), (0, 'already-current'))
+
+    def test_rotate_scope_refuses_a_busy_journal(self):
+        stale = 'e' * 64
+        marker, _lock = self._plant_stale_marker(stale)
+        code, report = self.command('rotate-scope', '--config', str(self.path),
+                                    '--expect-authority-root', stale)
+        self.assertEqual((code, report['status']), (2, 'rejected'))
+        self.assertEqual(report['error']['code'], 'ios_mobile_scope_busy')
+        self.assertTrue(marker.exists())
+
+    def test_rotate_scope_bootstrap_and_input_validation(self):
+        code, report = self.command('close-run', '--config', str(self.path), '--operation',
+            self.fixture.context.operation_id, '--request-digest',
+            self.fixture.context.request_digest)
+        self.assertEqual((code, report['status']), (0, 'closed'))
+        stale = 'd' * 64
+        self._plant_stale_marker(stale)
+        code, report = self.command('rotate-scope', '--config', str(self.path), '--owner',
+            str(self.fixture.operations.root), '--runs', str(self.fixture.runs.root),
+            '--udid', self.fixture.selected.udid)
+        self.assertEqual((code, report['status']), (2, 'rejected'))
+        code, report = self.command('rotate-scope')
+        self.assertEqual((code, report['status']), (2, 'rejected'))
+        code, report = self.command('rotate-scope',
+            '--owner', str(self.fixture.operations.root),
+            '--runs', str(self.fixture.runs.root), '--udid', self.fixture.selected.udid,
+            '--expect-authority-root', stale)
+        self.assertEqual((code, report['status']), (0, 'rotated'))
+
 
 if __name__ == '__main__':
     unittest.main()

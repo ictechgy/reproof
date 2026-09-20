@@ -9,7 +9,7 @@ import threading
 import time
 
 from . import contracts
-from .execution.journal import TERMINAL
+from .execution.journal import RunDenied, TERMINAL
 from .ios_mobile_configuration import load_ios_mobile_configuration
 
 
@@ -47,6 +47,19 @@ def _parser():
     close.add_argument('--device-clean', action='store_true',
         help='Attest that device-side cleanup was verified for a native-bound run')
     close.add_argument('--timeout-seconds', type=float, default=30)
+    rotate = commands.add_parser('rotate-scope',
+        help='Retire a stale scope authority marker after environment rotation')
+    rotate.add_argument('--config', type=Path,
+        help='Public reference exported by the original preparation owner')
+    rotate.add_argument('--owner', type=Path,
+        help='Owner root when no exported reference exists')
+    rotate.add_argument('--runs', type=Path,
+        help='RunStore root when no exported reference exists')
+    rotate.add_argument('--udid', help='Device UDID when no exported reference exists')
+    rotate.add_argument('--disk-budget-bytes', type=int, default=512 * 1024 ** 3)
+    rotate.add_argument('--expect-authority-root',
+        help='Marker value being retired; required to rotate a mismatch')
+    rotate.add_argument('--timeout-seconds', type=float, default=30)
     return parser
 
 
@@ -75,18 +88,21 @@ def _handlers(cancellation):
 def main(argv=None):
     args = _parser().parse_args(argv)
     report = {'schemaVersion': 1,
-        'kind': 'ios-mobile-run-close-v1' if args.action == 'close-run'
+        'kind': 'ios-mobile-scope-rotate-v1' if args.action == 'rotate-scope'
+        else 'ios-mobile-run-close-v1' if args.action == 'close-run'
         else 'ios-mobile-preparation-recovery-v1'}
     operations = None
     cancellation = threading.Event()
     previous = {}
     result = 2
     try:
-        contracts.validate_id(args.operation)
+        if args.action != 'rotate-scope':
+            contracts.validate_id(args.operation)
         if args.action in ('recover', 'close-run'):
             contracts.validate_digest(args.request_digest)
+        if args.action in ('recover', 'close-run', 'rotate-scope'):
             contracts.bounded_number(args.timeout_seconds, 'recovery timeout', 1, 120)
-        if args.action == 'close-run':
+        if args.action in ('close-run', 'rotate-scope'):
             bootstrap = args.owner is not None or args.runs is not None or args.udid is not None
             if args.config is not None and bootstrap:
                 raise ValueError('Choose either --config or --owner/--runs/--udid')
@@ -94,13 +110,36 @@ def main(argv=None):
                 raise ValueError('Bootstrap needs --owner, --runs and --udid together')
             if args.config is None and not bootstrap:
                 raise ValueError('Either --config or --owner/--runs/--udid is required')
+        if args.action == 'rotate-scope' and args.expect_authority_root is not None:
+            contracts.validate_digest(args.expect_authority_root)
         previous = _handlers(cancellation)
-        if args.action == 'close-run' and args.config is None:
+        if args.action in ('close-run', 'rotate-scope') and args.config is None:
             operations = _open_bootstrap(args.owner, args.runs, args.udid,
                 args.disk_budget_bytes)
         else:
             configuration = load_ios_mobile_configuration(args.config)
             operations = configuration.open_existing()
+        if args.action == 'rotate-scope':
+            from .ios_mobile_authority import (inspect_scope_authority,
+                rotate_scope_authority)
+            deadline = time.monotonic() + args.timeout_seconds
+            view = inspect_scope_authority(operations, cancellation=cancellation,
+                deadline_monotonic=deadline)
+            if view['markerAuthorityRoot'] in (None, view['computedAuthorityRoot']):
+                report.update(status='already-current', **view)
+            elif args.expect_authority_root is None:
+                report.update(status='confirmation-required', **view)
+            else:
+                try:
+                    out = rotate_scope_authority(operations,
+                        expected_authority_root=args.expect_authority_root,
+                        cancellation=cancellation, deadline_monotonic=deadline)
+                except RunDenied:
+                    report.update(status='rejected', **view,
+                        error={'code': 'ios_mobile_scope_busy',
+                               'message': 'Journal has non-terminal runs; close them first'})
+                else:
+                    report.update(status='rotated', **out)
         if args.action == 'close-run':
             from .ios_mobile_close import close_run
             row = operations.run_store.status(args.operation)
@@ -115,11 +154,11 @@ def main(argv=None):
                     deadline_monotonic=time.monotonic() + args.timeout_seconds)
                 report.update(status='closed', operationId=args.operation,
                     state=row['state'], reservedBytes=row['reservedBytes'])
-        else:
+        elif args.action != 'rotate-scope':
             observed = operations.status(args.operation)
         if args.action == 'status':
             report.update(status='observed', operation=observed)
-        elif args.action == 'close-run':
+        elif args.action in ('close-run', 'rotate-scope'):
             pass
         elif observed['requestDigest'] != args.request_digest:
             raise ValueError('original request required')
