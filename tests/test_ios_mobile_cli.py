@@ -146,6 +146,74 @@ class IOSMobilePreparationCLITests(unittest.TestCase):
         self.assertEqual(report['status'], 'interrupted')
         self.assertGreater(self.fixture.runs.status(self.fixture.context.operation_id)['reservedBytes'], 0)
 
+    def test_close_run_closes_a_quarantined_run_and_reports_terminal(self):
+        operation = self.fixture.context.operation_id
+        digest = self.fixture.context.request_digest
+        code, report = self.command('close-run', '--config', str(self.path), '--operation',
+                                    operation, '--request-digest', digest)
+        self.assertEqual(code, 0)
+        self.assertEqual((report['status'], report['state'], report['reservedBytes']),
+                         ('closed', 'failed', 0))
+        row = self.fixture.runs.status(operation)
+        self.assertEqual((row['state'], row['reservedBytes']), ('failed', 0))
+        self.assertFalse((self.fixture.operations.root / 'operations' / operation).exists())
+        self.assertFalse((self.fixture.runs.root / 'runs' / operation).exists())
+        code, report = self.command('close-run', '--config', str(self.path), '--operation',
+                                    operation, '--request-digest', digest)
+        self.assertEqual((code, report['status']), (0, 'already-terminal'))
+
+    def test_close_run_attests_device_cleanup_for_native_bound_runs(self):
+        from reproloop.execution.wire import canonical
+        operation = self.fixture.context.operation_id
+        digest = self.fixture.context.request_digest
+        root = self.fixture.operations.root / 'operations' / operation
+        state = json.loads((root / 'state.json').read_bytes())
+        state['nativeBindingDigest'] = 'a' * 64
+        (root / 'state.json').write_bytes(canonical(state))
+        (root / 'native.json').write_bytes(canonical({'schemaVersion': 1, 'kind': 'forged'}))
+        code, report = self.command('close-run', '--config', str(self.path), '--operation',
+                                    operation, '--request-digest', digest)
+        self.assertEqual((code, report['status']), (2, 'rejected'))
+        self.assertTrue(root.exists())
+        code, report = self.command('close-run', '--config', str(self.path), '--operation',
+                                    operation, '--request-digest', digest, '--device-clean')
+        self.assertEqual((code, report['status']), (0, 'closed'))
+        self.assertFalse(root.exists())
+
+    def test_close_run_bootstrap_reopens_owner_without_a_reference(self):
+        code, report = self.command('close-run', '--owner', str(self.fixture.operations.root),
+            '--runs', str(self.fixture.runs.root), '--udid', self.fixture.selected.udid,
+            '--operation', self.fixture.context.operation_id,
+            '--request-digest', self.fixture.context.request_digest)
+        self.assertEqual((code, report['status']), (0, 'closed'))
+
+    def test_close_run_refuses_an_unknown_run_hold(self):
+        operation = self.fixture.context.operation_id
+        run = self.fixture.runs.root / 'runs' / operation
+        run.mkdir(mode=0o700, exist_ok=True)
+        (run / 'foreign.bin').write_bytes(b'foreign')
+        code, report = self.command('close-run', '--config', str(self.path), '--operation',
+                                    operation, '--request-digest', self.fixture.context.request_digest)
+        self.assertEqual((code, report['status']), (2, 'rejected'))
+        self.assertTrue((self.fixture.operations.root / 'operations' / operation).exists())
+        self.assertEqual(self.fixture.runs.status(operation)['state'], 'quarantined')
+
+    def test_close_run_rejects_mixed_or_missing_owner_inputs(self):
+        operation = self.fixture.context.operation_id
+        digest = self.fixture.context.request_digest
+        code, report = self.command('close-run', '--config', str(self.path), '--owner',
+            str(self.fixture.operations.root), '--runs', str(self.fixture.runs.root),
+            '--udid', self.fixture.selected.udid, '--operation', operation,
+            '--request-digest', digest)
+        self.assertEqual((code, report['status']), (2, 'rejected'))
+        code, report = self.command('close-run', '--operation', operation,
+                                    '--request-digest', digest)
+        self.assertEqual((code, report['status']), (2, 'rejected'))
+        code, report = self.command('close-run', '--config', str(self.path), '--operation',
+                                    operation, '--request-digest', '0' * 64)
+        self.assertEqual((code, report['status']), (2, 'rejected'))
+        self.assertEqual(self.fixture.runs.status(operation)['state'], 'quarantined')
+
 
 if __name__ == '__main__':
     unittest.main()
