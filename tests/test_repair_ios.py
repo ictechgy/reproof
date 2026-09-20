@@ -99,6 +99,17 @@ class IOSServiceAdapterTests(unittest.TestCase):
         self.assertTrue(cleaned.fixture_cleanup_confirmed, cleaned)
         self.assertTrue(cleaned.sanitation_confirmed, cleaned)
         self.assertTrue(cleaned.ownership_released, cleaned)
+        timing = adapter.cleanup_timing
+        self.assertIsNotNone(timing)
+        self.assertEqual([entry['step'] for entry in timing],
+            ['fixture-verify', 'restore-original-install', 'original-sanitation',
+             'post-sanitation-settled', 'native-disposal', 'native-close', 'scope-release'])
+        self.assertTrue(all(entry['elapsedMs'] >= 0 for entry in timing))
+        sanitation = next(entry for entry in timing if entry['step'] == 'original-sanitation')
+        self.assertEqual([entry['step'] for entry in sanitation['segments']],
+            ['xctest-prepare', 'session-start', 'helper-handshake', 'helper-activate',
+             'initial-observation', 'cleanup-command', 'cleanup-observation',
+             'reader-close', 'helper-shutdown', 'runner-close'])
         self.assertEqual(self.fixture.stage_path.read_text(), "cleanup")
         self.assertEqual(self.fixture.env.lab.list_devices()[0]["state"], "available")
         self.assertGreaterEqual(len(self.fixture.doubles), 4)

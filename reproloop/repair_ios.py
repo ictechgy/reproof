@@ -1,5 +1,6 @@
 """Fixed iOS protected install, retained replay, and measured app cleanup."""
 from contextlib import contextmanager
+import copy
 from dataclasses import replace
 import hashlib
 import threading
@@ -40,6 +41,20 @@ class _OwnerCancellation(CallbackCancellation):
     def is_set(self):return self._owner_stopping.is_set() or super().is_set()
 
 
+@contextmanager
+def _segment(sink, name):
+    """cleanup 기기 dispatch 구간의 경과 시간을 기록한다.
+
+    실패해도 그때까지의 경과는 남는다 — 계측이 cleanup의 안전 결정을 바꾸지 않는다.
+    """
+    entry={'step':name}
+    start=time.monotonic()
+    try:yield entry
+    finally:
+        entry['elapsedMs']=round((time.monotonic()-start)*1000,1)
+        sink.append(entry)
+
+
 class IOSTrustedMobileAdapter:
     def __init__(self, config, *, operations):
         _require(type(config) is IOSMobileInputsConfig and type(operations) is IOSMobileOperationStore)
@@ -52,6 +67,12 @@ class IOSTrustedMobileAdapter:
         self._context=None;self._scope=None;self._native=None;self._native_manager=None;self._coordinator=None
         self._candidate_profile=None;self._candidate_identity=None;self._installed=False
         self._issues={};self._completed=set();self._service_unknown=False
+        self._cleanup_timing=None
+
+    @property
+    def cleanup_timing(self):
+        """가장 최근 cleanup의 구간별 경과 기록. 아직 cleanup이 없으면 None."""
+        return None if self._cleanup_timing is None else copy.deepcopy(self._cleanup_timing)
 
     def trusted_adapter(self, *, adapter_id):
         return TrustedMobileAdapter(adapter_id,self.config.scope_digest,self.config.device_id,
@@ -225,36 +246,46 @@ class IOSTrustedMobileAdapter:
                 for record in (self.config.service.get(identifier) for identifier in self._issues.values()))
         except Exception:return False
 
-    def _sanitize_original(self, identity, cancellation, deadline):
+    def _sanitize_original(self, identity, cancellation, deadline, sink):
         runner=IOSXCTestRunner(self.config.xctest,self.config.query,self._native)
         reader=None
         try:
             profile=self.config.original_profile
-            launch=runner.prepare(role='original',iteration=1,application_id=self.config.application_id,
-                profile_digest=profile.digest,actions=tuple(profile.data['capabilities']['actions']),
-                cancellation=cancellation,deadline_monotonic=deadline)
+            with _segment(sink,'xctest-prepare'):
+                launch=runner.prepare(role='original',iteration=1,application_id=self.config.application_id,
+                    profile_digest=profile.digest,actions=tuple(profile.data['capabilities']['actions']),
+                    cancellation=cancellation,deadline_monotonic=deadline)
             provider=launch.payload['providerIncarnation']
-            startup=self._permit('original_sanitation_start',launch.payload,provider)
-            session=runner.start(launch,permit=startup,cancellation=cancellation,deadline_monotonic=deadline)
+            with _segment(sink,'session-start'):
+                startup=self._permit('original_sanitation_start',launch.payload,provider)
+                session=runner.start(launch,permit=startup,cancellation=cancellation,deadline_monotonic=deadline)
             helper=IOSHelperChannel(session)
-            helper.handshake(startup,cancellation=cancellation,deadline_monotonic=deadline)
-            helper.activate(startup,identity,cancellation=cancellation,deadline_monotonic=deadline)
+            with _segment(sink,'helper-handshake'):
+                helper.handshake(startup,cancellation=cancellation,deadline_monotonic=deadline)
+            with _segment(sink,'helper-activate'):
+                helper.activate(startup,identity,cancellation=cancellation,deadline_monotonic=deadline)
             reader=self.config.query.open_runtime_reader(native_owner=self._native)
-            initial=reader.read(launch,cancellation=cancellation,deadline_monotonic=deadline)
+            with _segment(sink,'initial-observation'):
+                initial=reader.read(launch,cancellation=cancellation,deadline_monotonic=deadline)
             self._confirm(startup,initial.public())
-            cleanup=self._permit('original_sanitation_cleanup',command_payload('cleanup',{}),provider)
-            helper.command('cleanup',{},cleanup,cancellation=cancellation,deadline_monotonic=deadline)
-            observed=reader.read(launch,stage='cleanup',cancellation=cancellation,deadline_monotonic=deadline)
-            _require(reader.close(deadline_monotonic=deadline),'mobile_quarantined');reader=None
-            result=helper.shutdown(cleanup,cancellation=cancellation,deadline_monotonic=deadline)
-            _require(result.get('ok') is True and result['target']['terminationConfirmed']
-                and result['helper']['terminationConfirmed'] and result['host']['terminated'],'mobile_quarantined')
-            self._confirm(cleanup,{'native':result,'sanitation':observed.public()})
-            self._native.device.confirm_native_cleanup(cleanup)
+            with _segment(sink,'cleanup-command'):
+                cleanup=self._permit('original_sanitation_cleanup',command_payload('cleanup',{}),provider)
+                helper.command('cleanup',{},cleanup,cancellation=cancellation,deadline_monotonic=deadline)
+            with _segment(sink,'cleanup-observation'):
+                observed=reader.read(launch,stage='cleanup',cancellation=cancellation,deadline_monotonic=deadline)
+            with _segment(sink,'reader-close'):
+                _require(reader.close(deadline_monotonic=deadline),'mobile_quarantined');reader=None
+            with _segment(sink,'helper-shutdown'):
+                result=helper.shutdown(cleanup,cancellation=cancellation,deadline_monotonic=deadline)
+                _require(result.get('ok') is True and result['target']['terminationConfirmed']
+                    and result['helper']['terminationConfirmed'] and result['host']['terminated'],'mobile_quarantined')
+                self._confirm(cleanup,{'native':result,'sanitation':observed.public()})
+                self._native.device.confirm_native_cleanup(cleanup)
             return observed
         finally:
             if reader is not None:reader.close(deadline_monotonic=deadline)
-            _require(runner.close(deadline_monotonic=deadline),'mobile_quarantined')
+            with _segment(sink,'runner-close'):
+                _require(runner.close(deadline_monotonic=deadline),'mobile_quarantined')
 
     def _close_native(self):
         if self._coordinator is not None:
@@ -281,26 +312,36 @@ class IOSTrustedMobileAdapter:
     def cleanup(self, context, *, cancellation, deadline_monotonic):
         _require(type(context) is MobileContext,'mobile_policy_mismatch')
         evidence={'processes':False,'fixtures':False,'sanitation':False,'scopeReleased':False}
+        timing=[]
+        self._cleanup_timing=timing
         try:
             with self._callback(context,'cleanup'):
                 _active(cancellation,deadline_monotonic)
                 _require(self._native is not None and self._coordinator is not None and not self._service_unknown,'mobile_quarantined')
                 self._coordinator.request_cleanup(context._operation_binding)
                 with self._coordinator.callback(context._operation_binding,'cleanup') as token:
-                    evidence['fixtures']=self._issues_clean()
-                    _require(evidence['fixtures'] and self._settled(),'mobile_quarantined')
-                    identity=self._install('restore-original',cancellation,deadline_monotonic)
-                    sanitation=self._sanitize_original(identity,cancellation,deadline_monotonic)
+                    with _segment(timing,'fixture-verify'):
+                        evidence['fixtures']=self._issues_clean()
+                        _require(evidence['fixtures'] and self._settled(),'mobile_quarantined')
+                    with _segment(timing,'restore-original-install'):
+                        identity=self._install('restore-original',cancellation,deadline_monotonic)
+                    with _segment(timing,'original-sanitation') as span:
+                        span['segments']=sub=[]
+                        sanitation=self._sanitize_original(identity,cancellation,deadline_monotonic,sub)
                     evidence['sanitation']=True;evidence['sanitationEvidenceDigest']=sanitation.evidence_digest
-                    evidence['processes']=self._settled()
-                    _require(evidence['processes'],'mobile_quarantined')
-                    disposal=discard_native_staged(self._native,token,cancellation=cancellation,deadline_monotonic=deadline_monotonic)
-                    self.operations.run_store.consume_ios_native_disposal(self._native,token,sanitation,disposal,
-                        cancellation=cancellation,deadline_monotonic=deadline_monotonic)
-                    evidence['disposalDigest']=disposal
-                    token.complete(contracts.digest(evidence))
-                self._close_native()
-                self.config.service.release_retained_device_scope(self._scope,owner=self.config.owner)
+                    with _segment(timing,'post-sanitation-settled'):
+                        evidence['processes']=self._settled()
+                        _require(evidence['processes'],'mobile_quarantined')
+                    with _segment(timing,'native-disposal'):
+                        disposal=discard_native_staged(self._native,token,cancellation=cancellation,deadline_monotonic=deadline_monotonic)
+                        self.operations.run_store.consume_ios_native_disposal(self._native,token,sanitation,disposal,
+                            cancellation=cancellation,deadline_monotonic=deadline_monotonic)
+                        evidence['disposalDigest']=disposal
+                        token.complete(contracts.digest(evidence))
+                with _segment(timing,'native-close'):
+                    self._close_native()
+                with _segment(timing,'scope-release'):
+                    self.config.service.release_retained_device_scope(self._scope,owner=self.config.owner)
                 evidence['scopeReleased']=True
                 with self._changed:
                     self._completed.add(context.digest);self._context=None;self._scope=None
