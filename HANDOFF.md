@@ -880,9 +880,16 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
 - **정리 확인** — mobile 저널 전 run 종결(non-terminal 0), 기기에
   ProductAppIOS 프로세스 없음, 원본 앱 복원, fixture/observer 서브프로세스
   종료, `git diff --check` clean.
-- **미검증/잔여** — pcap 실질 캡처는 root 권한 또는 다른 캡처 경로 필요.
-  Wi-Fi-off 모드 미검증. `live-ios/Tests/LiveControlTests.swift`의
-  `testExternalObservation` 추가분은 main에 미커밋 상태로 남김.
+- **미검증/잔여** — pcap 실질 캡처는 불가 확정: `/dev/bpf*`가
+  `crw------- root:wheel`이고 tcpdump 비-setuid라 sudo/ChmodBPF 없이는
+  안 된다(주 계측은 기기 카운터라 판정 영향 없음). Wi-Fi-off 모드 미검증.
+  연속 주행에서 1회 `mobile_quarantined`(repair_9122193b) 관찰 —
+  observer 로그에 요청 도달 없음 + `afterEvidence: null`이므로
+  격리는 관찰 이전 단계(설치/검증 바인딩)로 추정, 기기 settling 경합
+  유력. 하니스가 비정상 종결 시 `repair.diagnostic`(attempt 사유·도달
+  실행 단계·evidence 유무)을 보고하도록 보강해 다음 재현은 자가 진단된다.
+  02:14 run 이후 QA-iPhone이 `unavailable`로 분리됨 — 실주행 재개 전
+  재연결·잠금 해제 필요.
 
 ## Next Steps (오픈소스 배포 우선순위)
 
