@@ -270,6 +270,56 @@ final class LiveControlTests: XCTestCase {
         }
     }
 
+    /// 독립 검증 관찰용 일반 시나리오. 환경 변수로 지정된 대상 앱을 실행하고
+    /// 버튼을 탭한 뒤 화면 텍스트를 분류한다. 관찰값은 XCTAssertEqual 실패
+    /// 메시지 채널로만 보고한다 — 실패가 곧 "수정됨" 관찰이다.
+    func testExternalObservation() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["REPRO_OBSERVE_SCENARIO"] == "1",
+              let bundle = environment["REPRO_OBSERVE_BUNDLE"],
+              let expected = environment["REPRO_OBSERVE_EXPECT_TEXT"],
+              let defect = environment["REPRO_OBSERVE_DEFECT_TEXT"] else {
+            throw XCTSkip("external observation scenario only")
+        }
+        let settle = TimeInterval(environment["REPRO_OBSERVE_SETTLE"].flatMap(Double.init) ?? 5)
+        let timeout = TimeInterval(environment["REPRO_OBSERVE_WAIT"].flatMap(Double.init) ?? 30)
+        let application = XCUIApplication(bundleIdentifier: bundle)
+        defer { application.terminate() }
+        application.launch()
+        guard application.wait(for: .runningForeground, timeout: 15) else {
+            XCTAssertEqual("unreachable", "defect")
+            return
+        }
+        if let tapIdentifier = environment["REPRO_OBSERVE_TAP_ID"] {
+            let control = application.buttons[tapIdentifier].firstMatch
+            guard control.waitForExistence(timeout: 15) else {
+                XCTAssertEqual("unreachable", "defect")
+                return
+            }
+            control.tap()
+        }
+        // 승인된 시나리오와 같은 의미론: 탭 후 정착 시간을 기다린 뒤 판별한다.
+        Thread.sleep(forTimeInterval: settle)
+        let deadline = Date().addingTimeInterval(timeout)
+        let expectedQuery = application.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", expected))
+        let defectQuery = application.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", defect))
+        var observed = "unobserved"
+        while Date() < deadline {
+            if expectedQuery.firstMatch.exists {
+                observed = "fixed"
+                break
+            }
+            if defectQuery.firstMatch.exists {
+                observed = "defect"
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertEqual(observed, "defect")
+    }
+
     func testControlSession() {
         guard let bridge = makeBridge() else {
             XCTFail("bridge_configuration_invalid")
@@ -683,13 +733,25 @@ final class LiveControlTests: XCTestCase {
 
     private func sendFrame(using bridge: LiveBridge) throws {
         try bridge.synchronizeClock()
-        let captureStartMs = nativeContinuousTimeMS()
-        let screenshot = XCUIScreen.main.screenshot()
-        let captureEndMs = nativeContinuousTimeMS()
-        let image = screenshot.image
-        guard let cgImage = image.cgImage,
-              let jpeg = image.jpegData(compressionQuality: 0.5) else {
-            throw BridgeFailure.captureFailed
+        // 포어그라운드 전환 직후 스크린샷 파이프라인이 cgImage/jpegData 없는
+        // 이미지를 반환할 수 있다 — 일시적 캡처 공백을 세션 실패로 승격하지 않도록
+        // 한정된 윈도우 안에서만 재시도한다.
+        let captureDeadline = Date().addingTimeInterval(5)
+        var image: UIImage?
+        var captureStartMs: Int64 = 0
+        var captureEndMs: Int64 = 0
+        while true {
+            captureStartMs = nativeContinuousTimeMS()
+            let screenshot = XCUIScreen.main.screenshot()
+            captureEndMs = nativeContinuousTimeMS()
+            image = screenshot.image
+            if image?.cgImage != nil, image?.jpegData(compressionQuality: 0.5) != nil { break }
+            guard Date() < captureDeadline else { throw BridgeFailure.captureFailed("retry_exhausted") }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        guard let cgImage = image?.cgImage, let unwrapped = image,
+              let jpeg = unwrapped.jpegData(compressionQuality: 0.5) else {
+            throw BridgeFailure.captureFailed("guard_after_loop")
         }
 
         let width = cgImage.width
@@ -699,8 +761,8 @@ final class LiveControlTests: XCTestCase {
             imageBase64: jpeg.base64EncodedString(),
             width: width,
             height: height,
-            logicalWidth: Int(image.size.width.rounded()),
-            logicalHeight: Int(image.size.height.rounded()),
+            logicalWidth: Int(unwrapped.size.width.rounded()),
+            logicalHeight: Int(unwrapped.size.height.rounded()),
             orientation: orientation,
             capturedAt: Int64(Date().timeIntervalSince1970 * 1000),
             nativeTiming: NativeAuthorityContext.shared.enabled
@@ -1027,7 +1089,7 @@ private enum BridgeFailure: Error {
     case requestFailed
     case serverReturnedError
     case invalidResponse
-    case captureFailed
+    case captureFailed(String)
 
     var safeCode: String {
         switch self {
@@ -1036,7 +1098,7 @@ private enum BridgeFailure: Error {
         case .requestFailed: return "bridge_request_failed"
         case .serverReturnedError: return "bridge_server_error"
         case .invalidResponse: return "bridge_invalid_response"
-        case .captureFailed: return "frame_capture_failed"
+        case .captureFailed(let detail): return "frame_capture_failed:" + detail
         }
     }
 }
@@ -1702,7 +1764,7 @@ private final class NativeHTTPBridge: LiveBridge {
               imageData.count <= Self.maxFrameBytes,
               width > 0, width <= 10_000,
               height > 0, height <= 10_000 else {
-            throw BridgeFailure.captureFailed
+            throw BridgeFailure.captureFailed("args_b64:\(imageBase64.count)_img:\(Data(base64Encoded: imageBase64)?.count ?? -1)_w:\(width)_h:\(height)")
         }
         let authority = NativeAuthorityContext.shared
         if authority.enabled {
@@ -1734,15 +1796,19 @@ private final class NativeHTTPBridge: LiveBridge {
         if authority.enabled, let nativeTiming {
             payload["nativeTiming"] = nativeTiming.wireObject
         }
-        guard JSONSerialization.isValidJSONObject(payload),
-              let encoded = try? JSONSerialization.data(withJSONObject: payload, options: []),
+        // base64의 '/'가 JSON \/ 이스케이프로 부풀면 헤더 상한을 넘는다 —
+        // 인코딩은 슬래시 이스케이프 없이 생성해 봉투 오버헤드만 상한이 가린다.
+        let validJSON = JSONSerialization.isValidJSONObject(payload)
+        let encodedOpt = try? JSONSerialization.data(withJSONObject: payload,
+                                                     options: [.withoutEscapingSlashes])
+        guard validJSON, let encoded = encodedOpt,
               encoded.count <= Self.maxFrameHeaderBytes + imageBase64.count else {
-            throw BridgeFailure.captureFailed
+            throw BridgeFailure.captureFailed("encode_v:\(validJSON)_enc:\(encodedOpt?.count ?? -1)_b64:\(imageBase64.count)")
         }
         state.lock()
         guard frameBuffer.append(id: nativeFrameID, body: encoded) else {
             state.unlock()
-            throw BridgeFailure.captureFailed
+            throw BridgeFailure.captureFailed("buffer")
         }
         latestFrame = encoded
         state.unlock()
