@@ -884,10 +884,17 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
 - **정리 확인** — mobile 저널 전 run 종결(non-terminal 0), 기기에
   ProductAppIOS 프로세스 없음, 원본 앱 복원, fixture/observer 서브프로세스
   종료, `git diff --check` clean.
+- **Wi-Fi-off(cellular-only) 모드 검증 완료** — 기기 Wi-Fi를 수동으로 끈 상태에서
+  양방향 주행을 재증명했다(제어/관찰은 USB+devicectl 경로라 영향 없음):
+  `lifecycle-wifioff.json` = `repair_d931fb82…` **`verified`**(replay 3/3
+  observed, egress delta 26,624B/34,816B pass, trace 13.8MB),
+  `lifecycle-wifioff-egress.json` = `repair_3dc4d6cc…` **`egress_violation`**
+  (delta 8,214,528B — `pdp_ip*` 셀룰러 인터페이스에서 검출, trace 11.3MB).
+  첫 Wi-Fi-off run은 replay `unknown` 1회로 `baseline_unqualified` fail-closed
+  했으나 동일 조건 재주행이 3/3 observed로 통과해 일회성 flake로 확정.
+  보존: `lifecycle-wifioff.trace`, `lifecycle-wifioff-egress.trace`.
 - **미검증/잔여** — pcap 패킷 캡처는 root 전용(`/dev/bpf*`)이라 불가이나
   xctrace 기기 측 캡처로 대체 증거를 확보했다(네트워크 캡처 항목 참고).
-  Wi-Fi-off 모드 미검증 — 기기 Wi-Fi를 수동으로 끈 상태의 주행이 필요
-  (devicectl/XCTest로 토글 불가).
   연속 주행에서 1회 `mobile_quarantined`(repair_9122193b) 관찰 —
   observer 로그에 요청 도달 없음 + `afterEvidence: null`이므로
   격리는 관찰 이전 단계(설치/검증 바인딩)로 추정, 기기 settling 경합
@@ -923,8 +930,9 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
 4. **runner 추가 보강(선택)** — r53 비터널 도달·외부 `/activate` 거절과 r58의 cleanup 단계 schema-2
    영수증·동시 writer 부재(실기기 scope 저널 레이어, 44 probe 통과)는 실측됐다. 남은 항목:
    ~~대상 앱 네트워크 격리~~는 r69 구현 + r70 실기기 수용으로 해소됐다
-   (`verified` 유지 + `egress_violation` 실기기 도달). 잔여: Wi-Fi-off
-   모드 미검증, run 중 RVI attach 실패 원인.
+   (`verified` 유지 + `egress_violation` 실기기 도달). ~~Wi-Fi-off 모드~~는
+   d7에서 cellular-only 양방향(verified + egress_violation)으로 해소됐다.
+   잔여: run 중 RVI attach 실패 원인(현재는 정상 attach).
    ~~생성기가 저널을 지워 scope 마커가 고아화되는 갭~~은 생성기의
    상태 디렉토리 스태시-복원으로 해소됐다.
    ~~터널 홀드 watchdog~~·~~sanctioned 운영자 종결(close-run)~~·~~st_dev durable
