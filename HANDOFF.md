@@ -886,21 +886,24 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
   종료, `git diff --check` clean.
 - **Wi-Fi-off(cellular-only) 모드 검증 완료** — 기기 Wi-Fi를 수동으로 끈 상태에서
   양방향 주행을 재증명했다(제어/관찰은 USB+devicectl 경로라 영향 없음):
-  `lifecycle-wifioff.json` = `repair_d931fb82…` **`verified`**(replay 3/3
-  observed, egress delta 26,624B/34,816B pass, trace 13.8MB),
+  `lifecycle-wifioff.json` = `repair_fee4ae02…` **`verified`**(replay 3/3
+  observed, egress delta 0B/1,024B pass, trace 14.8MB),
   `lifecycle-wifioff-egress.json` = `repair_3dc4d6cc…` **`egress_violation`**
   (delta 8,214,528B — `pdp_ip*` 셀룰러 인터페이스에서 검출, trace 11.3MB).
-  첫 Wi-Fi-off run은 replay `unknown` 1회로 `baseline_unqualified` fail-closed
-  했으나 동일 조건 재주행이 3/3 observed로 통과해 일회성 flake로 확정.
   보존: `lifecycle-wifioff.trace`, `lifecycle-wifioff-egress.trace`.
-- **미검증/잔여** — pcap 패킷 캡처는 root 전용(`/dev/bpf*`)이라 불가이나
-  xctrace 기기 측 캡처로 대체 증거를 확보했다(네트워크 캡처 항목 참고).
-  연속 주행에서 1회 `mobile_quarantined`(repair_9122193b) 관찰 —
-  observer 로그에 요청 도달 없음 + `afterEvidence: null`이므로
-  격리는 관찰 이전 단계(설치/검증 바인딩)로 추정, 기기 settling 경합
-  유력. 하니스가 비정상 종결 시 `repair.diagnostic`(attempt 사유·도달
-  실행 단계·evidence 유무)을 보고하도록 보강해 다음 재현은 자가 진단된다 —
-  9/22 재연결 후 egress run에서 diagnostic 경로 검증됨.
+- **quarantine flake 근본 원인 확정·수정** — 첫 Wi-Fi-off run의 격리는
+  fixture `check`가 attempt teardown 직후 아직 종료 진행 중인 앱 프로세스를
+  단발 조회로 잔류 오판한 경합이었다(`devicectl terminate`는 비동기).
+  `fixture-service.py`에 `settle_absent()` bounded 폴링(최대 8s, 0.8s 간격)을
+  check/prepare/cleanup 재검증에 적용 — 창을 넘는 잔류는 여전히 `failed`로
+  fail-closed 유지. 수정 후 재주행(`repair_fee4ae02`)은 7세대 21회 fixture
+  op 전부 `complete`로 완주해 경합 흡수를 검증했다.
+- **미검증/잔여** — pcap 패킷 캡처는 root 전용(`/dev/bpf*`, 무패스워드 sudo·
+  ChmodBPF 부재 확인)이라 불가이나 xctrace 기기 측 캡처로 대체 증거를
+  확보했다(네트워크 캡처 항목 참고). 이전 quarantine(repair_9122193b)도
+  observer 로그에 요청 도달 없음 + `afterEvidence: null`이므로 동일 계열의
+  관찰 이전 단계 격리로 추정 — `repair.diagnostic`(attempt 사유·도달 실행
+  단계·evidence 유무)이 비정상 종결을 자가 진단한다.
 
 ## Next Steps (오픈소스 배포 우선순위)
 
