@@ -857,22 +857,25 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
   `testExternalObservation()`(번들/탭 식별자/기대·결함 문구를 env로 주입,
   scan 완료 후 텍스트로 fixed/defect 판별). 하니스가 fixture와 함께
   기동·종료한다.
-- **정상 run** — `repair_cc926e0a…`(lifecycle.json): qualification→
+- **정상 run** — `repair_b65b30cb…`(lifecycle.json): qualification→
   record(complete)→approve→replay `reproduced`(3 attempts, 전부
   observed)→repair **`verified`**. observer 독립 관찰 `pass`(observed
-  `["fixed"]`), egressMeasurement 2건 `pass`(delta 52,224B / 173,056B,
+  `["fixed"]`), egressMeasurement 2건 `pass`(delta 1,024B / 0B,
   floor 1MiB, policyDigest `ed8ee0d3…` 일치). 이전 verified run
-  (`repair_b6a636dd…`, `repair_3ca9706b…`, `repair_bbfba173…`)도 동일 결과.
-- **위반 run** — `repair_4daeb638…`(lifecycle-egress.json): egress 패치가
+  (`repair_cc926e0a…`, `repair_b6a636dd…`)도 동일 결과.
+- **위반 run** — `repair_d5879b11…`(lifecycle-egress.json): egress 패치가
   fix + `appCacheCandidateReview` onAppear의 URLSession 다운로드
-  (speed.cloudflare.com 2MB×N) 주입 → `deltaBytes 9,156,608` > floor →
+  (speed.cloudflare.com 2MB×N) 주입 → `deltaBytes 8,849,408` > floor →
   **`failed` + `egress_violation`**, measurement `verdict: violation`.
   기능 수정은 observer가 pass로 확인하고 egress로만 거절 — 격리된
   fail-closed. `repair.diagnostic`이 도달 단계(build→signing→validation→
   candidateBuild→attempts)를 함께 기록한다.
-- **RVI** — `rvi0` attach/detach 정상(두 run 모두 `mode: attached`,
-  `detached: true`). pcap은 위 5번 사유로 `empty-capture` — 주 계측은
-  기기 측 바이트 카운터이므로 판정 영향 없음.
+- **네트워크 캡처** — `rvi0` attach/detach 정상. BPF는 root 전용이라
+  tcpdump는 불가(`pcapReason: bpf-permission-denied`)하지만
+  **xctrace Network 템플릿으로 root 없는 기기 측 캡처를 확보**했다 —
+  두 run 모두 `mode: captured`, `.trace` 번들 실측 13.2MB(위반)/
+  14.7MB(정상)이며 `ProductAppIOS` 프로세스가 47회 기록됨.
+  보존: `lifecycle-egress.trace`, `lifecycle.trace`.
 - **stale 상태 복구**(config 재생성 연쇄) — signing scope 마커·mobile
   scope 마커(`ios-mobile rotate-scope` sanctioned)·host-build lease
   마커·signing owner의 구 definition 핀을 각각 전종결 검증 후
@@ -881,9 +884,10 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
 - **정리 확인** — mobile 저널 전 run 종결(non-terminal 0), 기기에
   ProductAppIOS 프로세스 없음, 원본 앱 복원, fixture/observer 서브프로세스
   종료, `git diff --check` clean.
-- **미검증/잔여** — pcap 실질 캡처는 불가 확정: `/dev/bpf*`가
-  `crw------- root:wheel`이고 tcpdump 비-setuid라 sudo/ChmodBPF 없이는
-  안 된다(주 계측은 기기 카운터라 판정 영향 없음). Wi-Fi-off 모드 미검증.
+- **미검증/잔여** — pcap 패킷 캡처는 root 전용(`/dev/bpf*`)이라 불가이나
+  xctrace 기기 측 캡처로 대체 증거를 확보했다(네트워크 캡처 항목 참고).
+  Wi-Fi-off 모드 미검증 — 기기 Wi-Fi를 수동으로 끈 상태의 주행이 필요
+  (devicectl/XCTest로 토글 불가).
   연속 주행에서 1회 `mobile_quarantined`(repair_9122193b) 관찰 —
   observer 로그에 요청 도달 없음 + `afterEvidence: null`이므로
   격리는 관찰 이전 단계(설치/검증 바인딩)로 추정, 기기 settling 경합
