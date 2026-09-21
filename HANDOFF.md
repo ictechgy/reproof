@@ -823,6 +823,67 @@ r69의 미완료 항목을 실기기에서 완결했다(`feature/ios-egress-isol
 - **미검증 잔여**: Wi-Fi-off 모드(비필수), RVI attach 실패 원인,
   생성기 저널 보존/승인 경로.
 
+## d7 결과 (2026-09-21, 회사 앱 Storage Medic 실기기 수용 — `verified` + `egress_violation`)
+
+ReproSample이 아닌 실제 회사 코드베이스(`ios-product-app` / Storage Medic,
+bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
+전체 보호 라이프사이클을 완주했다. 아티팩트 루트:
+`artifacts/product-delivery/d7-company-app-r1/`.
+
+- **준비 산출물** — 보호 소스 사본(`protected-source/`) + XcodeGen 래퍼 +
+  관측 레코더·sanitation 런타임 주입 + 결정적 결함(`IOSStorageGuideView.swift`
+  default 분기가 pending 카피를 렌더). 서명 IPA는 `build-productapp-ipa.sh`,
+  준비는 `prepare-productapp.py`, 구성은 `generate-protected-config.py`
+  (config digest `3370bb89…` → 패치/헬퍼 변경으로 재생성됨, 최종은 저널 env와
+  동기화 확인). `issues.json`의 `patchFile`이 후보를 선택한다 — 정상
+  `ios-productapp-fix.json` / 위반 `ios-productapp-egress.json`.
+- **실기기에서 발견·수정한 실결함**
+  1. `keychain-access-groups` 필수 entitlement가 bundle_policies에 누락 —
+     wildcard `TEAMID0000.*` 매칭으로 생성기에 추가.
+  2. 후보 빌드가 `REPRO_BUILD_ID`를 안 넘겨 Info.plist에 `$(REPRO_BUILD_ID)`
+     미치환 → 후보 리플레이 `ios_device_tool_unavailable`. 빌드 스크립트에
+     전달 추가.
+  3. 헬퍼 프레임 인코딩이 JSONSerialization의 `\/` 이스케이프로 ~12KB 부풀어
+     헤더 상한 초과(`frame_capture_failed`로 오인됐던 진짜 원인) —
+     `.withoutEscapingSlashes`로 수정. 샘플은 jpeg가 작아 우연히 통과했던 것.
+  4. 포어그라운드 전환 직후 첫 스크린샷이 nil을 반환하는 찰나 — 캡처에
+     단기 재시도 추가.
+  5. `pcap: true`가 "tcpdump spawn 성공"만 의미해 0바이트 산출물과 불일치 —
+     이제 `pcapBytes`를 보고하고 빈 캡처는 `pcap: false` +
+     `pcapReason: empty-capture`로 강등(이 호스트는 BPF가 root 전용).
+- **독립 observer** — `observer-service.py`(d7 포팅, unix socket +
+  HMAC, `/Users/repro/secure/protected-materials.json`의 validation
+  secret만 사용) + `live-ios/Tests/LiveControlTests.swift`의 env-driven
+  `testExternalObservation()`(번들/탭 식별자/기대·결함 문구를 env로 주입,
+  scan 완료 후 텍스트로 fixed/defect 판별). 하니스가 fixture와 함께
+  기동·종료한다.
+- **정상 run** — `repair_b6a636dd…`(lifecycle.json): qualification→
+  record(complete)→approve→replay `reproduced`(3 attempts, 전부
+  observed)→repair **`verified`**. observer 독립 관찰 `pass`(observed
+  `["fixed"]`), egressMeasurement 2건 `pass`(delta 9,216B / 41,984B,
+  floor 1MiB, policyDigest `ed8ee0d3…` 일치). 이전 verified run
+  (`repair_3ca9706b…`, `repair_bbfba173…`)도 동일 결과.
+- **위반 run** — `repair_993ca231…`(lifecycle-egress.json): egress 패치가
+  fix + `appCacheCandidateReview` onAppear의 URLSession 다운로드
+  (speed.cloudflare.com 2MB×N) 주입 → `deltaBytes 8,974,336` > floor →
+  **`failed` + `egress_violation`**, measurement `verdict: violation`.
+  기능 수정은 observer가 pass로 확인하고 egress로만 거절 — 격리된
+  fail-closed.
+- **RVI** — `rvi0` attach/detach 정상(두 run 모두 `mode: attached`,
+  `detached: true`). pcap은 위 5번 사유로 `empty-capture` — 주 계측은
+  기기 측 바이트 카운터이므로 판정 영향 없음.
+- **stale 상태 복구**(config 재생성 연쇄) — signing scope 마커·mobile
+  scope 마커(`ios-mobile rotate-scope` sanctioned)·host-build lease
+  마커·signing owner의 구 definition 핀을 각각 전종결 검증 후
+  회수/보존 이름 이동. quarantined run은 기기 정리 확인 뒤
+  `ios-mobile close-run`으로만 종결.
+- **정리 확인** — mobile 저널 전 run 종결(non-terminal 0), 기기에
+  ProductAppIOS 프로세스 없음, 원본 앱 복원, fixture/observer 서브프로세스
+  종료, `git diff --check` clean.
+- **미검증/잔여** — pcap 실질 캡처는 root 권한 또는 다른 캡처 경로 필요.
+  Wi-Fi-off 모드 미검증. `live-ios/Tests/LiveControlTests.swift`의
+  `testExternalObservation` 추가분은 main에 미커밋 상태로 남김.
+
 ## Next Steps (오픈소스 배포 우선순위)
 
 1. **빌드 경로 선택(r54 이후)** — `build-guest`(봉인 VM, 격리 증명)와 `host-build`(명시적 opt-in,
@@ -882,9 +943,12 @@ r69의 미완료 항목을 실기기에서 완결했다(`feature/ios-egress-isol
 > r67에서 st_dev durable identity 결함·터널 홀드 고아 watchdog·운영자
 > close-run 경로(`ios-mobile close-run`)까지 해소됐다(구형 스토어는 첫 오픈 시
 > 자동 정규화). r69~r70에서 대상 앱 egress 격리(fail-closed 카운터 계측)가
-> 구현·실기기 수용됐다(`feature/ios-egress-isolation` 브랜치 — `verified`
-> 유지 + `egress_violation` 도달). 실기기 실행 전 observer-service.py 기동이
-> 필요하고, 다음 실주행은 QA-iPhone USB 연결·잠금 해제 후 run-issue-lifecycle.py로
-> 돌린다. config 재생성은 이제 저널/owner/패치를 보존하고, env 변경 시
+> 구현·실기기 수용됐다(`verified` 유지 + `egress_violation` 도달).
+> **d7에서 실제 회사 앱(Storage Medic, ios-product-app)으로 전체 라이프사이클을
+> 실기기 수용했다** — `artifacts/product-delivery/d7-company-app-r1/`에
+> `lifecycle.json`(repair `verified`)과 `lifecycle-egress.json`
+> (`egress_violation`, delta 8.97MB > 1MiB floor)이 있다. d7 하니스가
+> fixture·observer 서비스를 자체 기동·종료한다(외부 기동 불필요).
+> config 재생성은 저널/owner/패치를 보존하고, env 변경 시
 > scope 마커는 `ios-mobile rotate-scope`로 cutover한다.
 > 실기기 작업이 필요해지면 먼저 나에게 승인을 요청해줘.
