@@ -857,18 +857,19 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
   `testExternalObservation()`(번들/탭 식별자/기대·결함 문구를 env로 주입,
   scan 완료 후 텍스트로 fixed/defect 판별). 하니스가 fixture와 함께
   기동·종료한다.
-- **정상 run** — `repair_b6a636dd…`(lifecycle.json): qualification→
+- **정상 run** — `repair_cc926e0a…`(lifecycle.json): qualification→
   record(complete)→approve→replay `reproduced`(3 attempts, 전부
   observed)→repair **`verified`**. observer 독립 관찰 `pass`(observed
-  `["fixed"]`), egressMeasurement 2건 `pass`(delta 9,216B / 41,984B,
+  `["fixed"]`), egressMeasurement 2건 `pass`(delta 52,224B / 173,056B,
   floor 1MiB, policyDigest `ed8ee0d3…` 일치). 이전 verified run
-  (`repair_3ca9706b…`, `repair_bbfba173…`)도 동일 결과.
-- **위반 run** — `repair_993ca231…`(lifecycle-egress.json): egress 패치가
+  (`repair_b6a636dd…`, `repair_3ca9706b…`, `repair_bbfba173…`)도 동일 결과.
+- **위반 run** — `repair_4daeb638…`(lifecycle-egress.json): egress 패치가
   fix + `appCacheCandidateReview` onAppear의 URLSession 다운로드
-  (speed.cloudflare.com 2MB×N) 주입 → `deltaBytes 8,974,336` > floor →
+  (speed.cloudflare.com 2MB×N) 주입 → `deltaBytes 9,156,608` > floor →
   **`failed` + `egress_violation`**, measurement `verdict: violation`.
   기능 수정은 observer가 pass로 확인하고 egress로만 거절 — 격리된
-  fail-closed.
+  fail-closed. `repair.diagnostic`이 도달 단계(build→signing→validation→
+  candidateBuild→attempts)를 함께 기록한다.
 - **RVI** — `rvi0` attach/detach 정상(두 run 모두 `mode: attached`,
   `detached: true`). pcap은 위 5번 사유로 `empty-capture` — 주 계측은
   기기 측 바이트 카운터이므로 판정 영향 없음.
@@ -887,9 +888,8 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
   observer 로그에 요청 도달 없음 + `afterEvidence: null`이므로
   격리는 관찰 이전 단계(설치/검증 바인딩)로 추정, 기기 settling 경합
   유력. 하니스가 비정상 종결 시 `repair.diagnostic`(attempt 사유·도달
-  실행 단계·evidence 유무)을 보고하도록 보강해 다음 재현은 자가 진단된다.
-  02:14 run 이후 QA-iPhone이 `unavailable`로 분리됨 — 실주행 재개 전
-  재연결·잠금 해제 필요.
+  실행 단계·evidence 유무)을 보고하도록 보강해 다음 재현은 자가 진단된다 —
+  9/22 재연결 후 egress run에서 diagnostic 경로 검증됨.
 
 ## Next Steps (오픈소스 배포 우선순위)
 
