@@ -90,7 +90,7 @@ assert(buffer.append(id: 2, body: Data([2, 2, 2])))
 assert(buffer.append(id: 3, body: Data([3, 3, 3])))
 assert(try! buffer.after(0)?.id == 1)
 assert(try! buffer.after(1)?.id == 2)
-assert(try! buffer.after(3)?.id == 3) // no newer frame: latest duplicate
+assert(try! buffer.after(3) == nil) // cursor == newest: no newer frame
 for id in 4...17 {
     assert(buffer.append(id: Int64(id), body: Data([UInt8(id), UInt8(id), UInt8(id)])))
 }
@@ -113,9 +113,12 @@ print("swift-native-frame-buffer-passed")
             source_file = root / "FrameBuffer.swift"
             binary = root / "frame-buffer"
             source_file.write_text(program)
+            developer_dir = subprocess.run(
+                ["xcode-select", "-p"], capture_output=True, text=True,
+                timeout=10).stdout.strip()
             environment = {
                 "PATH": os.environ.get("PATH", ""),
-                "DEVELOPER_DIR": "/Applications/Xcode-27.0.0-beta.app/Contents/Developer",
+                "DEVELOPER_DIR": developer_dir,
             }
             compiled = subprocess.run(
                 ["xcrun", "swiftc", "-swift-version", "5", str(source_file), "-o", str(binary)],
