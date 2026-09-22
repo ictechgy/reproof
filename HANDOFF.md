@@ -857,29 +857,28 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
   `testExternalObservation()`(번들/탭 식별자/기대·결함 문구를 env로 주입,
   scan 완료 후 텍스트로 fixed/defect 판별). 하니스가 fixture와 함께
   기동·종료한다.
-- **정상 run** — canonical `lifecycle.json`은 현재 `repair_c7b4fedd…`
-  (최신 settle-fix 코드 + 실 pcap을 동반한 Wi-Fi-off verified run):
-  qualification→record(complete)→approve→replay `reproduced`(3 attempts,
-  전부 observed)→repair **`verified`**. observer 독립 관찰 `pass`(observed
+- **정상 run** — canonical `lifecycle.json` = `repair_e6bf016c…`
+  (Wi-Fi-on, 최종 코드, 실 pcap 308,404B): qualification→
+  record(complete)→approve→replay `reproduced`(3 attempts, 전부
+  observed)→repair **`verified`**. observer 독립 관찰 `pass`(observed
   `["fixed"]`), egressMeasurement `pass`(floor 1MiB, policyDigest
-  `ed8ee0d3…` 일치). 이전 verified run(`repair_b65b30cb…`,
-  `repair_cc926e0a…`, `repair_b6a636dd…`)도 동일 결과.
-- **위반 run** — `repair_d5879b11…`(lifecycle-egress.json): egress 패치가
-  fix + `appCacheCandidateReview` onAppear의 URLSession 다운로드
-  (speed.cloudflare.com 2MB×N) 주입 → `deltaBytes 8,849,408` > floor →
-  **`failed` + `egress_violation`**, measurement `verdict: violation`.
-  기능 수정은 observer가 pass로 확인하고 egress로만 거절 — 격리된
-  fail-closed. `repair.diagnostic`이 도달 단계(build→signing→validation→
-  candidateBuild→attempts)를 함께 기록한다.
+  `ed8ee0d3…` 일치). 이전 verified run(`repair_c7b4fedd…`,
+  `repair_b65b30cb…`, `repair_cc926e0a…`, `repair_b6a636dd…`)도 동일 결과.
+- **위반 run** — `repair_9a589300…`(lifecycle-egress.json, Wi-Fi-on, 실
+  pcap 317,908B): egress 패치가 fix + `appCacheCandidateReview` onAppear의
+  URLSession 다운로드(speed.cloudflare.com 2MB×N) 주입 →
+  `deltaBytes 8,901,632` > floor → **`failed` + `egress_violation`**,
+  measurement `verdict: violation`. 기능 수정은 observer가 pass로 확인하고
+  egress로만 거절 — 격리된 fail-closed. `repair.diagnostic`이 도달
+  단계(build→signing→validation→candidateBuild→attempts)를 함께 기록한다.
 - **네트워크 캡처** — `rvi0` attach/detach 정상. ChmodBPF 설치 후
-  `/dev/bpf*`가 `root:access_bpf`로 열려 **실질 pcap을 확보**했다:
-  Wi-Fi-off 양방향 run 모두 `pcap: true` — `lifecycle-wifioff.pcap`
-  (verified, 315,168B) / `lifecycle-wifioff-egress.pcap`(위반,
-  319,412B, rvi0 터널 경유 IPv6 TCP 대량 전송 2,000패킷). ChmodBPF
-  미설치 환경에서는 `rvi_capture.py`가 xctrace Network 템플릿으로
-  자동 폴백한다 — 초기 run들의 증거가 `lifecycle.trace`/
-  `lifecycle-egress.trace`/`lifecycle-wifioff.trace`/
-  `lifecycle-wifioff-egress.trace`로 보존됨.
+  `/dev/bpf*`가 `root:access_bpf`로 열려 **4개 아티팩트 전부 실질 pcap을
+  확보**했다: `lifecycle.pcap`(308,404B) / `lifecycle-egress.pcap`
+  (317,908B) / `lifecycle-wifioff.pcap`(315,168B) /
+  `lifecycle-wifioff-egress.pcap`(319,412B — rvi0 터널 경유 IPv6 TCP
+  대량 전송 2,000패킷). ChmodBPF 미설치 환경에서는 `rvi_capture.py`가
+  xctrace Network 템플릿으로 자동 폴백한다 — 초기 run들의 증거가
+  `lifecycle*.trace` 4본으로 보존됨.
 - **stale 상태 복구**(config 재생성 연쇄) — signing scope 마커·mobile
   scope 마커(`ios-mobile rotate-scope` sanctioned)·host-build lease
   마커·signing owner의 구 definition 핀을 각각 전종결 검증 후
@@ -890,14 +889,10 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
   종료, `git diff --check` clean.
 - **Wi-Fi-off(cellular-only) 모드 검증 완료** — 기기 Wi-Fi를 수동으로 끈 상태에서
   양방향 주행을 재증명했다(제어/관찰은 USB+devicectl 경로라 영향 없음):
-  `lifecycle-wifioff-egress.json` = `repair_1c560889…` **`egress_violation`**
-  (delta 8,714,240B — `pdp_ip*` 셀룰러 인터페이스에서 검출, **실질 pcap
-  319KB**), `lifecycle-wifioff.json` = `repair_fee4ae02…` **`verified`**
-  (xctrace 시대 run). canonical `lifecycle.json`은 최종 코드에서 실 pcap을
-  동반한 최신 verified run `repair_c7b4fedd…`(Wi-Fi-off, pcap 315KB)로
-  갱신됐다 — 이전 canonical `repair_b65b30cb…`는 저널에 기록으로 남는다.
-  보존: `lifecycle-wifioff.trace`, `lifecycle-wifioff-egress.trace`,
-  `lifecycle-wifioff.pcap`, `lifecycle-wifioff-egress.pcap`.
+  `lifecycle-wifioff.json` = `repair_c7b4fedd…` **`verified`**(실 pcap
+  315KB), `lifecycle-wifioff-egress.json` = `repair_1c560889…`
+  **`egress_violation`**(delta 8,714,240B — `pdp_ip*` 셀룰러 인터페이스에서
+  검출, 실 pcap 319KB). 양쪽 모두 패킷급 증거를 동반한다.
 - **quarantine flake 근본 원인 확정·수정** — 첫 Wi-Fi-off run의 격리는
   fixture `check`가 attempt teardown 직후 아직 종료 진행 중인 앱 프로세스를
   단발 조회로 잔류 오판한 경합이었다(`devicectl terminate`는 비동기).
