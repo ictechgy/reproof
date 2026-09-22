@@ -857,12 +857,13 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
   `testExternalObservation()`(번들/탭 식별자/기대·결함 문구를 env로 주입,
   scan 완료 후 텍스트로 fixed/defect 판별). 하니스가 fixture와 함께
   기동·종료한다.
-- **정상 run** — `repair_b65b30cb…`(lifecycle.json): qualification→
-  record(complete)→approve→replay `reproduced`(3 attempts, 전부
-  observed)→repair **`verified`**. observer 독립 관찰 `pass`(observed
-  `["fixed"]`), egressMeasurement 2건 `pass`(delta 1,024B / 0B,
-  floor 1MiB, policyDigest `ed8ee0d3…` 일치). 이전 verified run
-  (`repair_cc926e0a…`, `repair_b6a636dd…`)도 동일 결과.
+- **정상 run** — canonical `lifecycle.json`은 현재 `repair_c7b4fedd…`
+  (최신 settle-fix 코드 + 실 pcap을 동반한 Wi-Fi-off verified run):
+  qualification→record(complete)→approve→replay `reproduced`(3 attempts,
+  전부 observed)→repair **`verified`**. observer 독립 관찰 `pass`(observed
+  `["fixed"]`), egressMeasurement `pass`(floor 1MiB, policyDigest
+  `ed8ee0d3…` 일치). 이전 verified run(`repair_b65b30cb…`,
+  `repair_cc926e0a…`, `repair_b6a636dd…`)도 동일 결과.
 - **위반 run** — `repair_d5879b11…`(lifecycle-egress.json): egress 패치가
   fix + `appCacheCandidateReview` onAppear의 URLSession 다운로드
   (speed.cloudflare.com 2MB×N) 주입 → `deltaBytes 8,849,408` > floor →
@@ -870,12 +871,15 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
   기능 수정은 observer가 pass로 확인하고 egress로만 거절 — 격리된
   fail-closed. `repair.diagnostic`이 도달 단계(build→signing→validation→
   candidateBuild→attempts)를 함께 기록한다.
-- **네트워크 캡처** — `rvi0` attach/detach 정상. BPF는 root 전용이라
-  tcpdump는 불가(`pcapReason: bpf-permission-denied`)하지만
-  **xctrace Network 템플릿으로 root 없는 기기 측 캡처를 확보**했다 —
-  두 run 모두 `mode: captured`, `.trace` 번들 실측 13.2MB(위반)/
-  14.7MB(정상)이며 `ProductAppIOS` 프로세스가 47회 기록됨.
-  보존: `lifecycle-egress.trace`, `lifecycle.trace`.
+- **네트워크 캡처** — `rvi0` attach/detach 정상. ChmodBPF 설치 후
+  `/dev/bpf*`가 `root:access_bpf`로 열려 **실질 pcap을 확보**했다:
+  Wi-Fi-off 양방향 run 모두 `pcap: true` — `lifecycle-wifioff.pcap`
+  (verified, 315,168B) / `lifecycle-wifioff-egress.pcap`(위반,
+  319,412B, rvi0 터널 경유 IPv6 TCP 대량 전송 2,000패킷). ChmodBPF
+  미설치 환경에서는 `rvi_capture.py`가 xctrace Network 템플릿으로
+  자동 폴백한다 — 초기 run들의 증거가 `lifecycle.trace`/
+  `lifecycle-egress.trace`/`lifecycle-wifioff.trace`/
+  `lifecycle-wifioff-egress.trace`로 보존됨.
 - **stale 상태 복구**(config 재생성 연쇄) — signing scope 마커·mobile
   scope 마커(`ios-mobile rotate-scope` sanctioned)·host-build lease
   마커·signing owner의 구 definition 핀을 각각 전종결 검증 후
@@ -886,11 +890,14 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
   종료, `git diff --check` clean.
 - **Wi-Fi-off(cellular-only) 모드 검증 완료** — 기기 Wi-Fi를 수동으로 끈 상태에서
   양방향 주행을 재증명했다(제어/관찰은 USB+devicectl 경로라 영향 없음):
-  `lifecycle-wifioff.json` = `repair_fee4ae02…` **`verified`**(replay 3/3
-  observed, egress delta 0B/1,024B pass, trace 14.8MB),
-  `lifecycle-wifioff-egress.json` = `repair_3dc4d6cc…` **`egress_violation`**
-  (delta 8,214,528B — `pdp_ip*` 셀룰러 인터페이스에서 검출, trace 11.3MB).
-  보존: `lifecycle-wifioff.trace`, `lifecycle-wifioff-egress.trace`.
+  `lifecycle-wifioff-egress.json` = `repair_1c560889…` **`egress_violation`**
+  (delta 8,714,240B — `pdp_ip*` 셀룰러 인터페이스에서 검출, **실질 pcap
+  319KB**), `lifecycle-wifioff.json` = `repair_fee4ae02…` **`verified`**
+  (xctrace 시대 run). canonical `lifecycle.json`은 최종 코드에서 실 pcap을
+  동반한 최신 verified run `repair_c7b4fedd…`(Wi-Fi-off, pcap 315KB)로
+  갱신됐다 — 이전 canonical `repair_b65b30cb…`는 저널에 기록으로 남는다.
+  보존: `lifecycle-wifioff.trace`, `lifecycle-wifioff-egress.trace`,
+  `lifecycle-wifioff.pcap`, `lifecycle-wifioff-egress.pcap`.
 - **quarantine flake 근본 원인 확정·수정** — 첫 Wi-Fi-off run의 격리는
   fixture `check`가 attempt teardown 직후 아직 종료 진행 중인 앱 프로세스를
   단발 조회로 잔류 오판한 경합이었다(`devicectl terminate`는 비동기).
@@ -898,12 +905,11 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
   check/prepare/cleanup 재검증에 적용 — 창을 넘는 잔류는 여전히 `failed`로
   fail-closed 유지. 수정 후 재주행(`repair_fee4ae02`)은 7세대 21회 fixture
   op 전부 `complete`로 완주해 경합 흡수를 검증했다.
-- **미검증/잔여** — pcap 패킷 캡처는 root 전용(`/dev/bpf*`, 무패스워드 sudo·
-  ChmodBPF 부재 확인)이라 불가이나 xctrace 기기 측 캡처로 대체 증거를
-  확보했다(네트워크 캡처 항목 참고). 이전 quarantine(repair_9122193b)도
-  observer 로그에 요청 도달 없음 + `afterEvidence: null`이므로 동일 계열의
-  관찰 이전 단계 격리로 추정 — `repair.diagnostic`(attempt 사유·도달 실행
-  단계·evidence 유무)이 비정상 종결을 자가 진단한다.
+- **미검증/잔여** — ChmodBPF 설치로 pcap은 해소됐다(네트워크 캡처 항목
+  참고). 미설치 환경에서는 xctrace 폴백이 대체 증거를 제공한다. 이전
+  quarantine(repair_9122193b)은 동일 계열의 관찰 이전 단계 격리로
+  추정 — `repair.diagnostic`(attempt 사유·도달 실행 단계·evidence 유무)이
+  비정상 종결을 자가 진단한다.
 
 ## Next Steps (오픈소스 배포 우선순위)
 
