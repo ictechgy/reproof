@@ -28,15 +28,18 @@ What is proven and what is still open:
   ([guide](docs/ISSUE-WORKFLOW.md)).
 - Protected repair of declared product files is implemented
   ([G9 path](docs/PROJECT-REPAIR.md)); the 92 G9 software checks pass.
-- On a physical iPhone the full protected service composition passed: device
-  wiring, lab registration, all 5 qualification probes, and assembly of the
-  build, signing, and mobile supervisors with real signing material, with the
-  repair chain attached.
-- Still open: the first real repair run on that path (the recording and
-  approval machinery exist but no repair execution record yet), a real company
-  app, the isolated VM build lane (the verified lane is host-build — builds
-  run directly on the host and are not reported as isolated), and two-Mac
-  acceptance.
+- On a physical iPhone the protected lifecycle has completed end to end:
+  device qualification, service composition, issue recording, specification
+  approval, 3/3 replay reproduction, and a `verified` AI repair — checked by
+  an independent observer process against fixture-prepared device state.
+- The same lifecycle completed against a real product app (not the bundled
+  sample): the fix candidate verified, and a candidate that also performed
+  network egress was rejected `egress_violation` — fail-closed on device
+  byte counters with packet-level capture evidence, under both Wi-Fi and
+  cellular-only connectivity.
+- Still open: the isolated VM build lane (the verified lane is host-build —
+  builds run directly on the host and are not reported as isolated), and
+  two-Mac acceptance.
 
 ## Product direction
 
@@ -76,8 +79,7 @@ connected end to end from live recording to AI repair
 bash scripts/ios-demo.sh <BOOTED_SIMULATOR_UUID> artifacts/my-ios-demo
 ```
 
-See the [AI verification bundle](artifacts/ios-ai-cases/index.html), the
-[iOS runbook and results](docs/IOS-RUNBOOK.md), the
+See the [iOS runbook and results](docs/IOS-RUNBOOK.md), the
 [three real-AI bug cases](docs/IOS-CASES.md), and the
 [QA report for failure paths](docs/QA-REPORT.md). The older Android bundle
 format (v1) and iOS bundle format (v2) are verified separately.
@@ -204,8 +206,9 @@ sensitive-input refusal on a physical device, see `scripts/device_smoke.py
 See the [iOS support design](docs/IOS-DESIGN.md),
 [execution contracts and current limits](docs/CONTRACTS.md),
 [implementation and verification status](docs/IMPLEMENTATION.md), and the
-[full plan](PLAN.md). Per-app observation, fixtures, independent verification,
-and acceptance on real protected execution environments are still needed.
+[full plan](PLAN.md). Per-app observation, fixtures, and independent
+verification have been exercised on a physical iPhone against a real product
+app; two-Mac acceptance and the isolated VM build lane are still open.
 Check support scope separately for the sample path and the shared QA path.
 
 ## Live console

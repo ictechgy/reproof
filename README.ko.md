@@ -25,13 +25,18 @@ wheel 설치와 개발 폴더 밖에서의 로컬 실행은 [설치 가이드](d
   ([가이드](docs/ISSUE-WORKFLOW.md)).
 - 선언된 제품 파일의 보호 수정은 구현돼 있습니다([G9 경로](docs/PROJECT-REPAIR.md)).
   정식 G9 소프트웨어 검사 92개가 통과했습니다.
-- iPhone 실기기에서 보호 서비스 조합 전체가 통과했습니다. 기기 연결, Lab
-  등록, qualification probe 5/5, 실제 서명 자료로 빌드·서명·모바일
-  supervisor 3개 조립, 수정 체인 attach까지 완료됐습니다.
-- 아직 남은 것: 이 경로의 첫 실제 수정 실행(기록·승인 장치는 있으나 아직
-  실행 결과가 없습니다), 실제 회사 앱, 격리 VM 빌드 경로(검증된 것은
-  호스트에서 직접 빌드하는 host-build 경로이며 격리로 표시하지 않습니다),
-  두 대의 Mac을 쓰는 구성의 수용.
+- iPhone 실기기에서 보호 라이프사이클 전체가 완주했습니다. 기기
+  qualification·서비스 조합·이슈 기록·명세 승인·3/3 재현·AI 수정
+  `verified`까지 — 독립 observer 프로세스가 fixture로 준비된 기기 상태를
+  대조해 확인합니다.
+- 실제 제품 앱(번들 샘플이 아닌 앱)에서 같은 라이프사이클을 완주했습니다.
+  수정 후보는 verified됐고, 결함을 고치면서 네트워크 egress를 일으킨
+  후보는 `egress_violation`으로 거절됐습니다 — 기기 바이트 카운터와
+  패킷급 캡처 증거로, Wi-Fi·cellular-only 양쪽에서 fail-closed를
+  확인했습니다.
+- 아직 남은 것: 격리 VM 빌드 경로(검증된 것은 호스트에서 직접 빌드하는
+  host-build 경로이며 격리로 표시하지 않습니다), 두 대의 Mac을 쓰는
+  구성의 수용.
 
 ## 제품 방향
 
@@ -66,7 +71,6 @@ Swift 기록 SDK·UIKit 샘플·XCUITest batch runner가 하나의 파이프라�
 bash scripts/ios-demo.sh <BOOTED_SIMULATOR_UUID> artifacts/my-ios-demo
 ```
 
-[실제 AI 검증 결과 묶음](artifacts/ios-ai-cases/index.html),
 [iOS 실행 방법과 검증 결과](docs/IOS-RUNBOOK.md),
 [실제 AI 수정·세 가지 버그 사례](docs/IOS-CASES.md),
 [실패 경로 QA](docs/QA-REPORT.md)를 참고하세요. 기존 Android 번들 형식(v1)과
@@ -189,8 +193,9 @@ cd android
 [iOS 지원 설계](docs/IOS-DESIGN.md),
 [실행 계약과 현재 제한](docs/CONTRACTS.md),
 [구현·검증 현황](docs/IMPLEMENTATION.md), [전체 계획](PLAN.md)을 함께
-확인하세요. 회사 앱별 관찰·fixture·독립 검증과 실제 보호 실행 환경의 수용
-검사가 필요합니다. 지원 범위는 샘플 경로와 공유 QA 경로별로 확인하세요.
+확인하세요. 앱별 관찰·fixture·독립 검증은 iPhone 실기기의 실제 제품 앱에서
+검증됐습니다. 두 대의 Mac 수용과 격리 VM 빌드 경로가 남아 있습니다.
+지원 범위는 샘플 경로와 공유 QA 경로별로 확인하세요.
 
 ## Live 콘솔
 
