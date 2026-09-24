@@ -1,7 +1,7 @@
 """A reaped recording must still release its prepared fixture."""
 import unittest
 
-from reproloop.live.model import LiveError
+from reproof.live.model import LiveError
 from tests import test_issue_workflow as workflow_helpers
 
 

@@ -4,8 +4,8 @@ import subprocess
 import sys
 import unittest
 
-from reproloop.live.client import IssueClient
-from reproloop.live.model import LiveError
+from reproof.live.client import IssueClient
+from reproof.live.model import LiveError
 from tests import test_issue_http as http_support
 
 
@@ -21,7 +21,7 @@ class IssueClientTests(unittest.TestCase):
         self.client = IssueClient(self.fixture.server.origin, self.fixture.tokens['owner'])
 
     def test_actual_cli_reads_credential_from_stdin_without_echoing_it(self):
-        result = subprocess.run([sys.executable, '-m', 'reproloop', 'live-issues', 'projects',
+        result = subprocess.run([sys.executable, '-m', 'reproof', 'live-issues', 'projects',
             '--server', self.fixture.server.origin, '--credential-stdin'],
             input=self.fixture.tokens['owner'] + '\n', text=True, capture_output=True, timeout=15,
             cwd=Path(__file__).resolve().parents[1])

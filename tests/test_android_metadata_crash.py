@@ -7,13 +7,13 @@ import sys
 import tempfile
 import unittest
 
-from reproloop.repair_android_operation import AndroidOperationError, _read_json_at, _write_new_at
+from reproof.repair_android_operation import AndroidOperationError, _read_json_at, _write_new_at
 from tests import test_android_recovery_finalization as support
 
 
 WRITER = r'''
 import json,os,signal,sys
-from reproloop import repair_android_operation as journal
+from reproof import repair_android_operation as journal
 directory=int(sys.argv[1]);name=sys.argv[2];mode=sys.argv[3]
 value=json.loads(sys.argv[4])
 write,link,replace=os.write,os.link,os.replace

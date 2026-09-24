@@ -178,7 +178,7 @@ def _validate_documents(index, objects, limits, media_validator, validate_media,
     exact(index, ("schemaVersion", "format", "manifest", "recordingStatus",
                             "lifecycleDigest", "qualificationDigest", "objects"))
     validate_version(index["schemaVersion"])
-    _require(index["format"] == "reproloop-issue")
+    _require(index["format"] == "reproof-issue")
     manifest = contracts.validate_package_manifest(index["manifest"])
     _require(index["recordingStatus"] in ("frozen-complete", "frozen-incomplete"))
     contracts.validate_digest(index["lifecycleDigest"])
@@ -380,9 +380,9 @@ def build_archive(recording, specification, read_object, *, qualification=None,
             _require(add(body, reference["mimeType"]) == digest, "package_checksum")
             if reference["mimeType"] in _JSON_MIME_TYPES:
                 value = _json(body)
-                if type(value) is dict and value.get("kind") == "reproloop-avfoundation-video":
+                if type(value) is dict and value.get("kind") == "reproof-avfoundation-video":
                     pending.extend(validate_video_manifest(value)["segments"])
-        index = {"schemaVersion": 1, "format": "reproloop-issue", "manifest": {
+        index = {"schemaVersion": 1, "format": "reproof-issue", "manifest": {
             "schemaVersion": 1, "packageId": package_id or "package_" + uuid.uuid4().hex,
             "recordingDigest": original_digest, "specificationDigest": specification_digest,
             "objects": sorted(objects)}, "recordingStatus": recording.get("status"),

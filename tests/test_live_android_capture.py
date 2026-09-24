@@ -3,8 +3,8 @@ import threading
 import unittest
 from unittest.mock import Mock
 
-from reproloop.live.android_live import AndroidLiveProvider
-from reproloop.live.model import LiveError
+from reproof.live.android_live import AndroidLiveProvider
+from reproof.live.model import LiveError
 
 
 def capture(started=200):

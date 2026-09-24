@@ -7,7 +7,7 @@ import threading
 import time
 import unittest
 
-from reproloop.repair_android_operation import AndroidOperationStore
+from reproof.repair_android_operation import AndroidOperationStore
 from tests import test_android_native_process as support
 
 
@@ -43,8 +43,8 @@ class AndroidDeviceRecoveryTests(unittest.TestCase):
                 helper_incarnation=self.device.helper_incarnation,provider_incarnation='recovery_original_provider')
             with self.operations.phase(operation,self.f.f.context,binding,'install') as phase:
                 with self.operations.borrow_native_descriptors(operation,self.f.f.context,binding,phase,self.device) as descriptors:
-                    from reproloop.adb_endpoint import adb_client_sandbox
-                    from reproloop.android_native_calls import prepare_call
+                    from reproof.adb_endpoint import adb_client_sandbox
+                    from reproof.android_native_calls import prepare_call
                     command=('/usr/bin/sandbox-exec','-p',adb_client_sandbox(self.config.tools.adb,
                         operation.staging_root,self.f.fixture.server.path),str(self.config.tools.adb),'-L',
                         'localfilesystem:'+str(self.f.fixture.server.path),'-s',self.config.serial,'shell','echo abandoned')
@@ -53,8 +53,8 @@ class AndroidDeviceRecoveryTests(unittest.TestCase):
                 if getattr(self,'seed_fixture',False) or getattr(self,'discard_before_recovery',None):
                     self.operations.complete_phase(phase,'a'*64)
             if getattr(self,'seed_fixture',False):
-                from reproloop import contracts
-                from reproloop.live.issue_sessions import _operation, fixture_reservation_id
+                from reproof import contracts
+                from reproof.live.issue_sessions import _operation, fixture_reservation_id
                 self.issue_id='mobile_'+contracts.digest({'context':self.f.f.context.digest,'attempt':1})[:40]
                 plan=self.config.preparations[0].plan
                 with self.operations.phase(operation,self.f.f.context,binding,'replay',1) as phase:
@@ -91,7 +91,7 @@ class AndroidDeviceRecoveryTests(unittest.TestCase):
                     else:
                         self.operations.discard_staged(operation,phase)
         if getattr(self,'seed_authority_operations',False):
-            from reproloop.live.authority import ProviderResult
+            from reproof.live.authority import ProviderResult
             admitted=self.device.admit_operation(operation_id='owned_recovery_uncertain',
                 payload_digest='a'*64,session_id='recovery_test_session',sequence=1)
             self.device.admit_operation(operation_id='owned_recovery_queued',
@@ -118,7 +118,7 @@ class AndroidDeviceRecoveryTests(unittest.TestCase):
         self.f.fixture.server.shell_response=response
 
     def recover(self,cancellation=None):
-        from reproloop.android_recovery import recover_android_device
+        from reproof.android_recovery import recover_android_device
         with self.operations.native_recovery(self.operation.operation_id,self.operation.request_digest,
             device=self.device,snapshot=self.snapshot,parent_grant=self.grant) as descriptors:
             return recover_android_device(self.operations,descriptors,
@@ -139,7 +139,7 @@ class AndroidDeviceRecoveryTests(unittest.TestCase):
         self.assertEqual(len(record['steps']),9)
 
     def test_legacy_prepared_recovery_record_remains_readable(self):
-        from reproloop.execution.wire import canonical
+        from reproof.execution.wire import canonical
         self.assertTrue(self.recover().original_restored)
         path=self.operation.staging_root.parent/'recovery.json'
         record=json.loads(path.read_bytes());record['schemaVersion']=1;record.pop('recoveryMode')
@@ -194,7 +194,7 @@ class AndroidDeviceRecoveryTests(unittest.TestCase):
 
     def test_recovery_dispatch_cannot_be_reused_for_an_arbitrary_sdk_command(self):
         from unittest.mock import patch
-        from reproloop import android_recovery
+        from reproof import android_recovery
         original=android_recovery.run_native_adb
         def changed(operations,descriptors,guardian,client,arguments,**kwargs):
             return original(operations,descriptors,guardian,client,('shell','echo unauthorized'),**kwargs)
@@ -204,7 +204,7 @@ class AndroidDeviceRecoveryTests(unittest.TestCase):
         self.assertEqual(self.f.fixture.server.requests,[])
 
     def test_attempt_limit_does_not_overwrite_the_last_valid_recovery_record(self):
-        from reproloop.execution.wire import canonical
+        from reproof.execution.wire import canonical
         self.assertTrue(self.recover().original_restored)
         path=self.operation.staging_root.parent/'recovery.json'
         record=json.loads(path.read_bytes());record['attempt']=32
@@ -215,7 +215,7 @@ class AndroidDeviceRecoveryTests(unittest.TestCase):
         self.assertEqual(len(self.f.fixture.server.requests),before)
 
     def test_incomplete_step_record_cannot_claim_device_restoration(self):
-        from reproloop.execution.wire import canonical
+        from reproof.execution.wire import canonical
         self.assertTrue(self.recover().original_restored)
         path=self.operation.staging_root.parent/'recovery.json'
         record=json.loads(path.read_bytes());record['steps'].pop('confirm-cleared')

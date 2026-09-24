@@ -10,15 +10,15 @@ import sys
 import threading
 import time
 
-from reproloop import contracts
-from reproloop.execution.artifacts import BlobSet
-from reproloop.execution.journal import RunStore
-from reproloop.ios_provisioning_cms import IOSCmsTools, IOSCmsTrust
-from reproloop.ios_provisioning_policy import decoded_profile_digest
-from reproloop.ios_signing_inputs import (IOSSigningDefinition, IOSSigningIdentity, IOSSigningMaterialResolver,
+from reproof import contracts
+from reproof.execution.artifacts import BlobSet
+from reproof.execution.journal import RunStore
+from reproof.ios_provisioning_cms import IOSCmsTools, IOSCmsTrust
+from reproof.ios_provisioning_policy import decoded_profile_digest
+from reproof.ios_signing_inputs import (IOSSigningDefinition, IOSSigningIdentity, IOSSigningMaterialResolver,
     IOSSigningOwnerTools, IOSSigningProvisioning)
-from reproloop.ios_signing_operation import IOSSigningOperationStore
-from reproloop.repair_signing import SigningContext
+from reproof.ios_signing_operation import IOSSigningOperationStore
+from reproof.repair_signing import SigningContext
 
 
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()

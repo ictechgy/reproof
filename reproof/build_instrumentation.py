@@ -17,7 +17,7 @@ from .instrumentation import MARKER, merge_debug_manifest, render_runtime_config
 from .repair import copy_source, snapshot_source
 from .storage import read_json, sha_file, write_json
 
-BUILD_TEMPLATES = resource_root() / 'reproloop/build_instrumentation_templates'
+BUILD_TEMPLATES = resource_root() / 'reproof/build_instrumentation_templates'
 SHA256 = re.compile(r'[0-9a-f]{64}\Z')
 
 
@@ -53,13 +53,13 @@ def prepare_build_instrumentation(source, app_profile, output, *, analyzer=None)
     inputs = app_profile.data.get('sourceInputs')
     require(inputs is not None or not (source / 'buildSrc').exists() and not (source / 'buildSrc').is_symlink(),
             'Existing buildSrc requires explicit public sourceInputs')
-    plugin_root = 'reproloop-build-logic' if inputs is not None else 'buildSrc'
+    plugin_root = 'reproof-build-logic' if inputs is not None else 'buildSrc'
     require(not (source / plugin_root).exists() and not (source / plugin_root).is_symlink(),
             'Reserved instrumentation plugin directory already exists')
     module, variant = build_coordinates(app_profile)
     build_file = module / 'build.gradle.kts'
     require((source / build_file).is_file(), 'Build instrumentation requires the selected module Kotlin Gradle file')
-    require(not (source / module / 'reproloop-instrumentation').exists(), 'Build instrumentation runtime already exists')
+    require(not (source / module / 'reproof-instrumentation').exists(), 'Build instrumentation runtime already exists')
     if inputs is not None:
         from .android_sources import freeze_source, source_hashes
         original = freeze_source(source, inputs)
@@ -84,18 +84,18 @@ def prepare_build_instrumentation(source, app_profile, output, *, analyzer=None)
         config['targets']['report'] = None
         config['appLogs'] = 1
     config['instrumentation'] = {'kind': 'android_asm_v1', 'sites': plan['sites']}
-    plugin_names = ('settings.gradle.kts', 'build.gradle.kts', *(f'src/main/java/io/reproloop/instrumentation/gradle/{name}.java'
+    plugin_names = ('settings.gradle.kts', 'build.gradle.kts', *(f'src/main/java/io/reproof/instrumentation/gradle/{name}.java'
         for name in ('ReproBytecodeTransformer', 'ReproInstrumentationPlugin', 'ReproInstrumentationTask')))
-    runtime_names = ('io/reproloop/autotrace/ReproAuto.kt', 'io/reproloop/autotrace/ReproAppLogs.kt') + (
-        () if observations else ('io/reproloop/autotrace/AutoExportReceiver.kt',))
+    runtime_names = ('io/reproof/autotrace/ReproAuto.kt', 'io/reproof/autotrace/ReproAppLogs.kt') + (
+        () if observations else ('io/reproof/autotrace/AutoExportReceiver.kt',))
     generated = [f'{plugin_root}/{name}' for name in plugin_names] + [
-        f'{plugin_root}/src/main/java/io/reproloop/instrumentation/gradle/ReproPlan.java',
-        (module / 'reproloop-instrumentation/AndroidManifest.xml').as_posix()] + [
-        (module / 'reproloop-instrumentation/runtime' / name).as_posix() for name in (*runtime_names,
-            'io/reproloop/autotrace/ReproHooks.kt', 'io/reproloop/autotrace/ReproConfig.kt',
-            *(() if observations else ('io/reproloop/sdk/ReproRecorder.kt',)))]
+        f'{plugin_root}/src/main/java/io/reproof/instrumentation/gradle/ReproPlan.java',
+        (module / 'reproof-instrumentation/AndroidManifest.xml').as_posix()] + [
+        (module / 'reproof-instrumentation/runtime' / name).as_posix() for name in (*runtime_names,
+            'io/reproof/autotrace/ReproHooks.kt', 'io/reproof/autotrace/ReproConfig.kt',
+            *(() if observations else ('io/reproof/sdk/ReproRecorder.kt',)))]
     if observations:
-        generated.append((module / 'reproloop-instrumentation/assets/reproloop-observation.json').as_posix())
+        generated.append((module / 'reproof-instrumentation/assets/reproof-observation.json').as_posix())
     if inputs is not None:
         require(not set(inputs) & set(generated), 'Reserved Android instrumentation source input')
         config['sourceInputs'] = sorted(inputs + generated)
@@ -108,9 +108,9 @@ def prepare_build_instrumentation(source, app_profile, output, *, analyzer=None)
             and len({site['target'] for site in sites}) == len(sites),
             'Ambiguous bytecode line mapping for configured taps')
     plugin = BUILD_TEMPLATES / 'buildSrc'
-    hooks = BUILD_TEMPLATES / 'runtime/io/reproloop/autotrace/ReproHooks.kt'
+    hooks = BUILD_TEMPLATES / 'runtime/io/reproof/autotrace/ReproHooks.kt'
     require((plugin / 'build.gradle.kts').is_file()
-            and (plugin / 'src/main/java/io/reproloop/instrumentation/gradle/ReproInstrumentationPlugin.java').is_file()
+            and (plugin / 'src/main/java/io/reproof/instrumentation/gradle/ReproInstrumentationPlugin.java').is_file()
             and hooks.is_file(), 'Build instrumentation templates are unavailable')
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix='.' + output.name + '.', dir=output.parent))
@@ -120,19 +120,19 @@ def prepare_build_instrumentation(source, app_profile, output, *, analyzer=None)
         for name in plugin_names:
             destination = workspace / plugin_root / name
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(read_resource('reproloop/build_instrumentation_templates/buildSrc/' + name))
+            destination.write_bytes(read_resource('reproof/build_instrumentation_templates/buildSrc/' + name))
         if inputs is not None:
             with (workspace / plugin_root / 'build.gradle.kts').open('a') as handle:
                 handle.write('\ngradlePlugin {\n    plugins {\n        create("reproInstrumentation") {\n'
-                    '            id = "io.reproloop.instrumentation"\n'
-                    '            implementationClass = "io.reproloop.instrumentation.gradle.ReproInstrumentationPlugin"\n'
+                    '            id = "io.reproof.instrumentation"\n'
+                    '            implementationClass = "io.reproof.instrumentation.gradle.ReproInstrumentationPlugin"\n'
                     '        }\n    }\n}\n')
         # The plan is a protected build input. Product code and the selected
         # activity remain exactly as supplied; PSI's rewritten source is unused.
-        plan_java = workspace / plugin_root / 'src/main/java/io/reproloop/instrumentation/gradle/ReproPlan.java'
+        plan_java = workspace / plugin_root / 'src/main/java/io/reproof/instrumentation/gradle/ReproPlan.java'
         plan_java.parent.mkdir(parents=True, exist_ok=True)
         entries = ',\n        '.join(f'Map.entry({site["line"]}, {json.dumps(site["id"])})' for site in sites)
-        plan_java.write_text('package io.reproloop.instrumentation.gradle;\n\nimport java.util.Map;\n\n'
+        plan_java.write_text('package io.reproof.instrumentation.gradle;\n\nimport java.util.Map;\n\n'
             'public final class ReproPlan {\n'
             f'    public static final String MODULE = {json.dumps(":" + ":".join(config["build"]["task"].split(":")[1:-1]))};\n'
             f'    public static final String VARIANT = {json.dumps(variant)};\n'
@@ -140,36 +140,36 @@ def prepare_build_instrumentation(source, app_profile, output, *, analyzer=None)
             f'    public static final String PROFILE_DIGEST = {json.dumps(profile.digest)};\n'
             f'    public static final Map<Integer, String> SITES = Map.ofEntries(\n        {entries}\n    );\n'
             '    private ReproPlan() {}\n}\n')
-        runtime = workspace / module / 'reproloop-instrumentation/runtime'
+        runtime = workspace / module / 'reproof-instrumentation/runtime'
         for name in runtime_names:
             destination = runtime / name
             destination.parent.mkdir(parents=True, exist_ok=True)
-            template_root = ('reproloop/observation_templates/android/' if observations and name.endswith('/ReproAuto.kt')
-                             else 'reproloop/instrumentation_templates/android/debug/java/')
+            template_root = ('reproof/observation_templates/android/' if observations and name.endswith('/ReproAuto.kt')
+                             else 'reproof/instrumentation_templates/android/debug/java/')
             destination.write_bytes(read_resource(template_root + name))
-        (runtime / 'io/reproloop/autotrace/ReproHooks.kt').write_bytes(read_resource(
-            'reproloop/build_instrumentation_templates/runtime/io/reproloop/autotrace/ReproHooks.kt'))
+        (runtime / 'io/reproof/autotrace/ReproHooks.kt').write_bytes(read_resource(
+            'reproof/build_instrumentation_templates/runtime/io/reproof/autotrace/ReproHooks.kt'))
         if observations:
             from .android_observation import render_runtime_config as render_observation_config
             runtime_config = render_observation_config(profile, sites)
-            write_json(workspace / module / 'reproloop-instrumentation/assets/reproloop-observation.json', profile.data)
+            write_json(workspace / module / 'reproof-instrumentation/assets/reproof-observation.json', profile.data)
         else:
             runtime_config = render_runtime_config(profile, sites)
-            sdk = runtime / 'io/reproloop/sdk/ReproRecorder.kt'
+            sdk = runtime / 'io/reproof/sdk/ReproRecorder.kt'
             sdk.parent.mkdir(parents=True, exist_ok=True)
-            sdk.write_bytes(read_resource('android/sdk/src/main/java/io/reproloop/sdk/ReproRecorder.kt'))
-        (runtime / 'io/reproloop/autotrace/ReproConfig.kt').write_text(runtime_config)
+            sdk.write_bytes(read_resource('android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt'))
+        (runtime / 'io/reproof/autotrace/ReproConfig.kt').write_text(runtime_config)
         original_manifest = workspace / module / 'src/debug/AndroidManifest.xml'
         manifest = original_manifest.read_text() if original_manifest.exists() else '<manifest/>\n'
-        (workspace / module / 'reproloop-instrumentation/AndroidManifest.xml').write_text(
+        (workspace / module / 'reproof-instrumentation/AndroidManifest.xml').write_text(
             manifest if observations else merge_debug_manifest(manifest))
         if inputs is not None:
             (workspace / 'settings.gradle.kts').write_text(integration['settings.gradle.kts'])
             (workspace / build_file).write_text(integration['module.gradle.kts'])
         else:
             with (workspace / build_file).open('a') as handle:
-                handle.write('\n// Repro Loop test-build instrumentation; application sources are unchanged.\n'
-                             'apply<io.reproloop.instrumentation.gradle.ReproInstrumentationPlugin>()\n')
+                handle.write('\n// Reproof test-build instrumentation; application sources are unchanged.\n'
+                             'apply<io.reproof.instrumentation.gradle.ReproInstrumentationPlugin>()\n')
         after = snapshot_source(workspace, source_inputs=config.get('sourceInputs'), isolated=True)
         require(all(after.get(name) == checksum for name, checksum in before.items()
                     if name not in {build_file.as_posix(), 'settings.gradle.kts'}),
@@ -205,7 +205,7 @@ def validate_bytecode_artifacts(source, profile):
     require(is_build_instrumented(profile), 'Select the bytecode instrumentation profile')
     source = Path(source).resolve()
     module, variant = build_coordinates(profile)
-    directory = source / module / 'build/reproloop' / variant
+    directory = source / module / 'build/reproof' / variant
     for path in [directory, *directory.parents]:
         require(not path.is_symlink(), 'Linked bytecode instrumentation output')
         if path == source:break

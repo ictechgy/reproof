@@ -2,8 +2,8 @@
 import hashlib
 import unittest
 
-from reproloop import contracts
-from reproloop.live.model import LiveError
+from reproof import contracts
+from reproof.live.model import LiveError
 from tests import test_worker_artifacts as artifact_tests
 
 

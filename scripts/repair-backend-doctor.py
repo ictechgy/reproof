@@ -20,9 +20,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from reproloop.core import ContractError  # noqa: E402
-from reproloop.repair import CommandError, run_command  # noqa: E402
-from reproloop.execution.protocol import (  # noqa: E402
+from reproof.core import ContractError  # noqa: E402
+from reproof.repair import CommandError, run_command  # noqa: E402
+from reproof.execution.protocol import (  # noqa: E402
     validate_environment_descriptor,
     validate_guest_image_manifest,
     validate_signing_policy,

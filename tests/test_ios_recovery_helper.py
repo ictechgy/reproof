@@ -7,15 +7,15 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.ios_device_tools import PinnedDeviceCtlClient
-from reproloop.ios_native_recovery import IOSNativeRecoveryError
-from reproloop.ios_recovery_helper import (
+from reproof.ios_device_tools import PinnedDeviceCtlClient
+from reproof.ios_native_recovery import IOSNativeRecoveryError
+from reproof.ios_recovery_helper import (
     recover_prior_helpers, require_ios_recovery_helper_retirement,
 )
-from reproloop.ios_recovery_helper import _helper_executables
+from reproof.ios_recovery_helper import _helper_executables
 from tests.ios_service_support import SanitationHTTPDouble
 from tests import test_ios_recovery_execution as recovery_fixture
-from reproloop.ios_xctest_template import _target_location
+from reproof.ios_xctest_template import _target_location
 
 
 class _RetirementDouble(SanitationHTTPDouble):
@@ -59,7 +59,7 @@ class IOSRecoveryHelperTests(unittest.TestCase):
         return self.base._recovery()
 
     def _seed_saved_launch(self):
-        from reproloop.ios_recovery_execution import IOSRecoveryExecution
+        from reproof.ios_recovery_execution import IOSRecoveryExecution
         with self._recovery() as recovery:
             execution = IOSRecoveryExecution(recovery, self.fixture.config)
             with execution:
@@ -114,10 +114,10 @@ class IOSRecoveryHelperTests(unittest.TestCase):
                                          for name in sorted(names)],
             bad_provider=True)
         with self._recovery() as recovery:
-            from reproloop.ios_recovery_execution import IOSRecoveryExecution
+            from reproof.ios_recovery_execution import IOSRecoveryExecution
             with IOSRecoveryExecution(recovery, self.fixture.config):
                 with patch.object(PinnedDeviceCtlClient, "query", query), \
-                     patch("reproloop.ios_recovery_helper.TunnelClient", side_effect=tunnel):
+                     patch("reproof.ios_recovery_helper.TunnelClient", side_effect=tunnel):
                     with self.assertRaises(IOSNativeRecoveryError):
                         recover_prior_helpers(
                             recovery, self.fixture.config,
@@ -150,7 +150,7 @@ class IOSRecoveryHelperTests(unittest.TestCase):
             def close(self):
                 pass
         with self._recovery() as recovery:
-            from reproloop.ios_recovery_execution import IOSRecoveryExecution
+            from reproof.ios_recovery_execution import IOSRecoveryExecution
             with IOSRecoveryExecution(recovery, self.fixture.config) as execution:
                 with patch.object(PinnedDeviceCtlClient, "query", query), \
                      patch("http.client.HTTPConnection", Connection):
@@ -173,10 +173,10 @@ class IOSRecoveryHelperTests(unittest.TestCase):
         query, tunnel, doubles = self._retirement_transport(
             process_rows=rows, cancel_after_retire=cancellation)
         with self._recovery() as recovery:
-            from reproloop.ios_recovery_execution import IOSRecoveryExecution
+            from reproof.ios_recovery_execution import IOSRecoveryExecution
             with IOSRecoveryExecution(recovery, self.fixture.config):
                 with patch.object(PinnedDeviceCtlClient, "query", query), \
-                     patch("reproloop.ios_recovery_helper.TunnelClient", side_effect=tunnel):
+                     patch("reproof.ios_recovery_helper.TunnelClient", side_effect=tunnel):
                     with self.assertRaises(IOSNativeRecoveryError):
                         recover_prior_helpers(
                             recovery, self.fixture.config,
@@ -188,7 +188,7 @@ class IOSRecoveryHelperTests(unittest.TestCase):
 
     def test_prior_helpers_absent_produces_live_retirement_proof(self):
         with self._recovery() as recovery:
-            from reproloop.ios_recovery_execution import IOSRecoveryExecution
+            from reproof.ios_recovery_execution import IOSRecoveryExecution
             with IOSRecoveryExecution(recovery, self.fixture.config) as execution:
                 proof = recover_prior_helpers(
                     recovery, self.fixture.config,
@@ -206,7 +206,7 @@ class IOSRecoveryHelperTests(unittest.TestCase):
         cancellation = threading.Event()
         cancellation.set()
         with self._recovery() as recovery:
-            from reproloop.ios_recovery_execution import IOSRecoveryExecution
+            from reproof.ios_recovery_execution import IOSRecoveryExecution
             with IOSRecoveryExecution(recovery, self.fixture.config):
                 with self.assertRaises(IOSNativeRecoveryError):
                     recover_prior_helpers(
@@ -227,7 +227,7 @@ class IOSRecoveryHelperTests(unittest.TestCase):
             return result
 
         with self._recovery() as recovery:
-            from reproloop.ios_recovery_execution import IOSRecoveryExecution
+            from reproof.ios_recovery_execution import IOSRecoveryExecution
             with IOSRecoveryExecution(recovery, self.fixture.config):
                 with patch.object(PinnedDeviceCtlClient, "query", malformed):
                     with self.assertRaises(IOSNativeRecoveryError):

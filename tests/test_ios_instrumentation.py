@@ -4,9 +4,9 @@ import plistlib
 import tempfile
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.ios_storage import tree_manifest
-from reproloop.storage import read_json, sha_file
+from reproof.core import ContractError
+from reproof.ios_storage import tree_manifest
+from reproof.storage import read_json, sha_file
 
 
 def minimal_project(root):
@@ -15,7 +15,7 @@ def minimal_project(root):
     with (root / 'Sample/Info.plist').open('wb') as handle:
         plistlib.dump({'CFBundleIdentifier': '$(PRODUCT_BUNDLE_IDENTIFIER)',
                       'CFBundleExecutable': '$(EXECUTABLE_NAME)', 'ReproBuildID': '$(REPRO_BUILD_ID)'}, handle)
-    project = root / 'ReproLoop.xcodeproj'
+    project = root / 'Reproof.xcodeproj'
     project.mkdir()
     document = {'archiveVersion': '1', 'objectVersion': '56', 'rootObject': 'PROJECT', 'objects': {
         'PROJECT': {'isa': 'PBXProject', 'mainGroup': 'GROUP', 'targets': ['APP']},
@@ -25,9 +25,9 @@ def minimal_project(root):
         'SOURCES': {'isa': 'PBXSourcesBuildPhase', 'files': []},
         'CONFIGS': {'isa': 'XCConfigurationList', 'buildConfigurations': ['DEBUG', 'RELEASE']},
         'DEBUG': {'isa': 'XCBuildConfiguration', 'name': 'Debug', 'buildSettings': {
-            'PRODUCT_BUNDLE_IDENTIFIER': 'io.reproloop.sample.ios', 'INFOPLIST_FILE': 'Sample/Info.plist'}},
+            'PRODUCT_BUNDLE_IDENTIFIER': 'io.reproof.sample.ios', 'INFOPLIST_FILE': 'Sample/Info.plist'}},
         'RELEASE': {'isa': 'XCBuildConfiguration', 'name': 'Release', 'buildSettings': {
-            'PRODUCT_BUNDLE_IDENTIFIER': 'io.reproloop.sample.ios', 'INFOPLIST_FILE': 'Sample/Info.plist'}},
+            'PRODUCT_BUNDLE_IDENTIFIER': 'io.reproof.sample.ios', 'INFOPLIST_FILE': 'Sample/Info.plist'}},
     }}
     with (project / 'project.pbxproj').open('wb') as handle:plistlib.dump(document, handle)
 
@@ -43,7 +43,7 @@ class IosInstrumentationPreparationTests(unittest.TestCase):
     def tearDown(self):self.temp.cleanup()
 
     def test_preparation_keeps_original_product_code_and_info_plist_unchanged(self):
-        from reproloop.ios_instrumentation import prepare_ios_instrumentation, profile_from_source, validate_ios_preparation
+        from reproof.ios_instrumentation import prepare_ios_instrumentation, profile_from_source, validate_ios_preparation
         out = self.root / 'prepared'
         result = prepare_ios_instrumentation(self.source, out)
         self.assertEqual(tree_manifest(self.source, True), self.before)
@@ -55,19 +55,19 @@ class IosInstrumentationPreparationTests(unittest.TestCase):
         self.assertEqual(receipt['profileDigest'], profile.digest)
         self.assertTrue(receipt['productSourcesUnchanged'])
         self.assertFalse(result['behaviorVerified'])
-        project = plistlib.loads((out / 'source/ReproLoop.xcodeproj/project.pbxproj').read_bytes())
+        project = plistlib.loads((out / 'source/Reproof.xcodeproj/project.pbxproj').read_bytes())
         debug = project['objects']['DEBUG']['buildSettings']
         release = project['objects']['RELEASE']['buildSettings']
-        self.assertEqual(debug['INFOPLIST_FILE'], 'ReproLoopInstrumentation/Info.plist')
+        self.assertEqual(debug['INFOPLIST_FILE'], 'ReproofInstrumentation/Info.plist')
         self.assertEqual(release['INFOPLIST_FILE'], 'Sample/Info.plist')
         self.assertIn('RLAutoConfig.swift', release['EXCLUDED_SOURCE_FILE_NAMES'])
         self.assertIn('RLAutoBootstrap.m', release['EXCLUDED_SOURCE_FILE_NAMES'])
         self.assertIn('RLAutomaticRecorder.swift', release['EXCLUDED_SOURCE_FILE_NAMES'])
         names = tree_manifest(out / 'source', True)
-        self.assertIn('ReproLoopInstrumentation/Runtime/RLAutoBootstrap.m', names)
+        self.assertIn('ReproofInstrumentation/Runtime/RLAutoBootstrap.m', names)
 
     def test_refuses_nested_output_repeat_and_existing_manual_recorder_calls(self):
-        from reproloop.ios_instrumentation import prepare_ios_instrumentation
+        from reproof.ios_instrumentation import prepare_ios_instrumentation
         with self.assertRaises(ContractError):prepare_ios_instrumentation(self.source, self.source / 'out')
         (self.source / 'Sample/App.swift').write_text('Recorder.shared.recordTap(target: "counter.add")\n')
         with self.assertRaises(ContractError):prepare_ios_instrumentation(self.source, self.root / 'manual')
@@ -78,7 +78,7 @@ class IosInstrumentationPreparationTests(unittest.TestCase):
         with self.assertRaises(ContractError):prepare_ios_instrumentation(out / 'source', self.root / 'twice')
 
     def test_mutating_generated_runtime_or_original_code_breaks_preparation_receipt(self):
-        from reproloop.ios_instrumentation import prepare_ios_instrumentation, validate_ios_preparation
+        from reproof.ios_instrumentation import prepare_ios_instrumentation, validate_ios_preparation
         out = self.root / 'prepared'
         prepare_ios_instrumentation(self.source, out)
         (out / 'source/Sample/App.swift').write_text('changed\n')
@@ -87,8 +87,8 @@ class IosInstrumentationPreparationTests(unittest.TestCase):
 
 class IosAutoCaptureContractTests(unittest.TestCase):
     def setUp(self):
-        from reproloop.ios_instrumentation import sample_ios_auto_profile
-        from reproloop.ios_cases import case_spec
+        from reproof.ios_instrumentation import sample_ios_auto_profile
+        from reproof.ios_cases import case_spec
         self.profile = sample_ios_auto_profile()
         self.capture = case_spec('counter').capture()
         self.capture.update(sessionId='22222222-2222-4222-8222-222222222222', startedAtMs=1234)
@@ -104,7 +104,7 @@ class IosAutoCaptureContractTests(unittest.TestCase):
                 'beforeScreen': 'main', 'afterScreen': 'main', 'outcome': 'returned'}]}
 
     def test_marker_requires_selected_run_profile_build_and_fresh_fixture(self):
-        from reproloop.ios_instrumentation import validate_ios_auto_marker
+        from reproof.ios_instrumentation import validate_ios_auto_marker
         validate_ios_auto_marker(self.marker, self.profile, run_id=self.run, build_id=self.build,
                                  fixture=self.capture['fixture'], min_started_at=1234)
         for values in [{'runId': '33333333-3333-4333-8333-333333333333'}, {'profileDigest': '0' * 64},
@@ -115,7 +115,7 @@ class IosAutoCaptureContractTests(unittest.TestCase):
                                          fixture=self.capture['fixture'], min_started_at=1234)
 
     def test_diagnostics_match_every_tap_and_reject_extra_private_channels(self):
-        from reproloop.ios_instrumentation import validate_ios_auto_diagnostics
+        from reproof.ios_instrumentation import validate_ios_auto_diagnostics
         validate_ios_auto_diagnostics(self.diagnostics, self.capture, self.profile,
                                       run_id=self.run, build_id=self.build)
         for mutate in [lambda d: d.update(sessionId='stale'),

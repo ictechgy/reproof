@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from reproloop import contracts
+from reproof import contracts
 from tests.test_execution_protocol import build_route
 
 
@@ -24,7 +24,7 @@ def configuration(root):
     def reference(name): return {'path':str(root/(name+'.json')),'sha256':'a'*64}
     def journal(name,environment):
         return {'root':str(root/name),'environmentDigest':environment,'diskBudgetBytes':4*1024**3}
-    return {'schemaVersion':1,'kind':'reproloop-protected-service','profiles':[{
+    return {'schemaVersion':1,'kind':'reproof-protected-service','profiles':[{
         'id':'protected-ios','projectId':'checkout','projectDigest':build['projectDigest'],
         'applicationId':'ios_app','originalBuildId':'original','platform':'ios',
         'deviceId':'owned-device','runtimePolicyDigest':'f'*64,
@@ -43,7 +43,7 @@ def configuration(root):
 
 def issue_configuration(profile, runtime_policy):
     root=Path(profile['build']['bundlePath']).parent
-    return {'schemaVersion':1,'kind':'reproloop-issue-runtime','projects':[{
+    return {'schemaVersion':1,'kind':'reproof-issue-runtime','projects':[{
         'projectId':profile['projectId'],'projectDigest':profile['projectDigest'],
         'runtimePolicy':runtime_policy,'validationRecipeIds':['regression_ui'],
         'fixtures':[],'variables':[],'observations':[],
@@ -60,12 +60,12 @@ class ProtectedServiceConfigurationTests(unittest.TestCase):
         self.root=Path(temporary.name).resolve(); self.path=self.root/'service.json'
 
     def load(self, value):
-        from reproloop.repair_configuration import load_protected_service_configuration
+        from reproof.repair_configuration import load_protected_service_configuration
         self.path.write_text(json.dumps(value)); self.path.chmod(0o600)
         return load_protected_service_configuration(self.path)
 
     def test_configuration_is_immutable_and_opens_only_the_selected_public_document(self):
-        from reproloop.repair_configuration import ProtectedServiceConfiguration
+        from reproof.repair_configuration import ProtectedServiceConfiguration
         value=configuration(self.root)
         with (patch('subprocess.Popen',side_effect=AssertionError('configuration dispatched a process')),
               patch('socket.socket',side_effect=AssertionError('configuration opened a socket'))):
@@ -79,7 +79,7 @@ class ProtectedServiceConfigurationTests(unittest.TestCase):
         self.assertEqual(set(path.name for path in self.root.iterdir()),{'service.json'})
 
     def test_executable_secret_qualification_and_duplicate_fields_are_rejected(self):
-        from reproloop.repair_configuration import ProtectedServiceConfigurationError
+        from reproof.repair_configuration import ProtectedServiceConfigurationError
         for change in (
             lambda d:d.update(schemaVersion=True),
             lambda d:d.update(command='OwnedCommandCanary'),
@@ -92,12 +92,12 @@ class ProtectedServiceConfigurationTests(unittest.TestCase):
             with self.subTest(change=change),self.assertRaises(ProtectedServiceConfigurationError) as caught:
                 self.load(value)
             self.assertNotIn('Canary',str(caught.exception))
-        from reproloop.repair_configuration import load_protected_service_configuration
+        from reproof.repair_configuration import load_protected_service_configuration
         self.path.write_text('{"schemaVersion":1,"schemaVersion":1}')
         with self.assertRaises(ProtectedServiceConfigurationError): load_protected_service_configuration(self.path)
 
     def test_all_phase_project_application_environment_policy_and_plan_bindings_must_match(self):
-        from reproloop.repair_configuration import ProtectedServiceConfigurationError
+        from reproof.repair_configuration import ProtectedServiceConfigurationError
         changes=(('build','route','projectDigest','9'*64),('mobile','route','applicationId','other_app'),
             ('mobile','route','signingPolicyId','other-policy'),('mobile','route','platform','android'),
             ('build','journal','environmentDigest','9'*64),('mobile','journal','environmentDigest','9'*64),
@@ -109,7 +109,7 @@ class ProtectedServiceConfigurationTests(unittest.TestCase):
                 self.load(document)
 
     def test_mutable_namespaces_cannot_alias_each_other_or_public_input_roots(self):
-        from reproloop.repair_configuration import ProtectedServiceConfigurationError
+        from reproof.repair_configuration import ProtectedServiceConfigurationError
         for replacement in ('build-journal','build-journal/child','vm-bundle','signing-tools/nested'):
             document=configuration(self.root); document['profiles'][0]['signing']['ownerRoot']=str(self.root/replacement)
             with self.subTest(replacement=replacement),self.assertRaises(ProtectedServiceConfigurationError):
@@ -118,7 +118,7 @@ class ProtectedServiceConfigurationTests(unittest.TestCase):
         with self.assertRaises(ProtectedServiceConfigurationError): self.load(document)
 
     def test_issue_selection_cannot_ignore_missing_or_unused_protected_profiles(self):
-        from reproloop.repair_configuration import ProtectedServiceConfigurationError
+        from reproof.repair_configuration import ProtectedServiceConfigurationError
         document=configuration(self.root); policy={'owned':'runtime-policy'}
         document['profiles'][0]['runtimePolicyDigest']=contracts.digest(policy)
         selected=self.load(document); issue=issue_configuration(document['profiles'][0],policy)
@@ -136,7 +136,7 @@ class ProtectedServiceConfigurationTests(unittest.TestCase):
                 selected.validate_issue_configuration(changed)
 
     def test_public_cli_checks_both_documents_without_opening_referenced_inputs(self):
-        from reproloop.cli import main
+        from reproof.cli import main
         from tests.g4_support import runtime_policy
         value=configuration(self.root); policy=runtime_policy()
         value['profiles'][0]['runtimePolicyDigest']=contracts.digest(policy)
@@ -157,7 +157,7 @@ class ProtectedServiceConfigurationTests(unittest.TestCase):
         self.assertNotIn(str(self.root),output.getvalue())
 
     def test_public_cli_rejects_mismatched_issue_document_without_echoing_inputs(self):
-        from reproloop.cli import main
+        from reproof.cli import main
         value=configuration(self.root); self.load(value)
         issue_path=self.root/'issue.json'; issue_path.write_text('{"OwnedInputCanary":true}')
         output=io.StringIO()
@@ -171,9 +171,9 @@ class ProtectedServiceConfigurationTests(unittest.TestCase):
 
 class ProtectedRuntimeConfigurationTests(unittest.TestCase):
     def setUp(self):
-        from reproloop.live.access import AccessController, AccessStore
-        from reproloop.live.issue_configuration import compose_issue_workflow
-        from reproloop.repair_configuration import ProtectedServiceConfiguration
+        from reproof.live.access import AccessController, AccessStore
+        from reproof.live.issue_configuration import compose_issue_workflow
+        from reproof.repair_configuration import ProtectedServiceConfiguration
         from tests.g4_support import G4Environment, runtime_policy
         from tests.test_issue_configuration import configuration as issue_document
         self.env=G4Environment(); self.addCleanup(self.env.close)
@@ -202,7 +202,7 @@ class ProtectedRuntimeConfigurationTests(unittest.TestCase):
         self.assertEqual(self.env.control['calls'],[])
 
     def test_changed_project_runtime_policy_recipe_and_device_selection_are_rejected(self):
-        from reproloop.repair_configuration import ProtectedServiceConfiguration, ProtectedServiceConfigurationError
+        from reproof.repair_configuration import ProtectedServiceConfiguration, ProtectedServiceConfigurationError
         for field,value in (('projectId','missing'),('projectDigest','9'*64),
                             ('runtimePolicyDigest','9'*64),('applicationId','missing-app'),
                             ('originalBuildId','candidate'),('deviceId','missing-device')):
@@ -221,7 +221,7 @@ class ProtectedRuntimeConfigurationTests(unittest.TestCase):
             ProtectedServiceConfiguration(changed).validate_runtime(self.bundle)
 
     def test_same_platform_wrong_installed_app_and_unassigned_device_are_rejected(self):
-        from reproloop.repair_configuration import ProtectedServiceConfigurationError
+        from reproof.repair_configuration import ProtectedServiceConfigurationError
         identity=self.bundle.workflow.lab.devices['device']['capabilities']['applicationIdentity']
         for field,value in (('bundle','com.other.app'),('artifactDigest','9'*64)):
             with self.subTest(field=field),patch.dict(identity,{field:value}),self.assertRaises(ProtectedServiceConfigurationError):
@@ -231,7 +231,7 @@ class ProtectedRuntimeConfigurationTests(unittest.TestCase):
             self.selected.validate_runtime(self.bundle)
 
     def test_closed_service_or_different_service_registration_cannot_be_adopted(self):
-        from reproloop.repair_configuration import ProtectedServiceConfigurationError
+        from reproof.repair_configuration import ProtectedServiceConfigurationError
         with patch.object(self.access,'registration',return_value=object()), \
                 self.assertRaises(ProtectedServiceConfigurationError):
             self.selected.validate_runtime(self.bundle)

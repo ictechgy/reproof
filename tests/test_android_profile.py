@@ -2,12 +2,12 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.core import ContractError
+from reproof.core import ContractError
 
 
 def profile_document():
     return {
-        'schemaVersion': 1, 'id': 'inventory', 'package': 'io.reproloop.inventory',
+        'schemaVersion': 1, 'id': 'inventory', 'package': 'io.reproof.inventory',
         'activity': '.MainActivity',
         'fixture': {'id': 'empty_inventory', 'version': 1, 'inputs': {}},
         'startState': {'screen': 'inventory', 'nodes': {'quantity': '0', 'label': ''}},
@@ -25,21 +25,21 @@ def profile_document():
 
 class AppProfileTests(unittest.TestCase):
     def test_explicit_profile_is_validated_and_immutable(self):
-        from reproloop.android_profile import validate_app_profile
+        from reproof.android_profile import validate_app_profile
         document = profile_document()
         profile = validate_app_profile(document)
         original_digest = profile.digest
         document['package'] = 'unexpected.package'
         view = profile.data
         view['targets']['tap'].append('unexpected')
-        self.assertEqual(profile.data['package'], 'io.reproloop.inventory')
+        self.assertEqual(profile.data['package'], 'io.reproof.inventory')
         self.assertEqual(profile.data['targets']['tap'], ['commit'])
         self.assertEqual(profile.digest, original_digest)
         self.assertNotIn('build', profile.native())
         self.assertNotIn('edit', profile.native())
 
     def test_rejects_executable_paths_unknown_fields_and_private_targets(self):
-        from reproloop.android_profile import validate_app_profile
+        from reproof.android_profile import validate_app_profile
         mutations = [
             lambda d: d.update(command='arbitrary shell'),
             lambda d: d.update(package='other; command'),
@@ -65,7 +65,7 @@ class AppProfileTests(unittest.TestCase):
                 validate_app_profile(document)
 
     def test_profile_digest_changes_with_oracle_or_action_scope(self):
-        from reproloop.android_profile import validate_app_profile
+        from reproof.android_profile import validate_app_profile
         original = validate_app_profile(profile_document())
         document = profile_document()
         document['oracle']['expectedCondition']['text'] = '3'
@@ -75,8 +75,8 @@ class AppProfileTests(unittest.TestCase):
         self.assertNotEqual(original.digest, validate_app_profile(document).digest)
 
     def test_loader_rejects_linked_configuration(self):
-        from reproloop.android_profile import load_app_profile
-        from reproloop.storage import write_json
+        from reproof.android_profile import load_app_profile
+        from reproof.storage import write_json
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write_json(root / 'profile.json', profile_document())
@@ -85,11 +85,11 @@ class AppProfileTests(unittest.TestCase):
                 load_app_profile(root / 'linked.json')
 
     def test_activity_is_a_flattened_android_component(self):
-        from reproloop.android_profile import validate_app_profile
-        for value, expected in [('.MainActivity', 'io.reproloop.inventory/.MainActivity'),
-                                ('MainActivity', 'io.reproloop.inventory/.MainActivity'),
-                                ('io.reproloop.inventory.MainActivity', 'io.reproloop.inventory/.MainActivity'),
-                                ('shared.Entry', 'io.reproloop.inventory/shared.Entry')]:
+        from reproof.android_profile import validate_app_profile
+        for value, expected in [('.MainActivity', 'io.reproof.inventory/.MainActivity'),
+                                ('MainActivity', 'io.reproof.inventory/.MainActivity'),
+                                ('io.reproof.inventory.MainActivity', 'io.reproof.inventory/.MainActivity'),
+                                ('shared.Entry', 'io.reproof.inventory/shared.Entry')]:
             document = profile_document(); document['activity'] = value
             self.assertEqual(validate_app_profile(document).component_name, expected)
 

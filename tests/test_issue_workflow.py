@@ -7,10 +7,10 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop import contracts
-from reproloop.live.access import AccessController, AccessError, AccessStore
-from reproloop.live.issue_workflow import IssueWorkflow, ProjectIssueRuntime
-from reproloop.live.model import LiveError
+from reproof import contracts
+from reproof.live.access import AccessController, AccessError, AccessStore
+from reproof.live.issue_workflow import IssueWorkflow, ProjectIssueRuntime
+from reproof.live.model import LiveError
 from tests.g4_support import G4Environment, runtime_policy, specification, SECRET
 
 
@@ -91,7 +91,7 @@ class IssueWorkflowTests(unittest.TestCase):
 
     def test_issue_view_loads_the_actual_g3_vendor_manifest(self):
         from dataclasses import replace
-        from reproloop.live.video import VideoFrameSink
+        from reproof.live.video import VideoFrameSink
         from tests.test_video_state_machine import FakeEncoder, limits
         from tests.test_issue_media import png
         from tests.g4_support import ScenarioProvider
@@ -120,7 +120,7 @@ class IssueWorkflowTests(unittest.TestCase):
 
     def test_issue_publication_failure_withdraws_its_imported_package(self):
         from tests.test_issue_package import example
-        from reproloop.issue_package import build_archive
+        from reproof.issue_package import build_archive
         recording, spec = example()
         body = build_archive(recording, spec, lambda _: None)
         original_put = self.workflow._put

@@ -113,7 +113,7 @@ SSID/VLAN for the QA device is the equivalent physical control.
 
 | Surface | Change (implemented) |
 |---|---|
-| `reproloop/ios_egress.py` | new module — policy validation, `network_counters` schema check, `counter_delta`, `measurement_evidence` |
+| `reproof/ios_egress.py` | new module — policy validation, `network_counters` schema check, `counter_delta`, `measurement_evidence` |
 | `generate-protected-config.py` | emits `egress-policy.json`; `egress` reference in `mobile-definition.json`; `egressPolicyDigest` in draft summary |
 | `ios_mobile_inputs.py` / `ios_mobile_operation.py` / `ios_mobile_configuration.py` | `egress` field on `IOSMobileInputsConfig`; `egress_policy_digest` on `IOSMobileDefinition`; recovery config reconstructs it |
 | `ios_mobile_xctest.py` / `ios_xctest_template.py` | `egressPolicyDigest` into `runtimeIdentity` + `REPRO_LIVE_EGRESS_POLICY_DIGEST` env (template whitelist) |

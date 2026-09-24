@@ -109,7 +109,7 @@ static NSInteger gSuperclassCalls;
 // Include the production shim in this translation unit so the harness can
 // invoke the actual typed IMP hook without a simulator or generated header.
 #define REPRO_AUTO_DEBUG 1
-#include "../../../../reproloop/ios_instrumentation_templates/RLAutoBootstrap.m"
+#include "../../../../reproof/ios_instrumentation_templates/RLAutoBootstrap.m"
 
 static int Check(BOOL condition, const char *message) {
     if (condition) {

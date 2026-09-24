@@ -3,14 +3,14 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.live.video import VideoCatalog
+from reproof.live.video import VideoCatalog
 from tests.test_recording_recovery import collection_policy, project_document
 from tests.test_video_source_recovery import _crash_process, _open
 
 
 class VideoRecoveryRetentionTests(unittest.TestCase):
     def test_expired_original_keeps_source_ledger_until_pending_cleanup_finishes(self):
-        with tempfile.TemporaryDirectory(prefix="reproloop-video-retention-") as directory:
+        with tempfile.TemporaryDirectory(prefix="reproof-video-retention-") as directory:
             root = Path(directory)
             self.assertEqual(_crash_process(root, "after_g2_attach"), 43)
             budget, evidence, recordings, _clock = _open(root)

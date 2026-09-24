@@ -9,7 +9,7 @@
   "edit": {
     "function": "increment",
     "kind": "kotlin_numeric_expression_v1",
-    "path": "sample/src/main/java/io/reproloop/sample/CounterLogic.kt"
+    "path": "sample/src/main/java/io/reproof/sample/CounterLogic.kt"
   },
   "fixture": {
     "id": "default",
@@ -27,7 +27,7 @@
       "text": "1"
     }
   },
-  "package": "io.reproloop.sample",
+  "package": "io.reproof.sample",
   "schemaVersion": 1,
   "startState": {
     "nodes": {

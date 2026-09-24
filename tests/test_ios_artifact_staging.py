@@ -5,8 +5,8 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from reproloop.core import ContractError
-from reproloop.ios_artifact_transfer import parse_ios_artifact
+from reproof.core import ContractError
+from reproof.ios_artifact_transfer import parse_ios_artifact
 from tests import test_ios_artifact_transfer as support
 
 
@@ -19,7 +19,7 @@ class IOSArtifactStagingTests(unittest.TestCase):
         self.selected = parse_ios_artifact(self.app)
 
     def stage(self, selected=None, output=None):
-        from reproloop.ios_artifact_staging import stage_ios_artifact
+        from reproof.ios_artifact_staging import stage_ios_artifact
         return stage_ios_artifact(self.selected if selected is None else selected,
                                   self.root / 'Staged.app' if output is None else output)
 
@@ -81,7 +81,7 @@ class IOSArtifactStagingTests(unittest.TestCase):
         self.assertEqual(list(actual.iterdir()), [])
 
     def test_source_mutation_during_copy_never_publishes_a_valid_capability(self):
-        from reproloop import ios_artifact_staging as module
+        from reproof import ios_artifact_staging as module
         actual = module._copy_file
         def changed(tree, entry, *args, **kwargs):
             if entry.path == 'Inventory':

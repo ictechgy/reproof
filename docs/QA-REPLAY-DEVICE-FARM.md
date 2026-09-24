@@ -77,7 +77,7 @@ flowchart TD
 | 수정·검증 | 일반 제품 텍스트 패치, 원본·검증 규칙 보호, 빌드/서명/독립 검사/후보 재생의 감독 코드와 UI·CLI | 실제 VM·signer/inspector·모바일 격리 provider·회사 회귀 관찰·AI 전송 정책. 현재 보호 실행 검사는 명시적인 대역 |
 | 기기 팜 | 프로젝트 권한·등록·물리 scope 점유·워커 프로필·영속 artifact 전송, 실제 worker CLI 두 프로세스 | 서로 다른 Mac/TLS·실기기·회사 앱의 실제 운영 수용 검사 |
 
-운영 문서는 [공유 QA 화면](ISSUE-WORKFLOW.md), [워커](WORKER-RUNTIME.md), [프로젝트 수정·검증](PROJECT-REPAIR.md), [보호 실행](REPAIR-EXECUTION.md)에 있다. 코드 진입점은 [이슈 워크플로](../reproloop/live/issue_workflow.py), [재현 실행기](../reproloop/scenario_runner.py), [일반 수정](../reproloop/project_repair.py), [보호 검증 조합](../reproloop/repair_verification.py)이다.
+운영 문서는 [공유 QA 화면](ISSUE-WORKFLOW.md), [워커](WORKER-RUNTIME.md), [프로젝트 수정·검증](PROJECT-REPAIR.md), [보호 실행](REPAIR-EXECUTION.md)에 있다. 코드 진입점은 [이슈 워크플로](../reproof/live/issue_workflow.py), [재현 실행기](../reproof/scenario_runner.py), [일반 수정](../reproof/project_repair.py), [보호 검증 조합](../reproof/repair_verification.py)이다.
 
 현재 고유 검사 1,026개 중 1,023개에 통과 근거가 있고 고정 Android 의존성 검사 3개는 차단됐다. [최신 인수인계](../HANDOFF.md)를 따른다. 새 G9 검사에서 실제 AI·VM·실기기를 실행하지 않았으며, 내부 소프트웨어 판정 통과를 회사 QA 제품 전체의 완료 증거로 확대하지 않는다. 한 수정 작업의 제안 예산은 1개이며 실패 시 자동으로 예산을 초기화하지 않는다.
 

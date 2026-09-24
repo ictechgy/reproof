@@ -10,9 +10,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from reproloop.live.clock_sync import RecordingStamp
-from reproloop.live.recording_session import FramePublication
-from reproloop.live.video import (
+from reproof.live.clock_sync import RecordingStamp
+from reproof.live.recording_session import FramePublication
+from reproof.live.video import (
     EncoderFrame,
     VideoLimits,
     VideoProtocolError,

@@ -12,15 +12,15 @@ import unittest
 import zipfile
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.execution.artifacts import BlobSet
-from reproloop.ios_device_tools import IOSDeviceToolError
-from reproloop.ios_mobile_runtime_identity import (
+from reproof import contracts
+from reproof.execution.artifacts import BlobSet
+from reproof.ios_device_tools import IOSDeviceToolError
+from reproof.ios_mobile_runtime_identity import (
     IOSRuntimeIdentityReader, _read_json_file,
 )
 from tests import test_ios_mobile_xctest as xctest
 from tests.test_ios_observation import ordinary_project
-from reproloop.ios_instrumentation import validate_ios_auto_profile
+from reproof.ios_instrumentation import validate_ios_auto_profile
 
 
 class RuntimeIdentityReaderTests(unittest.TestCase):
@@ -75,7 +75,7 @@ class RuntimeIdentityReaderTests(unittest.TestCase):
         details = SimpleNamespace(_native_binding_digest='c' * 64,
                                   definition_digest='b' * 64, data={'identifier':'device-id'})
         reader._queries.query = lambda *args, **kwargs: details
-        with patch('reproloop.ios_mobile_runtime_identity._runtime_payload',
+        with patch('reproof.ios_mobile_runtime_identity._runtime_payload',
                    return_value=(SimpleNamespace(_check_launch=lambda launch: None), payload,
                                  {'bundleId':'com.example.flat','buildId':'build-1234',
                                   'profileDigest':'a'*64,
@@ -93,7 +93,7 @@ class RuntimeIdentityReaderTests(unittest.TestCase):
 
     def test_cancelled_read_is_rejected_before_copy(self):
         reader = self.reader(); cancellation = threading.Event(); cancellation.set()
-        with patch('reproloop.ios_mobile_runtime_identity._runtime_payload') as payload, \
+        with patch('reproof.ios_mobile_runtime_identity._runtime_payload') as payload, \
                 patch.object(reader, '_copy') as copy:
             with self.assertRaises(Exception):
                 reader.read(object(), cancellation=cancellation,
@@ -163,7 +163,7 @@ if args[:3] == ['device','copy','from']:
         self.mode.write_text(json.dumps({'mode':'valid'}))
         selected = replace(self.case.operations.definition,
             query_definition_digest=self.case.g.definition().definition_digest)
-        from reproloop.ios_mobile_operation import IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationStore
         self.case.operations = IOSMobileOperationStore(self.case.g.c.runs, selected,
             self.case.root / 'runtime-identity-operations')
         self.case.addCleanup(self.case.operations.close)

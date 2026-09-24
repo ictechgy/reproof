@@ -1,4 +1,4 @@
-package io.reproloop.instrumenter;
+package io.reproof.instrumenter;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -55,7 +55,7 @@ import org.jetbrains.kotlin.psi.KtTreeVisitorVoid;
 
 /** Conservative Kotlin PSI based source instrumentation. */
 public final class KotlinInstrumenter {
-    private static final String REPRO_IMPORT = "io.reproloop.autotrace.ReproAuto";
+    private static final String REPRO_IMPORT = "io.reproof.autotrace.ReproAuto";
     private static final int MAX_FILES = 128;
     private static final long MAX_FILE_BYTES = 4L * 1024L * 1024L;
     private static final long MAX_TOTAL_BYTES = 16L * 1024L * 1024L;
@@ -89,10 +89,10 @@ public final class KotlinInstrumenter {
     }
 
     private static String configureGradle(Path root) throws IOException, ContractException {
-        var disposable = Disposer.newDisposable("reproloop-gradle-integration");
+        var disposable = Disposer.newDisposable("reproof-gradle-integration");
         try {
             CompilerConfiguration configuration = new CompilerConfiguration();
-            configuration.put(CommonConfigurationKeys.MODULE_NAME, "reproloop-gradle-integration");
+            configuration.put(CommonConfigurationKeys.MODULE_NAME, "reproof-gradle-integration");
             KotlinCoreEnvironment environment = KotlinCoreEnvironment.createForProduction(
                     disposable, configuration, EnvironmentConfigFiles.JVM_CONFIG_FILES);
             KtPsiFactory factory = new KtPsiFactory(environment.getProject(), false);
@@ -102,12 +102,12 @@ public final class KotlinInstrumenter {
                 if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || Files.size(path) > MAX_FILE_BYTES)
                     throw new ContractException("invalid Gradle input");
                 String source = Files.readString(path, StandardCharsets.UTF_8);
-                if (source.contains("reproloop-build-logic") || source.contains("io.reproloop.instrumentation"))
+                if (source.contains("reproof-build-logic") || source.contains("io.reproof.instrumentation"))
                     throw new ContractException("reserved instrumentation build integration");
                 String block = name.startsWith("settings") ? "pluginManagement" : "plugins";
                 String fragment = name.startsWith("settings")
-                        ? "\n    includeBuild(\"reproloop-build-logic\")\n"
-                        : "\n    id(\"io.reproloop.instrumentation\")\n";
+                        ? "\n    includeBuild(\"reproof-build-logic\")\n"
+                        : "\n    id(\"io.reproof.instrumentation\")\n";
                 KtFile file = factory.createFile(name, source);
                 if (InstrumenterImpl.hasPsiError(file) || file.getScript() == null
                         || !file.getPackageFqName().isRoot())
@@ -226,10 +226,10 @@ public final class KotlinInstrumenter {
         }
 
         Result run() throws ContractException {
-            var disposable = Disposer.newDisposable("reproloop-kotlin-instrumenter");
+            var disposable = Disposer.newDisposable("reproof-kotlin-instrumenter");
             try {
                 CompilerConfiguration configuration = new CompilerConfiguration();
-                configuration.put(CommonConfigurationKeys.MODULE_NAME, "reproloop-instrumenter");
+                configuration.put(CommonConfigurationKeys.MODULE_NAME, "reproof-instrumenter");
                 environment = KotlinCoreEnvironment.createForProduction(
                         disposable, configuration, EnvironmentConfigFiles.JVM_CONFIG_FILES);
                 factory = new KtPsiFactory(environment.getProject(), false);

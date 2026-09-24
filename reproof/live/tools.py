@@ -321,7 +321,7 @@ def serve(client: Any, input_stream: TextIO = sys.stdin, output_stream: TextIO =
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="reproloop live-tools", description="Bounded local Live JSON-lines tools")
+    parser = argparse.ArgumentParser(prog="reproof live-tools", description="Bounded local Live JSON-lines tools")
     parser.add_argument("--server", default="http://127.0.0.1:8765")
     args = parser.parse_args(argv)
     return serve(Client(args.server))

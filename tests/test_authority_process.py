@@ -3,8 +3,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.live.authority import HostAuthority
+from reproof.core import ContractError
+from reproof.live.authority import HostAuthority
 
 
 def _real_grant(authority, grant_id="parent-grant"):

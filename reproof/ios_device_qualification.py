@@ -33,7 +33,7 @@ from .live.model import LiveError
 from .live.iphone import public_device_status, select_iphone, validate_tunnel_address
 
 PROBES = ("device-boundary", "network-boundary", "backend-scope", "process-termination", "state-cleanup")
-HELPER_BUNDLES = ("io.reproloop.live.host", "io.reproloop.live.tests.xctrunner")
+HELPER_BUNDLES = ("io.reproof.live.host", "io.reproof.live.tests.xctrunner")
 HELPER_EXECUTABLES = ("ReproLiveHost.app/", "ReproLiveTests-Runner.app/")
 CONTROL_TEST = "ReproLiveTests/LiveControlTests/testControlSession"
 _ENV = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"}

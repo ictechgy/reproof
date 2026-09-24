@@ -14,7 +14,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from reproloop.android_signing_tools import (  # noqa: E402
+from reproof.android_signing_tools import (  # noqa: E402
     AndroidSigningBuildTools, AndroidSigningToolsError,
     build_android_signing_owner,
 )

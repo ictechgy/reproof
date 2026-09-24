@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "kind": "reproloop-issue-runtime",
+  "kind": "reproof-issue-runtime",
   "projects": [
     {
       "projectId": "checkout",

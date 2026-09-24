@@ -9,7 +9,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 class IOSAppLogRetryTests(unittest.TestCase):
     def test_events_and_status_changes_each_reopen_one_bounded_retry_burst(self):
-        source=(ROOT/'reproloop/ios_instrumentation_templates/RLAutomaticRecorder.swift').read_text()
+        source=(ROOT/'reproof/ios_instrumentation_templates/RLAutomaticRecorder.swift').read_text()
         self.assertTrue('struct RLAppLogRetryPolicy' in source, 'Production retry policy is missing')
         start=source.index('struct RLAppLogRetryPolicy');opening=source.index('{',start);end=opening+1;depth=1
         while depth:

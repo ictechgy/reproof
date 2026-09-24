@@ -5,10 +5,10 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
-from reproloop.live.model import Lab
-from reproloop.live.providers import demo_device
-from reproloop.live.server import LiveServer
-from reproloop.live.commands import main
+from reproof.live.model import Lab
+from reproof.live.providers import demo_device
+from reproof.live.server import LiveServer
+from reproof.live.commands import main
 from tests.test_live_recordings import recording
 
 

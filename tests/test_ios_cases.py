@@ -1,6 +1,6 @@
 import unittest
-from reproloop.core import ContractError
-from reproloop.ios_core import compile_ios_capture,validate_swift_expression
+from reproof.core import ContractError
+from reproof.ios_core import compile_ios_capture,validate_swift_expression
 from tests.test_ios_core import ios_capture,ios_oracle
 
 

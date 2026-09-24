@@ -7,13 +7,13 @@ import subprocess
 import tempfile
 import unittest
 
-from reproloop.core import digest
+from reproof.core import digest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATES = ROOT / "reproloop" / "ios_instrumentation_templates"
+TEMPLATES = ROOT / "reproof" / "ios_instrumentation_templates"
 FIXTURE = ROOT / "tests" / "fixtures" / "ios-auto-runtime"
-XCODE_DEVELOPER = Path("/Applications/Xcode-27.0.0-beta.app/Contents/Developer")
+XCODE_DEVELOPER = Path(os.environ.get("DEVELOPER_DIR") or subprocess.run(["xcode-select","-p"],capture_output=True,text=True,check=True).stdout.strip())
 
 
 def _toolchain_available():
@@ -220,14 +220,14 @@ class IOSAutomaticRuntimeFixtureTests(unittest.TestCase):
             },
         )
         self.assertEqual(profile["kind"], "uikit-runtime-v1")
-        self.assertEqual(profile["applicationId"], "io.reproloop.sample.ios")
+        self.assertEqual(profile["applicationId"], "io.reproof.sample.ios")
         self.assertEqual(profile["tapTargets"], ["counter.add", "counter.next", "counter.reset"])
         self.assertEqual(profile["backTarget"], "counter.back")
 
     def test_fixture_info_plist_has_debug_identity_fields(self):
         with (FIXTURE / "Info.plist").open("rb") as handle:
             info = plistlib.load(handle)
-        self.assertEqual(info["CFBundleIdentifier"], "io.reproloop.sample.ios")
+        self.assertEqual(info["CFBundleIdentifier"], "io.reproof.sample.ios")
         self.assertEqual(info["ReproBuildID"], "fixture-build-id")
         profile = json.loads((FIXTURE / "profile.json").read_text())
         self.assertEqual(info["ReproAutoProfileDigest"], digest(profile))

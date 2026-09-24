@@ -31,9 +31,9 @@ int main(int argc, char **argv) {
     }
     char descriptor[24];
     snprintf(descriptor, sizeof(descriptor), "%d", channel);
-    char *arguments[] = {"python3", "-I", "/Library/ReproLoopGuest/main.py", "--channel-fd", descriptor, NULL};
+    char *arguments[] = {"python3", "-I", "/Library/ReproofGuest/main.py", "--channel-fd", descriptor, NULL};
     char *environment[] = {"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "LANG=C", NULL};
-    execve("/Library/ReproLoopGuest/python/bin/python3", arguments, environment);
+    execve("/Library/ReproofGuest/python/bin/python3", arguments, environment);
     close(channel);
     puts("guest-agent-unavailable");
     return 2;

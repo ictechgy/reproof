@@ -10,14 +10,14 @@ from unittest.mock import patch
 from urllib.parse import urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from reproloop.live.access import AccessError
-from reproloop.live.artifact_transfer import ArtifactTransferStore
-from reproloop.live.disk_budget import DiskBudget
-from reproloop.live.evidence_store import EvidenceStore
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.providers import demo_device
-from reproloop.live.enrollment import EnrollmentClient
-from reproloop.live.worker import WorkerClient, WorkerServer
+from reproof.live.access import AccessError
+from reproof.live.artifact_transfer import ArtifactTransferStore
+from reproof.live.disk_budget import DiskBudget
+from reproof.live.evidence_store import EvidenceStore
+from reproof.live.model import Lab, LiveError
+from reproof.live.providers import demo_device
+from reproof.live.enrollment import EnrollmentClient
+from reproof.live.worker import WorkerClient, WorkerServer
 from tests.test_fixture_allocations import collection_policy, project_document
 
 
@@ -266,7 +266,7 @@ class WorkerArtifactHttpTests(unittest.TestCase):
             except Exception as error:
                 results.append(error)
 
-        with patch("reproloop.live.artifact_transfer.os.pwrite",
+        with patch("reproof.live.artifact_transfer.os.pwrite",
                    side_effect=held_write):
             first = threading.Thread(target=send);first.start()
             self.assertTrue(entered.wait(5))
@@ -335,7 +335,7 @@ class WorkerArtifactHttpTests(unittest.TestCase):
             connection.close()
         self.assertEqual(self.client.artifact_status(upload["objectId"])["receivedBytes"], 0)
         before = self.budget.snapshot()["chargedBytes"]
-        with patch("reproloop.live.artifact_transfer.os.pwrite", side_effect=OSError("synthetic")):
+        with patch("reproof.live.artifact_transfer.os.pwrite", side_effect=OSError("synthetic")):
             with self.assertRaises(LiveError) as failed:
                 self.client.upload_artifact_chunk(
                     upload["objectId"], upload["uploadGeneration"], 0, body)

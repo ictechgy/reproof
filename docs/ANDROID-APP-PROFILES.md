@@ -48,10 +48,10 @@ Live 시작·reset 시 고정하고, 다른 실행의 기록이나 미완성·�
 기기를 한 대만 선택할 수 있는 환경에서는 다음과 같이 실행한다. 모든 새 산출물은 새로운 디렉터리에 둔다.
 
 ```bash
-python3 -m reproloop build --source PATH_TO_PUBLIC_APP_SOURCE \
+python3 -m reproof build --source PATH_TO_PUBLIC_APP_SOURCE \
   --app-profile PATH_TO_APP_PROFILE.json --output artifacts/new-profile-build
 
-python3 -m reproloop live-serve --android auto \
+python3 -m reproof live-serve --android auto \
   --android-helper PATH_TO_MATCHING_LIVE_HELPER.apk \
   --android-app artifacts/new-profile-build/original.apk \
   --app-profile artifacts/new-profile-build/app-profile.json \
@@ -103,7 +103,7 @@ AIDL·C/C++ 입력도 같은 원본·후보 해시에 포함한다. 루트 `sett
 내용의 자동 비밀정보 검사를 뜻하지는 않는다.
 
 `sourceInputs`를 쓰는 자동 계측은 `--mode build`를 사용한다. Kotlin 구문 분석으로 기존
-`pluginManagement`와 `plugins` 블록에 `reproloop-build-logic`의 별도 플러그인을 연결한다.
+`pluginManagement`와 `plugins` 블록에 `reproof-build-logic`의 별도 플러그인을 연결한다.
 목록에 포함한 기존 `buildSrc`와 그 밖의 제품 입력은 바이트를 보존한다. 원본의 두 Gradle
 연결 파일도 원래 디렉터리에서는 변경하지 않는다. 루트 설정과 선택한 앱 모듈은 Kotlin DSL을
 요구하며, 포함된 공개 빌드 로직의 Groovy 파일은 명시적으로 복사할 수 있다.
@@ -123,12 +123,12 @@ helper와 driver가 실제 사용한 native 계약의 digest도 직접 응답하
 
 ```bash
 python3 scripts/prepare-app-profile-fixture.py --output artifacts/new-inventory-fixture
-python3 -m reproloop build --source artifacts/new-inventory-fixture/source \
+python3 -m reproof build --source artifacts/new-inventory-fixture/source \
   --app-profile artifacts/new-inventory-fixture/app-profile.json \
   --output artifacts/new-inventory-build
 ```
 
-이 fixture는 `io.reproloop.inventory`, `inventory_empty`, `label`/`quantity`/`commit`/`export_capture`,
+이 fixture는 `io.reproof.inventory`, `inventory_empty`, `label`/`quantity`/`commit`/`export_capture`,
 `unitsPerItem()`을 사용한다. 실제 사용자 앱과 구분하기 위한 합성 검증물이다.
 helper는 같은 플랫폼 native 소스로 빌드한다. 공유 기기에 다른 작업이 있으면 전용 기기나 에뮬레이터를 사용한다.
 helper 빌드 명령은 [Android Live 실행 문서](ANDROID-LIVE-REPAIR.md)의 `:live:assembleDebug`를 참고한다.

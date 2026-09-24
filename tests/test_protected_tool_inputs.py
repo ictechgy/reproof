@@ -9,10 +9,10 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.execution.resources import GuestBundle, provision
-from reproloop.ios_signing_inputs import IOSSigningOwnerTools
-from reproloop.ios_signing_tools import IOSSigningBuildTools, build_ios_signing_owner
-from reproloop.repair_configuration import ProtectedServiceConfiguration
+from reproof.execution.resources import GuestBundle, provision
+from reproof.ios_signing_inputs import IOSSigningOwnerTools
+from reproof.ios_signing_tools import IOSSigningBuildTools, build_ios_signing_owner
+from reproof.repair_configuration import ProtectedServiceConfiguration
 from tests import test_protected_service_configuration as support
 from tests.test_execution_resources import resource_inputs
 from tests.test_ios_signing_tools import SDK, sha
@@ -44,7 +44,7 @@ class ProtectedToolInputsTests(unittest.TestCase):
         self.issue=support.issue_configuration(row,self.fixture.bundle.workflow.runtimes['checkout'].runtime_policy)
 
     def load(self, document=None):
-        from reproloop.protected_tool_inputs import load_protected_tool_inputs
+        from reproof.protected_tool_inputs import load_protected_tool_inputs
         return load_protected_tool_inputs(ProtectedServiceConfiguration(document or self.document),
             self.issue,self.fixture.bundle)
 
@@ -68,16 +68,16 @@ class ProtectedToolInputsTests(unittest.TestCase):
         self.assert_no_operation_roots()
 
     def test_runtime_mismatch_is_rejected_before_any_referenced_file_is_loaded(self):
-        from reproloop.protected_tool_inputs import ProtectedToolInputsError
+        from reproof.protected_tool_inputs import ProtectedToolInputsError
         changed=copy.deepcopy(self.document); changed['profiles'][0]['deviceId']='missing-device'
-        with (patch('reproloop.protected_tool_inputs.GuestBundle.load') as bundle,
-              patch('reproloop.protected_tool_inputs.load_ios_signing_owner') as tools):
+        with (patch('reproof.protected_tool_inputs.GuestBundle.load') as bundle,
+              patch('reproof.protected_tool_inputs.load_ios_signing_owner') as tools):
             with self.assertRaises(ProtectedToolInputsError): self.load(changed)
             bundle.assert_not_called(); tools.assert_not_called()
         self.assert_no_operation_roots()
 
     def test_environment_recipe_output_and_cleanup_cannot_drift_from_the_bundle(self):
-        from reproloop.protected_tool_inputs import ProtectedToolInputsError
+        from reproof.protected_tool_inputs import ProtectedToolInputsError
         for field,value in (('environmentDigest','9'*64),('artifactPolicyId','other-policy'),
                             ('cleanupPolicyId','other-cleanup')):
             changed=copy.deepcopy(self.document); changed['profiles'][0]['build']['route'][field]=value
@@ -92,7 +92,7 @@ class ProtectedToolInputsTests(unittest.TestCase):
         self.assert_no_operation_roots()
 
     def test_changed_manifest_binary_and_vm_resource_invalidate_prepared_inputs(self):
-        from reproloop.protected_tool_inputs import ProtectedToolInputsError
+        from reproof.protected_tool_inputs import ProtectedToolInputsError
         tools=self.root/'copied-tools'; shutil.copytree(self.tools_root,tools)
         changed=copy.deepcopy(self.document); changed['profiles'][0]['signing']['toolsPath']=str(tools)
         configuration=ProtectedServiceConfiguration(changed)
@@ -109,7 +109,7 @@ class ProtectedToolInputsTests(unittest.TestCase):
         self.assert_no_operation_roots()
 
     def test_runtime_is_rechecked_after_io_and_failed_loading_returns_no_partial_owner(self):
-        from reproloop import protected_tool_inputs as inputs
+        from reproof import protected_tool_inputs as inputs
         original=inputs.load_ios_signing_owner
         def changed(*args,**kwargs):
             result=original(*args,**kwargs)
@@ -120,9 +120,9 @@ class ProtectedToolInputsTests(unittest.TestCase):
         self.assert_no_operation_roots()
 
     def test_android_branch_loads_real_pinned_jvm_tools_for_a_single_apk_recipe(self):
-        from reproloop.android_signing_tools import build_android_signing_owner
-        from reproloop.protected_tool_inputs import _load_profile
-        from reproloop.repair_signing_recovery import SigningOwnerTools
+        from reproof.android_signing_tools import build_android_signing_owner
+        from reproof.protected_tool_inputs import _load_profile
+        from reproof.repair_signing_recovery import SigningOwnerTools
         from tests.test_android_signing_tools import _actual_tools
         output=self.root/'android-tools'
         built=build_android_signing_owner(output,_actual_tools(),cancellation=threading.Event(),
@@ -145,7 +145,7 @@ class ProtectedToolInputsTests(unittest.TestCase):
         self.assert_no_operation_roots()
 
     def signing_definition(self):
-        from reproloop import contracts
+        from reproof import contracts
         from tests.test_protected_signing_inputs import ios_document
         for name,body in (('chain-0.der',b'\x30\x0a\x04\x08leafxxxx'),
                           ('chain-1.der',b'\x30\x0a\x04\x08rootxxxx'),('owned-profile.cms',b'owned unverified profile')):
@@ -160,7 +160,7 @@ class ProtectedToolInputsTests(unittest.TestCase):
         return ProtectedServiceConfiguration(self.document)
 
     def test_combined_input_loading_retains_exact_definitions_without_creating_journals(self):
-        from reproloop.protected_build_signing_inputs import load_protected_build_signing_inputs,ProtectedBuildSigningInputsError
+        from reproof.protected_build_signing_inputs import load_protected_build_signing_inputs,ProtectedBuildSigningInputsError
         configuration=self.signing_definition()
         prepared=load_protected_build_signing_inputs(configuration,self.issue,self.fixture.bundle)
         self.assertEqual(prepared.profile('protected-ios').signing.identity.reference_id,'owned-key')
@@ -171,17 +171,17 @@ class ProtectedToolInputsTests(unittest.TestCase):
         with self.assertRaises(ProtectedBuildSigningInputsError):prepared.verify(configuration,self.issue,self.fixture.bundle)
 
     def test_service_profile_budget_rejects_before_reading_profile_or_certificate_bytes(self):
-        from reproloop import protected_build_signing_inputs as inputs
+        from reproof import protected_build_signing_inputs as inputs
         configuration=self.signing_definition()
         with (patch.object(inputs,'MAX_RETAINED_PROFILE_BYTES',0),
-              patch('reproloop.protected_signing_inputs._read_blob') as read):
+              patch('reproof.protected_signing_inputs._read_blob') as read):
             with self.assertRaises(inputs.ProtectedBuildSigningInputsError):
                 inputs.load_protected_build_signing_inputs(configuration,self.issue,self.fixture.bundle)
             read.assert_not_called()
         self.assert_no_operation_roots()
 
     def test_combined_loading_rechecks_original_after_signing_definition_capture(self):
-        from reproloop import protected_build_signing_inputs as inputs
+        from reproof import protected_build_signing_inputs as inputs
         configuration=self.signing_definition();original=inputs.load_signing_definition
         def changed(*args,**kwargs):
             result=original(*args,**kwargs)

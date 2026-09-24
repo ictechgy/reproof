@@ -1,4 +1,4 @@
-package io.reproloop.instrumentation.gradle;
+package io.reproof.instrumentation.gradle;
 
 import java.lang.reflect.Method;
 import java.nio.file.Files;
@@ -40,7 +40,7 @@ public final class ReproInstrumentationPlugin implements Plugin<Project> {
         require(plan.module.equals(project.getPath()),
                 "ReproPlan.MODULE " + plan.module + " does not select project " + project.getPath());
 
-        Path instrumentationRoot = project.getProjectDir().toPath().resolve("reproloop-instrumentation");
+        Path instrumentationRoot = project.getProjectDir().toPath().resolve("reproof-instrumentation");
         Path runtimeRoot = instrumentationRoot.resolve("runtime");
         Path manifest = instrumentationRoot.resolve("AndroidManifest.xml");
         requireDirectory(runtimeRoot, "Instrumentation runtime source directory");
@@ -84,11 +84,11 @@ public final class ReproInstrumentationPlugin implements Plugin<Project> {
                     configured.getProfileDigest().set(plan.profileDigest);
                     configured.getSites().set(plan.encodedSites);
                     configured.getOutputJar().set(project.getLayout().getBuildDirectory()
-                            .file("reproloop/" + plan.variant + "/classes.jar"));
+                            .file("reproof/" + plan.variant + "/classes.jar"));
                     configured.getFinalJar().set(project.getLayout().getBuildDirectory()
-                            .file("reproloop/" + plan.variant + "/classes.jar"));
+                            .file("reproof/" + plan.variant + "/classes.jar"));
                     configured.getReport().set(project.getLayout().getBuildDirectory()
-                            .file("reproloop/" + plan.variant + "/report.json"));
+                            .file("reproof/" + plan.variant + "/report.json"));
                 });
         ScopedArtifactsOperation<ReproInstrumentationTask> operation = variant.getArtifacts()
                 .forScope(ScopedArtifacts.Scope.PROJECT).use(task);

@@ -2,8 +2,8 @@
 import copy
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.execution.protocol import (
+from reproof.core import ContractError
+from reproof.execution.protocol import (
     validate_environment_descriptor,
     validate_execution_route,
     validate_execution_request,

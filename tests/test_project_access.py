@@ -9,13 +9,13 @@ import threading
 import time
 import unittest
 
-from reproloop.live.access import AccessController, AccessError, AccessStore
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.enrollment import EnrollmentClient
-from reproloop.live.jobs import JobQueue
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.server import LiveServer
-from reproloop.core import ContractError
+from reproof.live.access import AccessController, AccessError, AccessStore
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.enrollment import EnrollmentClient
+from reproof.live.jobs import JobQueue
+from reproof.live.model import Lab, LiveError
+from reproof.live.server import LiveServer
+from reproof.core import ContractError
 from tests.test_fixture_allocations import collection_policy, project_document
 from tests.test_clock_sync import FakeClock
 

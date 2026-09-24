@@ -11,9 +11,9 @@ import unittest
 from unittest.mock import Mock, patch
 import zipfile
 
-from reproloop import contracts
-from reproloop.execution.artifacts import BlobSet
-from reproloop.repair_android_signing import (
+from reproof import contracts
+from reproof.execution.artifacts import BlobSet
+from reproof.repair_android_signing import (
     AndroidApkInspector,
     AndroidApkSigner,
     AndroidSigningError,
@@ -21,7 +21,7 @@ from reproloop.repair_android_signing import (
     AndroidSigningMaterialResolver,
     AndroidSigningTools,
 )
-from reproloop.repair_signing import SigningContext
+from reproof.repair_signing import SigningContext
 
 
 CERTIFICATE = "a" * 64
@@ -114,7 +114,7 @@ exit {exit_code}
 
 class ProcessOwnerPermissionTests(unittest.TestCase):
     def test_signal_denial_after_child_exit_is_collected_without_another_signal(self):
-        from reproloop.repair_android_signing import _ProcessOwner
+        from reproof.repair_android_signing import _ProcessOwner
         process=Mock(pid=12345)
         process.poll.side_effect=[None,0]
         with patch('os.killpg',side_effect=PermissionError) as signal_group, \
@@ -123,7 +123,7 @@ class ProcessOwnerPermissionTests(unittest.TestCase):
         self.assertEqual(signal_group.call_count,1)
 
     def test_signal_denial_for_live_child_does_not_claim_collection(self):
-        from reproloop.repair_android_signing import _ProcessOwner
+        from reproof.repair_android_signing import _ProcessOwner
         process=Mock(pid=12345);process.poll.return_value=None
         with patch('os.killpg',side_effect=PermissionError), \
                 patch.object(_ProcessOwner,'_group_empty',return_value=False):
@@ -439,7 +439,7 @@ class AndroidSigningTests(unittest.TestCase):
         if not all(path.is_file() for path in (java, keytool, jar, aapt, apk)):
             self.skipTest("authorized cached Android signing inputs unavailable")
         password = secrets.token_hex(18).encode("ascii")
-        password_variable = "REPROLOOP_D4_TEST_KEY_PASSWORD"
+        password_variable = "REPROOF_D4_TEST_KEY_PASSWORD"
         key_environment = {
             "PATH": "/usr/bin:/bin",
             "LANG": "C",
@@ -453,7 +453,7 @@ class AndroidSigningTests(unittest.TestCase):
             "-keystore", str(actual_key), "-storepass:env", password_variable,
             "-keypass:env", password_variable, "-alias", alias,
             "-keyalg", "RSA", "-keysize", "2048", "-validity", "1",
-            "-dname", "CN=ReproLoop D4 Owned Test",
+            "-dname", "CN=Reproof D4 Owned Test",
         ]
         self.assertNotIn(password.decode("ascii"), generate_arguments)
         generated = subprocess.run(generate_arguments,

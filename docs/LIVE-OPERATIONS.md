@@ -5,7 +5,7 @@
 ## 실행과 콘솔
 
 ```bash
-python3 -m reproloop live-serve --demo --demo-count 2 \
+python3 -m reproof live-serve --demo --demo-count 2 \
   --job-concurrency 2 --output artifacts/live-operations
 ```
 
@@ -43,17 +43,17 @@ python3 -m reproloop live-serve --demo --demo-count 2 \
 ## CLI
 
 ```bash
-python3 -m reproloop live-recordings list
-python3 -m reproloop live-recordings import /path/to/recording.json
-python3 -m reproloop live-recordings derive <RECORDING_ID> --speed 2
-python3 -m reproloop live-recordings export <RECORDING_ID> \
+python3 -m reproof live-recordings list
+python3 -m reproof live-recordings import /path/to/recording.json
+python3 -m reproof live-recordings derive <RECORDING_ID> --speed 2
+python3 -m reproof live-recordings export <RECORDING_ID> \
   --format python --output /path/to/replay.py
 
-python3 -m reproloop live-jobs submit <RECORDING_ID> --repeats 3 --wait
-python3 -m reproloop live-jobs list
-python3 -m reproloop live-jobs show <JOB_ID>
-python3 -m reproloop live-jobs wait <JOB_ID> --wait-timeout 300
-python3 -m reproloop live-jobs cancel <JOB_ID>
+python3 -m reproof live-jobs submit <RECORDING_ID> --repeats 3 --wait
+python3 -m reproof live-jobs list
+python3 -m reproof live-jobs show <JOB_ID>
+python3 -m reproof live-jobs wait <JOB_ID> --wait-timeout 300
+python3 -m reproof live-jobs cancel <JOB_ID>
 ```
 
 각 leaf 명령에 `--server http://127.0.0.1:PORT`를 지정할 수 있다. export는 기존 파일을 덮어쓰지 않는다. 변수는 대화형 터미널에서 echo 없이 입력하며 CI에서는 `--variables-stdin`으로 JSON 객체를 전달한다. 실제 비밀값을 명령행 인자나 로그에 적지 않는다.
@@ -63,7 +63,7 @@ python3 -m reproloop live-jobs cancel <JOB_ID>
 ## 로컬 에이전트 도구
 
 ```bash
-python3 -m reproloop live-tools
+python3 -m reproof live-tools
 ```
 
 stdin/stdout JSON-lines 인터페이스다. 실제 모델 호출이나 MCP/WebDriver 호환 서버는 아니다.

@@ -6,12 +6,12 @@ import threading
 import time
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.live.artifact_transfer import ArtifactTransferStore
-from reproloop.live.evidence_store import EvidenceStore
-from reproloop.live.model import Lab
-from reproloop.live.providers import demo_device
-from reproloop.live.worker import WorkerClient, WorkerServer
+from reproof.core import ContractError
+from reproof.live.artifact_transfer import ArtifactTransferStore
+from reproof.live.evidence_store import EvidenceStore
+from reproof.live.model import Lab
+from reproof.live.providers import demo_device
+from reproof.live.worker import WorkerClient, WorkerServer
 from tests.test_fixture_allocations import collection_policy, project_document
 
 

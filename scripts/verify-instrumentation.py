@@ -8,10 +8,10 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from reproloop.android_profile import load_app_profile
-from reproloop.core import ContractError
-from reproloop.device import AdbDevice, DeviceError, DRIVER
-from reproloop.storage import read_json, write_json, sha_file
+from reproof.android_profile import load_app_profile
+from reproof.core import ContractError
+from reproof.device import AdbDevice, DeviceError, DRIVER
+from reproof.storage import read_json, write_json, sha_file
 
 
 def main():

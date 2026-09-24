@@ -1,14 +1,14 @@
 import copy
 import unittest
-from reproloop.core import ContractError
-from reproloop.app_logs import collect_app_logs, validate_app_log, validate_app_log_marker
+from reproof.core import ContractError
+from reproof.app_logs import collect_app_logs, validate_app_log, validate_app_log_marker
 
 RUN = '11111111-2222-4333-8444-555555555555'
 SESSION = '22222222-3333-4444-8555-666666666666'
 
 
 def marker():
-    return dict(schemaVersion=1, platform='android', applicationId='io.reproloop.plain',
+    return dict(schemaVersion=1, platform='android', applicationId='io.reproof.plain',
                 runId=RUN, sessionId=SESSION, profileDigest='a'*64, startedAtMs=100)
 
 
@@ -53,7 +53,7 @@ class AppLogContractTests(unittest.TestCase):
         self.validate(value)
 
     def test_marker_requires_full_selected_identity(self):
-        args=dict(platform='android', application_id='io.reproloop.plain', profile_digest='a'*64, run_id=RUN)
+        args=dict(platform='android', application_id='io.reproof.plain', profile_digest='a'*64, run_id=RUN)
         self.assertEqual(validate_app_log_marker(marker(), **args), marker())
         for key, value in [('runId',RUN.upper()),('sessionId','../bad'),('platform','ios'),('profileDigest','b'*64),('startedAtMs',True)]:
             d=marker();d[key]=value
@@ -71,7 +71,7 @@ class AppLogContractTests(unittest.TestCase):
                     return d
                 self.assertEqual(path, 'app-logs/'+SESSION+'/app-log.json')
                 return snapshot()
-            args=dict(platform='android', application_id='io.reproloop.plain', profile_digest='a'*64,
+            args=dict(platform='android', application_id='io.reproof.plain', profile_digest='a'*64,
                       run_id=RUN, click_targets={'add'}, screen_targets={'main'})
             if change:
                 with self.subTest(change=change), self.assertRaises(ContractError):collect_app_logs(read, **args)

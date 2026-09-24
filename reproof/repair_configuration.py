@@ -89,7 +89,7 @@ class ProtectedServiceConfiguration:
         try:
             exact(value, ('schemaVersion', 'kind', 'profiles'))
             _require(type(value['schemaVersion']) is int and value['schemaVersion'] == 1
-                and value['kind'] == 'reproloop-protected-service'
+                and value['kind'] == 'reproof-protected-service'
                 and type(value['profiles']) is list and 1 <= len(value['profiles']) <= 128)
             mutable, inputs = [], []
             profiles, projects = set(), set()
@@ -116,7 +116,7 @@ class ProtectedServiceConfiguration:
         """Match an issue configuration before creating runtimes or native owners."""
         try:
             _require(type(value) is dict and type(value.get('schemaVersion')) is int
-                and value['schemaVersion'] == 1 and value.get('kind') == 'reproloop-issue-runtime'
+                and value['schemaVersion'] == 1 and value.get('kind') == 'reproof-issue-runtime'
                 and type(value.get('projects')) is list and 1 <= len(value['projects']) <= 128)
             selected = {row['id']: row for row in self.document['profiles']}
             used, projects = set(), set()

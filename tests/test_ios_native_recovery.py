@@ -8,15 +8,15 @@ import threading
 import time
 import unittest
 
-from reproloop.execution.wire import canonical
-from reproloop.ios_mobile_operation import IOSMobileOperationError, IOSMobileOperationStore
-from reproloop.ios_native_recovery import (
+from reproof.execution.wire import canonical
+from reproof.ios_mobile_operation import IOSMobileOperationError, IOSMobileOperationStore
+from reproof.ios_native_recovery import (
     IOSNativeRecoveryError,
     IOSNativeRecoveryContext,
     native_recovery,
     require_native_recovery,
 )
-from reproloop.live.authority import HostAuthority, issue_local_parent_grant
+from reproof.live.authority import HostAuthority, issue_local_parent_grant
 from tests import test_ios_mobile_operation as preparation
 
 

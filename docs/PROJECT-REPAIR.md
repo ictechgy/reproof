@@ -30,21 +30,21 @@ G7에서 승인하고 원본 결함을 재현한 이슈에 수정 작업을 연�
 credential은 기존 `--credential-stdin` 방식으로 전달하며 명령 인자나 파일에 넣지 않는다.
 
 ```sh
-python3 -m reproloop live-issues repair-propose ISSUE_ID \
+python3 -m reproof live-issues repair-propose ISSUE_ID \
   --specification-digest SPEC_SHA256 --request-id UNIQUE_REQUEST \
   --server COORDINATOR_URL --credential-stdin --wait
 
-python3 -m reproloop live-issues repair-verify ISSUE_ID \
+python3 -m reproof live-issues repair-verify ISSUE_ID \
   --specification-digest SPEC_SHA256 --request-id ANOTHER_REQUEST \
   --server COORDINATOR_URL --credential-stdin --wait
 
-python3 -m reproloop live-issues repairs ISSUE_ID \
+python3 -m reproof live-issues repairs ISSUE_ID \
   --server COORDINATOR_URL --credential-stdin
-python3 -m reproloop live-issues repair-show REPAIR_ID \
+python3 -m reproof live-issues repair-show REPAIR_ID \
   --server COORDINATOR_URL --credential-stdin
-python3 -m reproloop live-issues repair-cancel REPAIR_ID \
+python3 -m reproof live-issues repair-cancel REPAIR_ID \
   --server COORDINATOR_URL --credential-stdin
-python3 -m reproloop live-issues repair-patch REPAIR_ID --output NEW_DIRECTORY \
+python3 -m reproof live-issues repair-patch REPAIR_ID --output NEW_DIRECTORY \
   --server COORDINATOR_URL --credential-stdin
 ```
 

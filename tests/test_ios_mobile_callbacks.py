@@ -6,9 +6,9 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.ios_mobile_callbacks import IOSNativeCallbackCoordinator
-from reproloop.ios_mobile_operation import IOSMobileOperationError
-from reproloop.repair_callbacks import invoke_fixed
+from reproof.ios_mobile_callbacks import IOSNativeCallbackCoordinator
+from reproof.ios_mobile_operation import IOSMobileOperationError
+from reproof.repair_callbacks import invoke_fixed
 from tests.test_ios_mobile_native import IOSMobileNativeTests
 
 

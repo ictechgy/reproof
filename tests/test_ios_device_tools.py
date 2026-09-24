@@ -58,7 +58,7 @@ destination.write_text(json.dumps({'info':{'outcome':'success'},'result':result}
         self.tool.chmod(0o700)
 
     def client(self):
-        from reproloop.ios_device_tools import IOSDeviceTools, PinnedDeviceCtlClient
+        from reproof.ios_device_tools import IOSDeviceTools, PinnedDeviceCtlClient
         result = PinnedDeviceCtlClient(IOSDeviceTools(self.tool,hashlib.sha256(self.tool.read_bytes()).hexdigest()),
             identifier=IDENTIFIER, udid=UDID, bundle=BUNDLE, work_root=self.work)
         self.addCleanup(result.close)
@@ -91,14 +91,14 @@ destination.write_text(json.dumps({'info':{'outcome':'success'},'result':result}
         self.assertTrue(observation.data['apps'][0]['bundleIdentifier']==BUNDLE)
 
     def test_wrong_device_identity_stops_before_the_following_query(self):
-        from reproloop.ios_device_tools import IOSDeviceToolError
+        from reproof.ios_device_tools import IOSDeviceToolError
         self.write_tool("result['hardwareProperties']['udid']='00008020-1111111111111111'")
         with self.assertRaises(IOSDeviceToolError):self.query(self.client(),'apps')
         self.assertEqual(len(self.requests.read_text().splitlines()),1)
         self.assertEqual(list(self.work.iterdir()),[])
 
     def test_changed_tool_closed_client_and_management_commands_do_not_dispatch(self):
-        from reproloop.ios_device_tools import IOSDeviceToolError
+        from reproof.ios_device_tools import IOSDeviceToolError
         client=self.client()
         for kind in ('list','install','pair','manage',('details','--device','foreign')):
             with self.subTest(kind=kind),self.assertRaises(IOSDeviceToolError):self.query(client,kind)
@@ -110,7 +110,7 @@ destination.write_text(json.dumps({'info':{'outcome':'success'},'result':result}
         with self.assertRaises(IOSDeviceToolError):self.query(client)
 
     def test_cancellation_collects_owned_client_and_removes_only_its_work(self):
-        from reproloop.ios_device_tools import IOSDeviceToolError
+        from reproof.ios_device_tools import IOSDeviceToolError
         self.write_tool('time.sleep(5)')
         client=self.client();cancel=threading.Event()
         timer=threading.Timer(.15,cancel.set);timer.start();self.addCleanup(timer.join)
@@ -119,7 +119,7 @@ destination.write_text(json.dumps({'info':{'outcome':'success'},'result':result}
         self.assertEqual(list(self.work.iterdir()),[])
 
     def test_failure_output_is_bounded_and_not_exposed(self):
-        from reproloop.ios_device_tools import IOSDeviceToolError
+        from reproof.ios_device_tools import IOSDeviceToolError
         for extra in ("sys.stderr.write('owned-private-output');sys.exit(1)",
                       "destination.write_bytes(b'x'*300000);sys.exit(0)",
                       "destination.symlink_to(REQUESTS);sys.exit(0)"):
@@ -129,7 +129,7 @@ destination.write_text(json.dumps({'info':{'outcome':'success'},'result':result}
                 self.assertNotIn('owned-private-output',str(raised.exception))
 
     def test_tool_and_workspace_symlinks_are_rejected(self):
-        from reproloop.ios_device_tools import IOSDeviceTools, IOSDeviceToolError, PinnedDeviceCtlClient
+        from reproof.ios_device_tools import IOSDeviceTools, IOSDeviceToolError, PinnedDeviceCtlClient
         digest=hashlib.sha256(self.tool.read_bytes()).hexdigest()
         alias=self.root/'alias';alias.symlink_to(self.tool)
         with self.assertRaises(IOSDeviceToolError):IOSDeviceTools(alias,digest)
@@ -139,14 +139,14 @@ destination.write_text(json.dumps({'info':{'outcome':'success'},'result':result}
                                  bundle=BUNDLE,work_root=link)
 
     def test_shell_launchers_cannot_run_implicit_tool_installation(self):
-        from reproloop.ios_device_tools import IOSDeviceTools, IOSDeviceToolError
+        from reproof.ios_device_tools import IOSDeviceTools, IOSDeviceToolError
         launcher=self.root/'launcher'
         launcher.write_text('#!/bin/sh\nexit 0\n');launcher.chmod(0o700)
         with self.assertRaises(IOSDeviceToolError):
             IOSDeviceTools(launcher,hashlib.sha256(launcher.read_bytes()).hexdigest())
 
     def test_query_definition_needs_no_workspace_creation_or_device_process(self):
-        from reproloop.ios_device_tools import IOSDeviceTools,IOSDeviceQueryDefinition
+        from reproof.ios_device_tools import IOSDeviceTools,IOSDeviceQueryDefinition
         missing=self.root/'future-work'
         tools=IOSDeviceTools(self.tool,hashlib.sha256(self.tool.read_bytes()).hexdigest())
         with patch('subprocess.Popen',side_effect=AssertionError('Declaration started a process')):
@@ -158,30 +158,30 @@ destination.write_text(json.dumps({'info':{'outcome':'success'},'result':result}
         self.assertTrue(UDID not in repr(declared) and IDENTIFIER not in repr(declared) and str(self.root) not in repr(declared))
 
     def test_expired_bounds_and_pre_cancelled_queries_never_dispatch(self):
-        from reproloop.ios_device_tools import IOSDeviceToolError
+        from reproof.ios_device_tools import IOSDeviceToolError
         client=self.client();cancel=threading.Event();cancel.set()
         for arguments in ({'cancellation':cancel},{'deadline':time.monotonic()-1},{'deadline':float('nan')}):
             with self.subTest(arguments=arguments),self.assertRaises(IOSDeviceToolError):self.query(client,**arguments)
         self.assertFalse(self.requests.exists())
 
     def test_selected_iphone_entry_does_not_fall_back_to_global_discovery(self):
-        from reproloop.live.iphone import select_iphone
-        from reproloop.live.model import LiveError
+        from reproof.live.iphone import select_iphone
+        from reproof.live.model import LiveError
         client=self.client()
-        with patch('reproloop.live.iphone.discover_iphones',side_effect=AssertionError('Ambient discovery used')):
+        with patch('reproof.live.iphone.discover_iphones',side_effect=AssertionError('Ambient discovery used')):
             device=select_iphone(query_client=client)
             self.assertTrue(device.identifier==IDENTIFIER and device.udid==UDID)
             with self.assertRaises(LiveError):select_iphone('unselected-public-device',query_client=client)
 
     def test_foreign_application_result_is_rejected(self):
-        from reproloop.ios_device_tools import IOSDeviceToolError
+        from reproof.ios_device_tools import IOSDeviceToolError
         self.write_tool("\nif args[2]=='apps':result={'apps':[{'bundleIdentifier':'com.example.foreign'}]}")
         with self.assertRaises(IOSDeviceToolError):self.query(self.client(),'apps')
         self.assertEqual(list(self.work.iterdir()),[])
 
     def test_unconfirmed_host_collection_keeps_work_until_an_explicit_close_retry(self):
-        from reproloop.ios_device_tools import IOSDeviceToolError
-        from reproloop.repair_android_signing import _ProcessOwner
+        from reproof.ios_device_tools import IOSDeviceToolError
+        from reproof.repair_android_signing import _ProcessOwner
         client=self.client()
         with patch.object(_ProcessOwner,'_group_empty',return_value=False):
             with self.assertRaises(IOSDeviceToolError):self.query(client)
@@ -192,7 +192,7 @@ destination.write_text(json.dumps({'info':{'outcome':'success'},'result':result}
         self.assertEqual(list(self.work.iterdir()),[])
 
     def test_unexpected_work_symlink_is_preserved_and_prevents_reuse(self):
-        from reproloop.ios_device_tools import IOSDeviceToolError
+        from reproof.ios_device_tools import IOSDeviceToolError
         self.write_tool('destination.symlink_to(REQUESTS);sys.exit(0)')
         client=self.client()
         with self.assertRaises(IOSDeviceToolError):self.query(client)

@@ -48,7 +48,7 @@ def _build_tools(arguments):
 
 
 def main(argv=None):
-    parser = _ArgumentParser(prog="reproloop android-signing",
+    parser = _ArgumentParser(prog="reproof android-signing",
         description="Build fixed Android signing tools, inspect or recover an existing operation")
     actions = parser.add_subparsers(dest="action", required=True)
     build = actions.add_parser("build-tools")

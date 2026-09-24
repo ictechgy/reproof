@@ -1,4 +1,4 @@
-package io.reproloop.autotrace
+package io.reproof.autotrace
 
 import android.app.Activity
 import android.content.Context

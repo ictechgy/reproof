@@ -1,4 +1,4 @@
-package io.reproloop.sample
+package io.reproof.sample
 
 /**
  * Deliberately isolated fixture logic. The host repair agent may edit this file

@@ -17,8 +17,8 @@ import threading
 import time
 import unicodedata
 
-from reproloop.core import ContractError
-from reproloop.contracts.versions import (
+from reproof.core import ContractError
+from reproof.contracts.versions import (
     bounded_int, bounded_list, exact, require, safe_relative_path,
     validate_digest, validate_id,
 )

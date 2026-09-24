@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from reproloop.execution import artifacts, wire
+from reproof.execution import artifacts, wire
 
 
 class ExecutionArtifactsTests(unittest.TestCase):

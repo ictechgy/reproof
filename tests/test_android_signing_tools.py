@@ -15,13 +15,13 @@ import unittest
 from unittest import mock
 import zipfile
 
-from reproloop.android_signing_tools import (
+from reproof.android_signing_tools import (
     AndroidSigningBuildTools, AndroidSigningOwnerBuild,
     AndroidSigningToolsError, build_android_signing_owner,
     load_android_signing_owner,
 )
-from reproloop.repair_signing_recovery import SigningOwnerTools
-from reproloop.resources import read_resource
+from reproof.repair_signing_recovery import SigningOwnerTools
+from reproof.resources import read_resource
 
 
 JDK_HOME = Path(
@@ -95,19 +95,19 @@ class AndroidSigningToolsTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(
             manifest_path.read_bytes()).hexdigest(), result.manifest_digest)
         self.assertEqual(set(self.output.iterdir()), {
-            self.output / "reproloop-android-signing-owner.jar",
-            self.output / "libreproloop_signing_owner_fd.dylib",
+            self.output / "reproof-android-signing-owner.jar",
+            self.output / "libreproof_signing_owner_fd.dylib",
             manifest_path,
         })
         with zipfile.ZipFile(result.tools.owner_jar) as archive:
             names = set(archive.namelist())
         required = {
-            "io/reproloop/signing/SigningOwner.class",
-            "io/reproloop/signing/SigningOwner$Config.class",
-            "io/reproloop/signing/SigningOwner$Rejected.class",
-            "io/reproloop/signing/SigningOwner$TextCheck.class",
-            "io/reproloop/signing/SigningOwner$ManifestIdentity.class",
-            "io/reproloop/signing/SigningOwner$BoundedSink.class",
+            "io/reproof/signing/SigningOwner.class",
+            "io/reproof/signing/SigningOwner$Config.class",
+            "io/reproof/signing/SigningOwner$Rejected.class",
+            "io/reproof/signing/SigningOwner$TextCheck.class",
+            "io/reproof/signing/SigningOwner$ManifestIdentity.class",
+            "io/reproof/signing/SigningOwner$BoundedSink.class",
         }
         self.assertTrue(required <= names)
         serialized = json.dumps(manifest, sort_keys=True)
@@ -124,7 +124,7 @@ class AndroidSigningToolsTests(unittest.TestCase):
     def test_existing_output_and_relative_or_mismatched_tools_fail_before_spawn(self):
         self.output.mkdir(mode=0o700)
         with mock.patch(
-                "reproloop.android_signing_tools.subprocess.Popen") as spawn:
+                "reproof.android_signing_tools.subprocess.Popen") as spawn:
             with self.assertRaises(AndroidSigningToolsError) as caught:
                 self.build()
             spawn.assert_not_called()
@@ -145,9 +145,9 @@ class AndroidSigningToolsTests(unittest.TestCase):
         payload.write_bytes(b"owned elsewhere")
         token = mock.Mock(hex="fixed")
         with mock.patch(
-                "reproloop.android_signing_tools.uuid.uuid4",
+                "reproof.android_signing_tools.uuid.uuid4",
                 return_value=token), mock.patch(
-                "reproloop.android_signing_tools.subprocess.Popen") as spawn:
+                "reproof.android_signing_tools.subprocess.Popen") as spawn:
             with self.assertRaises(AndroidSigningToolsError):
                 self.build(output=fresh)
             spawn.assert_not_called()
@@ -160,7 +160,7 @@ class AndroidSigningToolsTests(unittest.TestCase):
         tools = _actual_tools(apksigner=copied)
         copied.write_bytes(copied.read_bytes() + b"changed")
         with mock.patch(
-                "reproloop.android_signing_tools.subprocess.Popen") as spawn:
+                "reproof.android_signing_tools.subprocess.Popen") as spawn:
             with self.assertRaises(AndroidSigningToolsError) as caught:
                 self.build(tools=tools)
             spawn.assert_not_called()
@@ -171,7 +171,7 @@ class AndroidSigningToolsTests(unittest.TestCase):
         cancelled = threading.Event()
         cancelled.set()
         with mock.patch(
-                "reproloop.android_signing_tools.subprocess.Popen") as spawn:
+                "reproof.android_signing_tools.subprocess.Popen") as spawn:
             with self.assertRaises(AndroidSigningToolsError) as caught:
                 self.build(cancellation=cancelled)
             spawn.assert_not_called()
@@ -211,12 +211,12 @@ class AndroidSigningToolsTests(unittest.TestCase):
         unexpected.unlink()
         original_read = read_resource
         with mock.patch(
-                "reproloop.android_signing_tools.read_resource",
+                "reproof.android_signing_tools.read_resource",
                 side_effect=lambda name: original_read(name) + b"changed"):
             with self.assertRaises(AndroidSigningToolsError):
                 load_android_signing_owner(
                     self.output, result.manifest_digest)
-        owner_jar = self.output / "reproloop-android-signing-owner.jar"
+        owner_jar = self.output / "reproof-android-signing-owner.jar"
         owner_jar.chmod(0o600)
         with owner_jar.open("ab") as stream:
             stream.write(b"tamper")
@@ -313,9 +313,9 @@ class AndroidSigningToolsTests(unittest.TestCase):
             return process
         try:
             with mock.patch(
-                    "reproloop.android_signing_tools.subprocess.Popen",
+                    "reproof.android_signing_tools.subprocess.Popen",
                     side_effect=capture), mock.patch(
-                    "reproloop.android_signing_tools._drain",
+                    "reproof.android_signing_tools._drain",
                     side_effect=KeyboardInterrupt):
                 with self.assertRaises(KeyboardInterrupt):
                     self.build(tools=_actual_tools(clang=fake))
@@ -333,7 +333,7 @@ class AndroidSigningToolsTests(unittest.TestCase):
         cancellation = threading.Event()
         calls = 0
         actual_run = __import__(
-            "reproloop.android_signing_tools",
+            "reproof.android_signing_tools",
             fromlist=["_run_fixed"])._run_fixed
         def cancel_after_jar(*args, **kwargs):
             nonlocal calls
@@ -343,7 +343,7 @@ class AndroidSigningToolsTests(unittest.TestCase):
                 cancellation.set()
             return result
         with mock.patch(
-                "reproloop.android_signing_tools._run_fixed",
+                "reproof.android_signing_tools._run_fixed",
                 side_effect=cancel_after_jar):
             with self.assertRaises(AndroidSigningToolsError) as caught:
                 self.build(cancellation=cancellation)
@@ -353,7 +353,7 @@ class AndroidSigningToolsTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
         with mock.patch(
-                "reproloop.android_signing_tools.subprocess.Popen",
+                "reproof.android_signing_tools.subprocess.Popen",
                 side_effect=AssertionError("infinite deadline dispatched")) as spawn:
             with self.assertRaises(AndroidSigningToolsError) as caught:
                 self.build(deadline=float("inf"))
@@ -375,7 +375,7 @@ class AndroidSigningToolsTests(unittest.TestCase):
             return result
         completed.poll = mock.Mock(side_effect=cancelling_poll)
         with mock.patch(
-                "reproloop.android_signing_tools.subprocess.Popen",
+                "reproof.android_signing_tools.subprocess.Popen",
                 return_value=completed):
             with self.assertRaises(AndroidSigningToolsError) as caught:
                 self.build(cancellation=cancellation)
@@ -388,7 +388,7 @@ class AndroidSigningToolsTests(unittest.TestCase):
         self.root.chmod(0o770)
         try:
             with mock.patch(
-                    "reproloop.android_signing_tools.subprocess.Popen",
+                    "reproof.android_signing_tools.subprocess.Popen",
                     side_effect=AssertionError("unsafe parent dispatched")) as spawn:
                 with self.assertRaises(AndroidSigningToolsError) as caught:
                     self.build()

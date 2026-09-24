@@ -14,7 +14,7 @@ from unittest.mock import patch
 import zipfile
 import weakref
 
-from reproloop.core import ContractError
+from reproof.core import ContractError
 
 
 MACHO64_ARM64 = struct.pack(
@@ -152,7 +152,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
         return destination
 
     def test_app_capability_recomputes_separate_digests_and_redacts_profiles(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         capability = parse_ios_artifact(self.make_app())
         manifest = capability.manifest
@@ -185,7 +185,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
         self.assertNotEqual(capability.manifest["files"], changed["files"])
 
     def test_app_and_ipa_have_the_same_app_digest_but_distinct_container_digest(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         app = self.make_flat_app()
         ipa = self.make_ipa(app, self.root / "Flat.ipa")
@@ -199,7 +199,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
         self.assertEqual(ipa_capability.manifest["containerBytes"], ipa.stat().st_size)
 
     def test_ipa_explicit_payload_directory_is_accepted_and_empty_directories_are_preserved(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         app = self.make_flat_app()
         (app / "Resources" / "Empty").mkdir(parents=True)
@@ -210,7 +210,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
         self.assertIn("Resources/Empty", ipa_capability.manifest["directories"])
 
     def test_ipa_capability_retains_the_source_container_after_private_extraction(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         ipa = self.make_ipa(self.make_flat_app(), self.root / "source.ipa")
         capability = parse_ios_artifact(ipa)
@@ -218,7 +218,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
         self.assertTrue(capability._source.is_file())
 
     def test_zip_group_world_write_and_setid_modes_are_rejected_before_normalization(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         app = self.make_flat_app()
         for mode in (0o664, 0o4755):
@@ -232,23 +232,23 @@ class IOSArtifactTransferTests(unittest.TestCase):
             parse_ios_artifact(archive)
 
     def test_ipa_honors_the_code_object_limit(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         archive = self.make_ipa(self.make_app(profiles=False), self.root / "limited.ipa")
         with self.assertRaises(ContractError):
             parse_ios_artifact(archive, max_code_objects=2)
 
     def test_ipa_entry_count_is_rejected_before_zipfile_materializes_info_objects(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         archive = self.make_ipa(self.make_flat_app(), self.root / "too-many.ipa")
-        with patch("reproloop.ios_artifact_transfer.zipfile.ZipFile",
+        with patch("reproof.ios_artifact_transfer.zipfile.ZipFile",
                    side_effect=AssertionError("ZipFile must not initialize")):
             with self.assertRaises(ContractError):
                 parse_ios_artifact(archive, max_entries=2)
 
     def test_ipa_malformed_and_multidisk_end_records_are_rejected(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         source = self.make_ipa(self.make_flat_app(), self.root / "valid.ipa")
         valid = bytearray(source.read_bytes())
@@ -267,7 +267,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
                 parse_ios_artifact(archive)
 
     def test_ipa_rejects_zip_symlink_before_extracting_it(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         ipa = self.make_ipa(self.make_flat_app(), self.root / "linked.ipa", add_symlink=True)
         with self.assertRaises(ContractError):
@@ -275,7 +275,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
         self.assertFalse((self.root / "outside").exists())
 
     def test_ipa_requires_one_payload_app_and_rejects_traversal_or_extra_roots(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         app = self.make_flat_app()
         info = (app / "Info.plist").read_bytes()
@@ -300,7 +300,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
                 parse_ios_artifact(archive)
 
     def test_embedded_profiles_are_allowed_only_at_app_or_appex_root(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         app = self.make_flat_app()
         _write(app / "Resources" / "fake.mobileprovision", b"private dummy")
@@ -314,7 +314,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
             parse_ios_artifact(app)
 
     def test_accepts_a_bounded_fat_macho_without_executing_it(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         app = self.make_flat_app()
         slice_bytes = MACHO64_ARM64
@@ -326,7 +326,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
         self.assertEqual(capability.manifest["applicationId"], "com.example.flat")
 
     def test_rejects_hardlinks_case_nfc_collisions_and_bad_links(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         cases = []
         hardlinked = self.make_flat_app()
@@ -361,7 +361,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
                     parse_ios_artifact(app)
 
     def test_rejects_unsupported_nested_code_bad_macho_and_nonregular_entries(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         unsupported = self.make_flat_app()
         _write(unsupported / "Extras" / "Bad.appex" / "Info.plist",
@@ -385,7 +385,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
             parse_ios_artifact(fifo)
 
     def test_file_entry_and_code_object_limits_are_bounded(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         app = self.make_app()
         with self.assertRaises(ContractError):
@@ -396,7 +396,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
             parse_ios_artifact(app, max_code_objects=2)
 
     def test_capability_is_parser_issued_and_manifest_is_a_copy(self):
-        from reproloop.ios_artifact_transfer import (
+        from reproof.ios_artifact_transfer import (
             IosBundleCapability,
             parse_ios_artifact,
             require_ios_artifact,
@@ -434,13 +434,13 @@ class IOSArtifactTransferTests(unittest.TestCase):
         reference = weakref.ref(capability)
         del capability
         gc.collect()
-        from reproloop import ios_artifact_transfer
+        from reproof import ios_artifact_transfer
         with ios_artifact_transfer._ISSUED_CAPABILITIES_LOCK:
             self.assertIsNone(reference())
             self.assertNotIn(identifier, ios_artifact_transfer._ISSUED_CAPABILITIES)
 
     def test_relative_file_open_pins_parent_directories_and_never_blocks_on_fifo(self):
-        from reproloop.ios_artifact_transfer import _open_relative_file
+        from reproof.ios_artifact_transfer import _open_relative_file
 
         app = self.make_flat_app()
         nested = app / "Nested"
@@ -467,7 +467,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
             _open_relative_file(app, "Nested/pipe")
 
     def test_tree_iteration_stops_at_the_first_entry_over_the_global_budget(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
 
         app = self.make_flat_app()
         original_scandir = os.scandir
@@ -496,7 +496,7 @@ class IOSArtifactTransferTests(unittest.TestCase):
         def bounded_scandir(directory):
             return BoundedIterator(original_scandir(directory), 3)
 
-        with patch("reproloop.ios_artifact_transfer.os.scandir",
+        with patch("reproof.ios_artifact_transfer.os.scandir",
                    side_effect=bounded_scandir):
             with self.assertRaises(ContractError):
                 parse_ios_artifact(app, max_entries=2)

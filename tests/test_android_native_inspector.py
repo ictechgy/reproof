@@ -11,9 +11,9 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.execution.artifacts import BlobSet
-from reproloop.repair_android import PinnedAdbDevice
-from reproloop.repair_android_operation import AndroidOperationStore, AndroidOperationError
+from reproof.execution.artifacts import BlobSet
+from reproof.repair_android import PinnedAdbDevice
+from reproof.repair_android_operation import AndroidOperationStore, AndroidOperationError
 from tests import test_android_native_process as support
 
 _SDK_HOME=Path(os.environ.get('ANDROID_HOME', Path.home()/'Library/Android/sdk'))
@@ -41,8 +41,8 @@ class AndroidNativeInspectorTests(unittest.TestCase):
         self.context=self.f.f.context
 
     def test_actual_aapt_is_dispatched_natively_and_retired_without_a_gateway(self):
-        from reproloop.android_native_process import native_dispatcher
-        from reproloop.android_native_calls import validate_workspace
+        from reproof.android_native_process import native_dispatcher
+        from reproof.android_native_calls import validate_workspace
         with self.operations.admit(self.context,BlobSet((('candidate.apk',self.body),))) as operation:
             with self.f.fixture.phase(operation) as (phase,descriptors):
                 with native_dispatcher(self.operations,descriptors,self.f.guardian()) as dispatcher:
@@ -62,7 +62,7 @@ class AndroidNativeInspectorTests(unittest.TestCase):
                     self.operations.complete_phase(phase,'a'*64)
 
     def test_unstaged_apk_is_rejected_before_inspector_spawn(self):
-        from reproloop.android_native_process import native_dispatcher
+        from reproof.android_native_process import native_dispatcher
         with self.operations.admit(self.context,BlobSet((('candidate.apk',self.body),))) as operation:
             with self.f.fixture.phase(operation) as (phase,descriptors):
                 with native_dispatcher(self.operations,descriptors,self.f.guardian()) as dispatcher:
@@ -81,7 +81,7 @@ class AndroidNativeInspectorTests(unittest.TestCase):
                          self.config.tools.inspector_support_digest)
 
     def test_inspector_os_policy_blocks_unselected_reads_writes_network_and_fork(self):
-        from reproloop.android_native_process import native_dispatcher
+        from reproof.android_native_process import native_dispatcher
         root=self.f.f.root/'inspector-canary';self.assertFalse(root.exists());root.mkdir(mode=0o700)
         outside=root/'outside.txt';outside.write_text('owned inspector canary')
         listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen(1)
@@ -121,7 +121,7 @@ class AndroidNativeInspectorTests(unittest.TestCase):
                     operations.complete_phase(phase,'a'*64)
 
     def test_changed_owned_support_copy_is_rejected(self):
-        from reproloop.device import DeviceError
+        from reproof.device import DeviceError
         root=self.f.f.root/'inspector-copy';self.assertFalse(root.exists());root.mkdir(mode=0o700)
         tool=root/'aapt';tool.write_bytes(AAPT.read_bytes());tool.chmod(0o700)
         library=root/'lib64/libc++.dylib';library.parent.mkdir(mode=0o700)

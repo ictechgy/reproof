@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import os
 
-from reproloop.core import ContractError
-from reproloop.contracts.versions import require, validate_digest, validate_id
+from reproof.core import ContractError
+from reproof.contracts.versions import require, validate_digest, validate_id
 from .artifacts import ArtifactError, open_directory
 from .journal import OwnedRun, RunDenied
 from .wire import ProtocolError, decode_json

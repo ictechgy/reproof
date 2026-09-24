@@ -110,7 +110,7 @@ class ScopedAdbEndpointTests(unittest.TestCase):
         self.server=OwnedAdbServer(self.root);self.addCleanup(self.server.close)
 
     def client(self):
-        from reproloop.adb_endpoint import AdbEndpoint,ScopedAdbClient
+        from reproof.adb_endpoint import AdbEndpoint,ScopedAdbClient
         result=ScopedAdbClient(ADB,sha(ADB),AdbEndpoint(self.server.path),serial='owned-device',
             work_root=self.work,sandbox_sha256=sha('/usr/bin/sandbox-exec'))
         self.addCleanup(result.close);return result
@@ -155,20 +155,20 @@ class ScopedAdbEndpointTests(unittest.TestCase):
 
     def test_missing_endpoint_does_not_start_a_server_or_replace_its_socket(self):
         client=self.client();self.server.close()
-        from reproloop.adb_endpoint import AdbEndpointError
+        from reproof.adb_endpoint import AdbEndpointError
         with self.assertRaises(AdbEndpointError):self.run_client(client,('devices',))
         self.assertFalse(self.server.path.exists())
 
     def test_server_management_and_foreign_selection_are_rejected_before_dispatch(self):
         client=self.client()
-        from reproloop.adb_endpoint import AdbEndpointError
+        from reproof.adb_endpoint import AdbEndpointError
         for arguments in (('kill-server',),('start-server',),('-s','other-device','shell','true'),
                           ('-L','tcp:5037','devices'),('connect','other-device')):
             with self.subTest(arguments=arguments),self.assertRaises(AdbEndpointError):self.run_client(client,arguments)
         self.assertEqual(self.server.requests,[])
 
     def test_gateway_denies_direct_control_and_foreign_transport_requests(self):
-        from reproloop.adb_endpoint import AdbEndpoint,AdbGateway
+        from reproof.adb_endpoint import AdbEndpoint,AdbGateway
         with AdbGateway(AdbEndpoint(self.server.path),'owned-device') as gateway:
             for service in (b'host:kill',b'host:tport:serial:other-device',b'host:connect:127.0.0.1:5555'):
                 with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as connection:
@@ -177,7 +177,7 @@ class ScopedAdbEndpointTests(unittest.TestCase):
         self.assertEqual(self.server.requests,[])
 
     def test_endpoint_permissions_symlinks_and_changed_binary_are_rejected(self):
-        from reproloop.adb_endpoint import AdbEndpoint,AdbEndpointError,ScopedAdbClient
+        from reproof.adb_endpoint import AdbEndpoint,AdbEndpointError,ScopedAdbClient
         self.server.path.chmod(0o666)
         with self.assertRaises(AdbEndpointError):AdbEndpoint(self.server.path)
         self.server.path.chmod(0o600)
@@ -188,7 +188,7 @@ class ScopedAdbEndpointTests(unittest.TestCase):
                 work_root=self.work,sandbox_sha256=sha('/usr/bin/sandbox-exec'))
 
     def test_actual_os_policy_blocks_outside_files_network_and_server_process_spawn(self):
-        from reproloop.adb_endpoint import adb_client_sandbox
+        from reproof.adb_endpoint import adb_client_sandbox
         source=self.root/'probe.c';binary=self.root/'probe'
         source.write_text(r'''
 #include <arpa/inet.h>
@@ -236,7 +236,7 @@ int main(int argc,char **argv) {
             self.assertFalse(created.exists())
 
     def test_gateway_close_collects_a_client_that_never_finishes_its_header(self):
-        from reproloop.adb_endpoint import AdbEndpoint,AdbGateway
+        from reproof.adb_endpoint import AdbEndpoint,AdbGateway
         gateway=AdbGateway(AdbEndpoint(self.server.path),'owned-device');gateway.__enter__()
         with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as connection:
             connection.connect(str(gateway.socket_path));connection.sendall(b'00')
@@ -253,9 +253,9 @@ int main(int argc,char **argv) {
         self.assertFalse(any(b'forward' in item for item in self.server.requests))
 
     def test_pinned_device_uses_scoped_sdk_and_helper_bridge_for_managed_instrumentation(self):
-        from reproloop.adb_endpoint import AdbEndpoint
-        from reproloop.repair_android import AndroidMobileTools,PinnedAdbDevice
-        from reproloop.live.android_live import UsbBridgeClient,HELPER
+        from reproof.adb_endpoint import AdbEndpoint
+        from reproof.repair_android import AndroidMobileTools,PinnedAdbDevice
+        from reproof.live.android_live import UsbBridgeClient,HELPER
         aapt=ADB.parent.parent/'build-tools/36.0.0/aapt2'
         tools=AndroidMobileTools(ADB,sha(ADB),aapt,sha(aapt))
         endpoint=AdbEndpoint(self.server.path,sandbox_sha256=sha('/usr/bin/sandbox-exec'))
@@ -281,10 +281,10 @@ int main(int argc,char **argv) {
 
     def test_gateway_start_failure_removes_its_owned_socket_directory(self):
         from unittest.mock import patch
-        from reproloop.adb_endpoint import AdbEndpoint,AdbGateway
+        from reproof.adb_endpoint import AdbEndpoint,AdbGateway
         gateway=AdbGateway(AdbEndpoint(self.server.path),'owned-device')
         try:
-            with patch('reproloop.adb_endpoint.threading.Thread.start',side_effect=RuntimeError('owned startup failure')):
+            with patch('reproof.adb_endpoint.threading.Thread.start',side_effect=RuntimeError('owned startup failure')):
                 with self.assertRaises(RuntimeError):gateway.__enter__()
             self.assertFalse(gateway.socket_path.parent.exists())
         finally:gateway.close()

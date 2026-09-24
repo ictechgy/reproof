@@ -5,7 +5,7 @@ import sys
 import threading
 import unittest
 
-from reproloop.live.server import LiveServer
+from reproof.live.server import LiveServer
 from tests import test_live_project_repair as support
 
 
@@ -19,7 +19,7 @@ class ProjectRepairCliTests(unittest.TestCase):
         self.addCleanup(close)
         token = fixture.fixture.access_store.issue_principal_credential('admin', 'owner', lifetime_seconds=600)['token']
         def cli(*args):
-            result = subprocess.run([sys.executable, '-m', 'reproloop', 'live-issues', *args,
+            result = subprocess.run([sys.executable, '-m', 'reproof', 'live-issues', *args,
                 '--server', server.origin, '--credential-stdin'], input=token + '\n', text=True,
                 capture_output=True, timeout=15, cwd=Path(__file__).resolve().parents[1])
             self.assertNotIn(token, result.stdout + result.stderr)

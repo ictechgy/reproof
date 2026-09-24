@@ -8,7 +8,7 @@ import threading
 import time
 import unittest
 
-from reproloop.repair_android_operation import AndroidOperationError
+from reproof.repair_android_operation import AndroidOperationError
 from tests import test_android_mobile_operation_integration as support
 
 

@@ -8,21 +8,21 @@ import tempfile
 import unittest
 from unittest import mock
 
-from reproloop.issue_package import (
+from reproof.issue_package import (
     DEFAULT_LIMITS,
     IssuePackageStore,
     PackageError,
     PackageLimits,
 )
-from reproloop.live.client import IssueClient
-from reproloop.live.disk_budget import DiskBudget
-from reproloop.live.evidence_store import (
+from reproof.live.client import IssueClient
+from reproof.live.disk_budget import DiskBudget
+from reproof.live.evidence_store import (
     MAX_OBJECT_BYTES,
     MAX_STAGING,
     EvidenceStore,
     EvidenceStoreError,
 )
-from reproloop.live.model import LiveError
+from reproof.live.model import LiveError
 
 
 MIB = 1024 * 1024
@@ -49,7 +49,7 @@ class _Response:
 
 class EvidenceStoreCapacityTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="reproloop-package-capacity-")
+        self.temp = tempfile.TemporaryDirectory(prefix="reproof-package-capacity-")
         self.root = Path(self.temp.name)
         self.budget = DiskBudget(
             self.root / "budget", capacity_bytes=96 * MIB,
@@ -177,7 +177,7 @@ class PackageClientCapacityTests(unittest.TestCase):
             client.call("/api/release/issues/issue_1", "x" * JSON_REQUEST_BYTES)
 
     def test_package_import_and_download_reject_only_above_the_shared_archive_bound(self):
-        with tempfile.TemporaryDirectory(prefix="reproloop-package-client-") as directory:
+        with tempfile.TemporaryDirectory(prefix="reproof-package-client-") as directory:
             source = Path(directory) / "oversized.zip"
             with source.open("wb") as stream:
                 stream.truncate(ARCHIVE_CEILING_BYTES + 1)

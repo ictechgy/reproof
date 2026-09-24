@@ -6,7 +6,7 @@ import threading
 import time
 import unittest
 
-from reproloop.fixtures import AdapterCapabilities, FixtureError, FixtureOperationRequest, LoopbackFixtureAdapter
+from reproof.fixtures import AdapterCapabilities, FixtureError, FixtureOperationRequest, LoopbackFixtureAdapter
 
 
 @contextmanager

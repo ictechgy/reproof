@@ -38,7 +38,7 @@ def _variables(record,stdin=False):
 
 
 def _parser():
-    parser=argparse.ArgumentParser(prog='reproloop',description='Local Live recording and automation commands')
+    parser=argparse.ArgumentParser(prog='reproof',description='Local Live recording and automation commands')
     commands=parser.add_subparsers(dest='command',required=True)
     from .issue_commands import add_issue_parser
     add_issue_parser(commands)

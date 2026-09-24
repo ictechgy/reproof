@@ -10,8 +10,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-from reproloop.live.access import AccessError, AccessStore
-from reproloop.core import ContractError
+from reproof.live.access import AccessError, AccessStore
+from reproof.core import ContractError
 from tests.test_fixture_allocations import project_document
 
 

@@ -1,4 +1,4 @@
-package io.reproloop.sdk
+package io.reproof.sdk
 
 import android.content.Context
 import org.json.JSONArray

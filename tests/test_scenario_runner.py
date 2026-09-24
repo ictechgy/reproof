@@ -4,9 +4,9 @@ import threading
 import time
 import unittest
 
-from reproloop import contracts
-from reproloop.qualification import QualificationError
-from reproloop.live.issue_sessions import IssueSessionError
+from reproof import contracts
+from reproof.qualification import QualificationError
+from reproof.live.issue_sessions import IssueSessionError
 from tests.g4_support import (G4Environment, SECRET,
                               SnapshotObservationAdapter, qualification,
                               runtime_policy, specification)

@@ -14,10 +14,10 @@ import tempfile
 import time
 import unittest
 
-from reproloop.resources import read_resource
+from reproof.resources import read_resource
 
 
-SDK = Path('/Applications/Xcode-27.0.0-beta.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk')
+SDK = Path(os.environ.get('MACOSX_SDK_PATH') or subprocess.run(['xcrun','--sdk','macosx','--show-sdk-path'],capture_output=True,text=True,check=True).stdout.strip())
 
 
 class IOSNativeSigningOwnerTests(unittest.TestCase):
@@ -259,8 +259,8 @@ raise SystemExit(74)
 
     def test_actual_app_signature_retains_locks_until_acknowledged_exit(self):
         self.build()
-        from reproloop.ios_artifact_staging import stage_ios_artifact
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_staging import stage_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
         source = Path(__file__).resolve().parents[1] / ('artifacts/product-delivery/d1-uikit-r1/'
             'original-release/DerivedData/Build/Products/Release-iphonesimulator/Inventory.app')
         selected = parse_ios_artifact(source)
@@ -322,7 +322,7 @@ raise SystemExit(74)
             '-framework', 'Security', '-framework', 'CoreFoundation', '-o', str(verifier)],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
         self.assertEqual(compiled.returncode, 0)
-        from reproloop.ios_code_signature import IOSCodeSignatureInspector, IOSCodeSignatureTools
+        from reproof.ios_code_signature import IOSCodeSignatureInspector, IOSCodeSignatureTools
         checksum = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
         tools = IOSCodeSignatureTools(Path('/usr/bin/codesign'), checksum('/usr/bin/codesign'),
             checksum('/usr/bin/sandbox-exec'), verifier, checksum(verifier))

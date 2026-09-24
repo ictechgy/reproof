@@ -3,9 +3,9 @@ from pathlib import Path
 import plistlib
 import tempfile
 import unittest
-from reproloop.core import ContractError,digest
-from reproloop.ios_storage import create_ios_bundle,load_ios_bundle,tree_manifest
-from reproloop.ios_runner import prepare_xctestrun
+from reproof.core import ContractError,digest
+from reproof.ios_storage import create_ios_bundle,load_ios_bundle,tree_manifest
+from reproof.ios_runner import prepare_xctestrun
 from tests.test_ios_core import ios_capture,ios_oracle
 
 
@@ -13,7 +13,7 @@ class IosStorageTests(unittest.TestCase):
     def setUp(self):
         self.t=tempfile.TemporaryDirectory();self.root=Path(self.t.name);self.products=self.root/'products';self.products.mkdir()
         self.app=self.products/'Debug-iphonesimulator/ReproSample.app';self.app.mkdir(parents=True)
-        with (self.app/'Info.plist').open('wb') as f:plistlib.dump({'CFBundleIdentifier':'io.reproloop.sample.ios','ReproBuildID':'12345678'},f)
+        with (self.app/'Info.plist').open('wb') as f:plistlib.dump({'CFBundleIdentifier':'io.reproof.sample.ios','ReproBuildID':'12345678'},f)
         (self.app/'ReproSample').write_bytes(b'synthetic-app')
         self.receipt={'productsDigest':digest(tree_manifest(self.products)),'buildCompleted':True,'buildId':'12345678',
                       'appRelative':'Debug-iphonesimulator/ReproSample.app'}

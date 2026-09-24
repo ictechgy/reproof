@@ -6,11 +6,11 @@ import tempfile
 import unittest
 from unittest import mock
 
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.frame_spool import FrameSpool
-from reproloop.live.model import Lab
-from reproloop.live.recording_session import RecordingSession
-from reproloop.live.video import VideoCatalog, VideoFrameSink
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.frame_spool import FrameSpool
+from reproof.live.model import Lab
+from reproof.live.recording_session import RecordingSession
+from reproof.live.video import VideoCatalog, VideoFrameSink
 from tests.test_clock_sync import FakeClock
 from tests.test_recording_recovery import begin_recording, collection_policy, project_document
 from tests.test_video_state_machine import FakeEncoder, limits

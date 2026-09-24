@@ -8,7 +8,7 @@ plugins {
 apply(plugin = "org.jetbrains.kotlin.android")
 
 android {
-    namespace = "io.reproloop.sdk"
+    namespace = "io.reproof.sdk"
     compileSdk = 35
 
     defaultConfig {

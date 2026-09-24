@@ -3,10 +3,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.live.access import AccessError
-from reproloop.live.authority import HostAuthority
-from reproloop.live.configuration import issue_bounded_project_grant
-from reproloop.live.inventory import enrolled_inventory_document
+from reproof.live.access import AccessError
+from reproof.live.authority import HostAuthority
+from reproof.live.configuration import issue_bounded_project_grant
+from reproof.live.inventory import enrolled_inventory_document
 from tests.test_live_authority import FakeClock
 from tests import test_worker_recovery as recovery_tests
 

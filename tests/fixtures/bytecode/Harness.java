@@ -1,4 +1,4 @@
-import io.reproloop.instrumentation.gradle.ReproBytecodeTransformer;
+import io.reproof.instrumentation.gradle.ReproBytecodeTransformer;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -17,8 +17,8 @@ import org.objectweb.asm.tree.LineNumberNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 
 public final class Harness {
-    private static final String ACTIVITY = "io.reproloop.plain.MainActivity";
-    private static final String ACTIVITY_INTERNAL = "io/reproloop/plain/MainActivity";
+    private static final String ACTIVITY = "io.reproof.plain.MainActivity";
+    private static final String ACTIVITY_INTERNAL = "io/reproof/plain/MainActivity";
     private static final String SET_ON_CLICK = "(Landroid/view/View$OnClickListener;)V";
 
     private Harness() {
@@ -49,9 +49,9 @@ public final class Harness {
         expectFailure(() -> ReproBytecodeTransformer.transform(transformed.bytes(), ACTIVITY, sites),
                 "repeated instrumentation must fail");
 
-        byte[] noDestroy = Files.readAllBytes(classes.resolve("io/reproloop/plain/NoDestroyActivity.class"));
+        byte[] noDestroy = Files.readAllBytes(classes.resolve("io/reproof/plain/NoDestroyActivity.class"));
         ReproBytecodeTransformer.Result synthesized = ReproBytecodeTransformer.transform(
-                noDestroy, "io.reproloop.plain.NoDestroyActivity", Map.of());
+                noDestroy, "io.reproof.plain.NoDestroyActivity", Map.of());
         ClassNode noDestroyNode = new ClassNode();
         new ClassReader(synthesized.bytes()).accept(noDestroyNode, 0);
         boolean foundDestroy = false;
@@ -63,7 +63,7 @@ public final class Harness {
                 for (AbstractInsnNode instruction = method.instructions.getFirst(); instruction != null;
                         instruction = instruction.getNext()) {
                     if (instruction instanceof MethodInsnNode call
-                            && call.owner.equals("io/reproloop/autotrace/ReproHooks")
+                            && call.owner.equals("io/reproof/autotrace/ReproHooks")
                             && call.name.equals("stop")) {
                         foundStop = true;
                     }
@@ -71,32 +71,32 @@ public final class Harness {
             }
         }
         check(foundDestroy && foundStop, "missing onDestroy receives a stop hook");
-        byte[] inherited = Files.readAllBytes(classes.resolve("io/reproloop/plain/InheritedDestroyActivity.class"));
+        byte[] inherited = Files.readAllBytes(classes.resolve("io/reproof/plain/InheritedDestroyActivity.class"));
         expectFailure(() -> ReproBytecodeTransformer.transform(inherited,
-                "io.reproloop.plain.InheritedDestroyActivity", Map.of()),
+                "io.reproof.plain.InheritedDestroyActivity", Map.of()),
                 "unknown inherited lifecycle must be rejected before emitting an illegal override");
         System.out.println("bytecode fixture passed");
     }
 
     private static void runActivity(Path classes, byte[] transformed) throws Exception {
-        io.reproloop.autotrace.ReproHooks.reset();
+        io.reproof.autotrace.ReproHooks.reset();
         ClassLoader loader = new TargetLoader(Harness.class.getClassLoader(), ACTIVITY, transformed);
         Class<?> type = Class.forName(ACTIVITY, true, loader);
         Object activity = type.getConstructor().newInstance();
         type.getMethod("onCreate", android.os.Bundle.class).invoke(activity, new android.os.Bundle());
-        check(io.reproloop.autotrace.ReproHooks.starts == 1, "onCreate starts recording once");
-        check(io.reproloop.autotrace.ReproHooks.installs == 3, "only configured sites are installed");
+        check(io.reproof.autotrace.ReproHooks.starts == 1, "onCreate starts recording once");
+        check(io.reproof.autotrace.ReproHooks.installs == 3, "only configured sites are installed");
 
         click(type, activity, "normal");
         check(intField(type, activity, "normalCalls") == 1, "normal callback remains callable");
-        check(io.reproloop.autotrace.ReproHooks.before == 1
-                && io.reproloop.autotrace.ReproHooks.after == 1, "normal before/after hooks run");
-        check("s000001".equals(io.reproloop.autotrace.ReproHooks.lastSite), "site id reaches runtime");
+        check(io.reproof.autotrace.ReproHooks.before == 1
+                && io.reproof.autotrace.ReproHooks.after == 1, "normal before/after hooks run");
+        check("s000001".equals(io.reproof.autotrace.ReproHooks.lastSite), "site id reaches runtime");
 
         click(type, activity, "labeledReturn");
         check(intField(type, activity, "labeledCalls") == 0, "labeled return still exits callback");
-        check(io.reproloop.autotrace.ReproHooks.before == 2
-                && io.reproloop.autotrace.ReproHooks.after == 2, "labeled callback remains wrapped");
+        check(io.reproof.autotrace.ReproHooks.before == 2
+                && io.reproof.autotrace.ReproHooks.after == 2, "labeled callback remains wrapped");
 
         try {
             click(type, activity, "throwing");
@@ -105,19 +105,19 @@ public final class Harness {
             check(error.getCause() instanceof IllegalStateException, "callback exception is preserved");
         }
         check(intField(type, activity, "throwCalls") == 0, "throwing fixture does not mutate before throw");
-        check(io.reproloop.autotrace.ReproHooks.thrown == 1
-                && io.reproloop.autotrace.ReproHooks.after == 3, "throw path records and rethrows");
+        check(io.reproof.autotrace.ReproHooks.thrown == 1
+                && io.reproof.autotrace.ReproHooks.after == 3, "throw path records and rethrows");
 
         click(type, activity, "unrelated");
         check(intField(type, activity, "normalCalls") == 101, "unmapped listener remains untouched");
-        check(io.reproloop.autotrace.ReproHooks.installs == 3, "unmapped listener did not get a hook");
+        check(io.reproof.autotrace.ReproHooks.installs == 3, "unmapped listener did not get a hook");
         type.getMethod("unrelatedListener").invoke(activity);
         click(type, activity, "unrelated");
         check(intField(type, activity, "normalCalls") == 111, "unmapped method remains untouched");
-        check(io.reproloop.autotrace.ReproHooks.installs == 3, "unmapped method did not get a hook");
+        check(io.reproof.autotrace.ReproHooks.installs == 3, "unmapped method did not get a hook");
 
         type.getMethod("onDestroy").invoke(activity);
-        check(io.reproloop.autotrace.ReproHooks.stops == 1, "existing onDestroy receives stop hook");
+        check(io.reproof.autotrace.ReproHooks.stops == 1, "existing onDestroy receives stop hook");
         check(intField(type, activity, "destroyCalls") == 1, "existing onDestroy body remains callable");
     }
 
@@ -162,7 +162,7 @@ public final class Harness {
             for (AbstractInsnNode instruction = method.instructions.getFirst(); instruction != null;
                     instruction = instruction.getNext()) {
                 if (instruction instanceof MethodInsnNode call
-                        && call.owner.equals("io/reproloop/autotrace/ReproHooks") && call.name.equals(name)) {
+                        && call.owner.equals("io/reproof/autotrace/ReproHooks") && call.name.equals(name)) {
                     count++;
                 }
             }

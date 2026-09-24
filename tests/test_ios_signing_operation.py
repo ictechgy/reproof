@@ -12,11 +12,11 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop import contracts
-from reproloop.execution.artifacts import BlobSet
-from reproloop.execution.journal import RunStore, RunDenied
-from reproloop.repair_signing import SigningContext
-from reproloop.ios_signing_inputs import IOSSigningDefinition, IOSSigningIdentity, IOSSigningOwnerTools
+from reproof import contracts
+from reproof.execution.artifacts import BlobSet
+from reproof.execution.journal import RunStore, RunDenied
+from reproof.repair_signing import SigningContext
+from reproof.ios_signing_inputs import IOSSigningDefinition, IOSSigningIdentity, IOSSigningOwnerTools
 from tests import test_ios_artifact_transfer as fixtures
 
 
@@ -41,7 +41,7 @@ class IOSSigningOperationTests(unittest.TestCase):
         self.context = SigningContext('owned-sign', 'a'*64, 'b'*64, 'ios_app', 'c'*64,
             hashlib.sha256(self.archive.read_bytes()).hexdigest(), 'd'*64, 'e'*48)
         self.request = 'f'*64
-        from reproloop.ios_signing_operation import IOSSigningOperationStore
+        from reproof.ios_signing_operation import IOSSigningOperationStore
         self.run_store = RunStore(self.root/'runs', environment_digest='a'*64, disk_limit=4*1024**3)
         self.operations = IOSSigningOperationStore(self.run_store, self.tools, self.definition, self.root/'signing')
         self.addCleanup(self.operations.close)
@@ -59,7 +59,7 @@ class IOSSigningOperationTests(unittest.TestCase):
     def test_restart_cleanup_is_live_one_use_and_can_only_fail_or_cancel(self):
         with self.operations.admit(self.context, self.request) as operation:
             self.operations.stage(operation, self.blobs)
-        from reproloop.ios_signing_operation import IOSSigningOperationStore
+        from reproof.ios_signing_operation import IOSSigningOperationStore
         restarted = IOSSigningOperationStore(self.run_store, self.tools, self.definition,
             self.root/'signing', create=False)
         self.addCleanup(restarted.close)
@@ -114,7 +114,7 @@ class IOSSigningOperationTests(unittest.TestCase):
                 self.operations.stage(replace(operation), self.blobs)
             with self.assertRaises(Exception):
                 self.operations.stage(operation, BlobSet((('candidate.ipa', b'changed'),)))
-        from reproloop.ios_signing_operation import IOSSigningOperationStore
+        from reproof.ios_signing_operation import IOSSigningOperationStore
         other = IOSSigningDefinition(self.identity, 'different-reference', self.definition.bundle_policies,
             {'.': {'cms': b'owned unverified profile', 'profileDigest': 'a'*64}})
         with self.assertRaises(Exception):
@@ -125,11 +125,11 @@ class IOSSigningOperationTests(unittest.TestCase):
 from pathlib import Path
 import hashlib,os,sys
 from contextlib import contextmanager
-from reproloop.execution.artifacts import BlobSet
-from reproloop.execution.journal import RunStore
-from reproloop.repair_signing import SigningContext
-from reproloop.ios_signing_inputs import IOSSigningDefinition,IOSSigningIdentity,IOSSigningOwnerTools
-from reproloop import ios_signing_operation as module
+from reproof.execution.artifacts import BlobSet
+from reproof.execution.journal import RunStore
+from reproof.repair_signing import SigningContext
+from reproof.ios_signing_inputs import IOSSigningDefinition,IOSSigningIdentity,IOSSigningOwnerTools
+from reproof import ios_signing_operation as module
 root=Path(sys.argv[1]); archive=root/'source.ipa'; body=archive.read_bytes()
 identity=IOSSigningIdentity('owned-key','ios_app','OWNEDTEAM1',(bytes.fromhex(sys.argv[2]),))
 definition=IOSSigningDefinition(identity,'owned-profiles',
@@ -165,7 +165,7 @@ raise SystemExit(74)
         self.assertEqual(list((root/'transfer').iterdir()), [])
 
     def test_close_waits_for_a_late_staging_callback_after_admission_exits(self):
-        from reproloop import ios_signing_operation as module
+        from reproof import ios_signing_operation as module
         original = module._opened_ipa_contents
         entered, release = threading.Event(), threading.Event()
         failures = []
@@ -221,12 +221,12 @@ raise SystemExit(74)
         self.assertGreater(self.run_store.status(self.context.operation_id)['reservedBytes'], 0)
 
     def test_actual_native_owner_blocks_recovery_until_its_parent_pipe_closes(self):
-        from reproloop.resources import read_resource
+        from reproof.resources import read_resource
         native = self.root/'native'; native.mkdir(mode=0o700)
         for name in ('main.c', 'ownership.h'):
             (native/name).write_bytes(read_resource('native/ios-signing-owner/'+name))
         binary = native/'owner'
-        sdk = '/Applications/Xcode-27.0.0-beta.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk'
+        sdk = subprocess.run(['xcrun','--sdk','macosx','--show-sdk-path'],capture_output=True,text=True,check=True).stdout.strip()
         built = subprocess.run(['/usr/bin/clang', '-std=c11', '-fblocks', '-mmacosx-version-min=15.0',
             '-isysroot', sdk, str(native/'main.c'), '-framework', 'Security', '-framework', 'CoreFoundation',
             '-o', str(binary)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)

@@ -14,15 +14,15 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.ios_device_tools import IOSDeviceQueryDefinition,IOSDeviceTools,IOSDeviceToolError
-from reproloop.ios_mobile_operation import IOSMobileOperationStore
+from reproof.ios_device_tools import IOSDeviceQueryDefinition,IOSDeviceTools,IOSDeviceToolError
+from reproof.ios_mobile_operation import IOSMobileOperationStore
 from tests import test_ios_device_tools as queries
 from tests import test_ios_mobile_native as native
 
 
 def build_owned_guardian(test,root):
-    from reproloop.ios_device_guardian import IOSDeviceGuardianTools
-    from reproloop.resources import read_resource
+    from reproof.ios_device_guardian import IOSDeviceGuardianTools
+    from reproof.resources import read_resource
     path=root/'ios-device-guardian';source=root/'ios-device-guardian.c'
     source.write_bytes(read_resource('native/ios-device-guardian/main.c'))
     result=subprocess.run(['/usr/bin/clang','-std=c11','-Wall','-Wextra','-Werror',
@@ -33,10 +33,10 @@ def build_owned_guardian(test,root):
 
 
 def guarded_query_child(root,body,udid,tool,guardian_path):
-    from reproloop.execution.artifacts import BlobSet
-    from reproloop.execution.journal import RunStore
-    from reproloop.ios_device_guardian import IOSDeviceGuardianTools
-    from reproloop.live.authority import HostAuthority,issue_local_parent_grant
+    from reproof.execution.artifacts import BlobSet
+    from reproof.execution.journal import RunStore
+    from reproof.ios_device_guardian import IOSDeviceGuardianTools
+    from reproof.live.authority import HostAuthority,issue_local_parent_grant
     root=Path(root);work=root/'queries';work.mkdir(mode=0o700)
     guardian=IOSDeviceGuardianTools(Path(guardian_path),hashlib.sha256(Path(guardian_path).read_bytes()).hexdigest())
     definition=IOSDeviceQueryDefinition(IOSDeviceTools(Path(tool),hashlib.sha256(Path(tool).read_bytes()).hexdigest()),
@@ -138,7 +138,7 @@ class IOSDeviceGuardianTests(unittest.TestCase):
             self.assertFalse(self.q.requests.exists())
 
     def test_another_pinned_guardian_cannot_replace_the_declared_native_tool(self):
-        from reproloop.ios_device_guardian import IOSDeviceGuardianTools
+        from reproof.ios_device_guardian import IOSDeviceGuardianTools
         foreign=IOSDeviceGuardianTools(self.q.tool,hashlib.sha256(self.q.tool.read_bytes()).hexdigest())
         with self.owned() as owner:
             with self.assertRaises(IOSDeviceToolError):
@@ -176,7 +176,7 @@ class IOSDeviceGuardianTests(unittest.TestCase):
         try:
             worker.start();self.wait_for(lambda:marker.exists() and marker.stat().st_size>0)
             self.assertFalse(self.lock_available(sentinel))
-            from reproloop.live.authority import canonical_device_fingerprint
+            from reproof.live.authority import canonical_device_fingerprint
             locks=(root/'operations/operations/mobile-one/producer.lock',
                    root/'device-leases'/(canonical_device_fingerprint('ios-physical',udid)+'.lock'))
             self.assertTrue(all(not self.lock_available(path) for path in locks))

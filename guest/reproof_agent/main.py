@@ -1,4 +1,4 @@
-"""Root launchd entry point, installed at /Library/ReproLoopGuest/main.py."""
+"""Root launchd entry point, installed at /Library/ReproofGuest/main.py."""
 import ctypes
 import os
 from pathlib import Path
@@ -6,15 +6,15 @@ import socket
 import sys
 import time
 
-INSTALL_ROOT = Path("/Library/ReproLoopGuest")
+INSTALL_ROOT = Path("/Library/ReproofGuest")
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(INSTALL_ROOT))
 
 try:
-    from reproloop.execution.guest import GuestExecutor, assert_guest, serve_one
-    from reproloop.execution.guest_installation import verify_package
-    from reproloop.execution.guest_probe import GuestProbe
-    from reproloop.execution.wire import accept_bootstrap
+    from reproof.execution.guest import GuestExecutor, assert_guest, serve_one
+    from reproof.execution.guest_installation import verify_package
+    from reproof.execution.guest_probe import GuestProbe
+    from reproof.execution.wire import accept_bootstrap
 except Exception:
     print("guest-agent-rejected")
     sys.exit(2)

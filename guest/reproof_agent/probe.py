@@ -53,7 +53,7 @@ def main():
     if mode == "hold":
         while True:
             time.sleep(1)
-    target = Path(os.environ["REPROLOOP_OUTPUT_DIR"]) / "probe.json"
+    target = Path(os.environ["REPROOF_OUTPUT_DIR"]) / "probe.json"
     if mode == "oversize":
         target.write_bytes(b"x" * 8192)
         return 0
@@ -71,7 +71,7 @@ def main():
         except OSError:
             denied.append(True)
     proof = {"schemaVersion": 1, "mode": mode, "networkDenied": all(denied),
-             "agentWriteDenied": denied_write("/Library/ReproLoopGuest/policy.json"),
+             "agentWriteDenied": denied_write("/Library/ReproofGuest/policy.json"),
              "toolchainWriteDenied": denied_write(sys.executable), "detachedChildStarted": detached}
     target.write_text(json.dumps(proof, sort_keys=True, separators=(",", ":")), encoding="utf-8")
     return 0

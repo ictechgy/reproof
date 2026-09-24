@@ -1,4 +1,4 @@
-package io.reproloop.autotrace
+package io.reproof.autotrace
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -17,7 +17,7 @@ class AutoExportReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        const val ACTION_EXPORT_CAPTURE = "io.reproloop.EXPORT_CAPTURE"
+        const val ACTION_EXPORT_CAPTURE = "io.reproof.EXPORT_CAPTURE"
         const val RESULT_ACCEPTED = 0
         const val RESULT_REJECTED = 1
     }

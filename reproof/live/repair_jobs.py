@@ -246,7 +246,7 @@ class LiveRepairJobs:
             else:
                 selected_device = (['--simulator', provider.udid] if self.ios_environment == 'simulator'
                                    else ['--iphone', job['deviceId']])
-                command = [sys.executable, '-m', 'reproloop', 'ios-repair', str(bundle['path']), *selected_device,
+                command = [sys.executable, '-m', 'reproof', 'ios-repair', str(bundle['path']), *selected_device,
                            '--source', str(self.source), '--output', str(root / 'repair'), '--agent', 'claude', '--max-attempts', '2']
             process = self.runner_factory(command, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             with self.lock:

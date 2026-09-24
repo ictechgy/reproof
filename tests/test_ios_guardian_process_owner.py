@@ -9,7 +9,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.ios_device_guardian import _IOSProcessOwner
+from reproof.ios_device_guardian import _IOSProcessOwner
 
 
 class IOSGuardianProcessOwnerTests(unittest.TestCase):
@@ -50,8 +50,8 @@ class IOSGuardianProcessOwnerTests(unittest.TestCase):
             calls += 1
             if calls == 2: raise OSError('owned allocation failure')
             return original(descriptor)
-        with patch('reproloop.ios_device_guardian.os.dup', side_effect=fail_second), \
-                patch('reproloop.ios_device_guardian.subprocess.Popen') as popen:
+        with patch('reproof.ios_device_guardian.os.dup', side_effect=fail_second), \
+                patch('reproof.ios_device_guardian.subprocess.Popen') as popen:
             with self.assertRaises(Exception): self.run_owner()
         popen.assert_not_called()
         self.assertEqual(self.owner.active_processes, 0)
@@ -84,7 +84,7 @@ class IOSGuardianProcessOwnerTests(unittest.TestCase):
         def close():
             self.owner.close(deadline_monotonic=time.monotonic()+3)
             closed.set()
-        with patch('reproloop.ios_device_guardian.subprocess.Popen', side_effect=popen):
+        with patch('reproof.ios_device_guardian.subprocess.Popen', side_effect=popen):
             worker = threading.Thread(target=run); worker.start()
             self.assertTrue(created.wait(1))
             closing = threading.Thread(target=close); closing.start()
@@ -96,7 +96,7 @@ class IOSGuardianProcessOwnerTests(unittest.TestCase):
         self.assertTrue(outcomes[0].terminated)
 
     def test_collector_construction_failure_retains_or_proves_child_completion(self):
-        with patch('reproloop.ios_device_guardian._Collector', side_effect=RuntimeError('owned collector failure')):
+        with patch('reproof.ios_device_guardian._Collector', side_effect=RuntimeError('owned collector failure')):
             with self.assertRaises(RuntimeError): self.run_owner()
         for item in self.owner._processes:
             self.assertIsNotNone(item.process.poll())

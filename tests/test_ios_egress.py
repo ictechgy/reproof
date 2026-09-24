@@ -5,14 +5,14 @@ import threading
 import time
 import unittest
 
-from reproloop import contracts
-from reproloop.core import ContractError
-from reproloop.ios_egress import (
+from reproof import contracts
+from reproof.core import ContractError
+from reproof.ios_egress import (
     counter_delta, egress_policy, load_egress_policy, measurement_evidence,
     network_counters)
-from reproloop.repair_callbacks import invoke_fixed
-from reproloop.repair_ios import IOSTrustedMobileAdapter
-from reproloop.repair_mobile import (
+from reproof.repair_callbacks import invoke_fixed
+from reproof.repair_ios import IOSTrustedMobileAdapter
+from reproof.repair_mobile import (
     MobileFailureObservation, MobileInstallationObservation)
 from tests.ios_service_support import IOSServiceFixture
 

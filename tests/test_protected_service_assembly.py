@@ -10,18 +10,18 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.execution.backend import QualificationAuthority, REQUIRED_PROBES
-from reproloop.execution.resources import provision
-from reproloop.execution.wire import canonical, MAX_TRANSFER_BYTES
-from reproloop.protected_build_signing_inputs import PreparedBuildSigningInputs, ProtectedBuildSigningProfile
-from reproloop.protected_signing_inputs import AndroidSigningDefinitionInputs
-from reproloop.protected_tool_inputs import ProtectedToolProfile
-from reproloop.protected_validation import ValidationSecretRegistry
-from reproloop.repair_android_signing import AndroidSigningIdentity, AndroidSigningMaterialResolver
-from reproloop.repair_composition import ProtectedRepairComposition
-from reproloop.repair_configuration import ProtectedServiceConfiguration
-from reproloop.repair_signing_recovery import SigningOwnerTools, MIN_OPERATION_BYTES
+from reproof import contracts
+from reproof.execution.backend import QualificationAuthority, REQUIRED_PROBES
+from reproof.execution.resources import provision
+from reproof.execution.wire import canonical, MAX_TRANSFER_BYTES
+from reproof.protected_build_signing_inputs import PreparedBuildSigningInputs, ProtectedBuildSigningProfile
+from reproof.protected_signing_inputs import AndroidSigningDefinitionInputs
+from reproof.protected_tool_inputs import ProtectedToolProfile
+from reproof.protected_validation import ValidationSecretRegistry
+from reproof.repair_android_signing import AndroidSigningIdentity, AndroidSigningMaterialResolver
+from reproof.repair_composition import ProtectedRepairComposition
+from reproof.repair_configuration import ProtectedServiceConfiguration
+from reproof.repair_signing_recovery import SigningOwnerTools, MIN_OPERATION_BYTES
 from tests import test_protected_mobile_inputs as support
 from tests import test_android_signing_owner as native
 from tests import test_repair_android as android_fixture
@@ -41,7 +41,7 @@ class ProtectedServiceAssemblyTests(unittest.TestCase):
         cls.addClassCleanup(native.AndroidSigningOwnerTests.tearDownClass)
         owner=native.AndroidSigningOwnerTests
         cls.tools=SigningOwnerTools(owner.java,sha(owner.java),owner.owner_jar,sha(owner.owner_jar),
-            owner.native/'libreproloop_signing_owner_fd.dylib',sha(owner.native/'libreproloop_signing_owner_fd.dylib'),
+            owner.native/'libreproof_signing_owner_fd.dylib',sha(owner.native/'libreproof_signing_owner_fd.dylib'),
             native.APKSIGNER_JAR,sha(native.APKSIGNER_JAR))
         guardian_support.AndroidProcessGuardianTests.setUpClass()
         cls.addClassCleanup(guardian_support.AndroidProcessGuardianTests.doClassCleanups)
@@ -105,8 +105,8 @@ class ProtectedServiceAssemblyTests(unittest.TestCase):
             ProtectedBuildSigningProfile(ProtectedToolProfile(row['id'],canonical(row).decode(),self.guest,self.tools),
                 AndroidSigningDefinitionInputs(self.identity,'a'*64)),))
         # Keep the input-loader double current while all native factories remain real.
-        self.enterContext(patch('reproloop.protected_service.load_protected_build_signing_inputs',return_value=self.build_inputs))
-        self.enterContext(patch('reproloop.protected_build_signing_inputs.load_protected_build_signing_inputs',return_value=self.build_inputs))
+        self.enterContext(patch('reproof.protected_service.load_protected_build_signing_inputs',return_value=self.build_inputs))
+        self.enterContext(patch('reproof.protected_build_signing_inputs.load_protected_build_signing_inputs',return_value=self.build_inputs))
         self.owner=ProtectedRepairComposition();self.addCleanup(self.owner.close)
         self.resolver=AndroidSigningMaterialResolver();self.addCleanup(self.resolver.close)
         key=self.root/'owned-assembly-material.p12';key.write_bytes(b'owned material placeholder');key.chmod(0o600)
@@ -114,7 +114,7 @@ class ProtectedServiceAssemblyTests(unittest.TestCase):
         self.secrets=ValidationSecretRegistry();self.addCleanup(self.secrets.close)
         self.secrets.register('owned-observer-key',project_digest=row['projectDigest'],provider_id='owned-observer',secret=secrets.token_bytes(32))
         self.qualification=self.qualify(self.owner.authority)
-        self.enterContext(patch('reproloop.execution.qualification.NativeVM',ProbeVMDouble))
+        self.enterContext(patch('reproof.execution.qualification.NativeVM',ProbeVMDouble))
         for name in ('stop_confirmed','network_denied','bounded_output_denied'):
             self.enterContext(patch.object(ProbeVMDouble,name,True))
 
@@ -130,7 +130,7 @@ class ProtectedServiceAssemblyTests(unittest.TestCase):
             receipts,evaluated_at_ms=now)
 
     def assemble(self,qualification=None,resolver=None):
-        from reproloop.protected_service import compose_android_protected_service
+        from reproof.protected_service import compose_android_protected_service
         return compose_android_protected_service(self.config,self.f.issue,self.f.bundle,owner=self.owner,
             signing_materials=self.resolver if resolver is None else resolver,validation_secrets=self.secrets,
             mobile_qualifications={'protected-android':self.qualification if qualification is None else qualification})
@@ -142,8 +142,8 @@ class ProtectedServiceAssemblyTests(unittest.TestCase):
         for name in ('signing','mobile'):self.assertFalse(Path(row[name]['ownerRoot']).exists())
 
     def test_factories_attach_one_live_chain_to_the_exact_issue_runtime(self):
-        from reproloop import repair_composition,repair_mobile,protected_validation
-        from reproloop.execution import backend
+        from reproof import repair_composition,repair_mobile,protected_validation
+        from reproof.execution import backend
         errors=[]
         def tracked(original):
             def require(value,*args,**kwargs):
@@ -162,7 +162,7 @@ class ProtectedServiceAssemblyTests(unittest.TestCase):
         self.assertEqual(self.owner.status()['profiles'],['protected-android'])
 
     def test_json_copied_foreign_and_revoked_qualification_are_rejected_before_owners(self):
-        from reproloop.protected_service import ProtectedServiceAssemblyError
+        from reproof.protected_service import ProtectedServiceAssemblyError
         for value in ({'qualified':True},replace(self.qualification),self.qualify(QualificationAuthority())):
             with self.subTest(kind=type(value).__name__),self.assertRaises(ProtectedServiceAssemblyError):self.assemble(value)
             self.assert_no_owner_roots()
@@ -172,14 +172,14 @@ class ProtectedServiceAssemblyTests(unittest.TestCase):
         self.assert_no_owner_roots()
 
     def test_unregistered_material_is_rejected_without_opening_a_key_or_starting_vm(self):
-        from reproloop.protected_service import ProtectedServiceAssemblyError
+        from reproof.protected_service import ProtectedServiceAssemblyError
         empty=AndroidSigningMaterialResolver();self.addCleanup(empty.close)
-        with patch('reproloop.execution.qualification.NativeVM',side_effect=AssertionError('VM started')):
+        with patch('reproof.execution.qualification.NativeVM',side_effect=AssertionError('VM started')):
             with self.assertRaises(ProtectedServiceAssemblyError):self.assemble(resolver=empty)
         self.assert_no_owner_roots()
 
     def test_observer_change_during_vm_qualification_cannot_be_attached(self):
-        from reproloop.protected_service import ProtectedServiceAssemblyError
+        from reproof.protected_service import ProtectedServiceAssemblyError
         qualify=self.owner.qualify_build
         path=Path(self.config.document['profiles'][0]['validation']['observers']['path'])
         def changed(*args,**kwargs):
@@ -190,21 +190,21 @@ class ProtectedServiceAssemblyTests(unittest.TestCase):
         self.assertTrue(self.owner.status()['closed'])
 
     def test_recovery_only_inventory_cannot_become_a_normal_execution_chain(self):
-        from reproloop.protected_service import ProtectedServiceAssemblyError
+        from reproof.protected_service import ProtectedServiceAssemblyError
         self.f.fixture.lab.devices['device']['_recoveryOnly']=True
         with self.assertRaises(ProtectedServiceAssemblyError):self.assemble()
         self.assert_no_owner_roots()
 
     def test_foreign_validation_secret_owner_is_rejected_before_vm_work(self):
-        from reproloop.protected_service import ProtectedServiceAssemblyError
+        from reproof.protected_service import ProtectedServiceAssemblyError
         self.secrets.claim(object())
-        with patch('reproloop.execution.qualification.NativeVM',side_effect=AssertionError('VM started')):
+        with patch('reproof.execution.qualification.NativeVM',side_effect=AssertionError('VM started')):
             with self.assertRaises(ProtectedServiceAssemblyError):self.assemble()
         self.assert_no_owner_roots()
         self.assertFalse(self.owner.status()['closed'])
 
     def test_mobile_factory_failure_collects_prior_owners_without_attaching_jobs(self):
-        from reproloop.protected_service import ProtectedServiceAssemblyError
+        from reproof.protected_service import ProtectedServiceAssemblyError
         with patch.object(self.owner,'configure_android_mobile',side_effect=RuntimeError('owned assembly failure')):
             with self.assertRaises(ProtectedServiceAssemblyError):self.assemble()
         self.assertIsNone(self.f.bundle.protected_repairs)
@@ -221,7 +221,7 @@ class ProtectedServiceAssemblyTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):self.resolver.require_registered(self.identity)
 
     def test_mobile_revocation_during_build_prevents_signing_owner_creation(self):
-        from reproloop.protected_service import ProtectedServiceAssemblyError
+        from reproof.protected_service import ProtectedServiceAssemblyError
         qualify=self.owner.qualify_build
         route=self.config.document['profiles'][0]['mobile']['route']
         def revoked(*args,**kwargs):
@@ -234,7 +234,7 @@ class ProtectedServiceAssemblyTests(unittest.TestCase):
         self.assertIsNone(self.f.bundle.workflow.repairs)
 
     def test_preparation_is_inert_and_does_not_read_private_signing_material(self):
-        from reproloop.protected_service import load_protected_service_inputs
+        from reproof.protected_service import load_protected_service_inputs
         with patch('subprocess.Popen',side_effect=AssertionError('native process started')), \
                 patch('socket.socket',side_effect=AssertionError('network contacted')), \
                 patch.object(self.resolver,'open',side_effect=AssertionError('private material opened')):
@@ -244,7 +244,7 @@ class ProtectedServiceAssemblyTests(unittest.TestCase):
         self.assert_no_owner_roots()
 
     def test_fresh_workflow_is_composed_and_owned_with_the_registered_chain(self):
-        from reproloop.protected_service import compose_android_protected_workflow
+        from reproof.protected_service import compose_android_protected_workflow
         bundle=compose_android_protected_workflow(self.f.fixture.lab,self.f.bundle.workflow.access,
             self.config,self.f.issue,root=self.root/'complete-service',owner=self.owner,
             signing_materials=self.resolver,validation_secrets=self.secrets,

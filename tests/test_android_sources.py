@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from reproloop.android_profile import validate_app_profile
-from reproloop.core import ContractError
-from reproloop.repair import build_android, copy_source, snapshot_source
+from reproof.android_profile import validate_app_profile
+from reproof.core import ContractError
+from reproof.repair import build_android, copy_source, snapshot_source
 from tests.test_android_profile import profile_document
 
 
@@ -108,7 +108,7 @@ class AndroidPublicInputsTests(unittest.TestCase):
                 apk.parent.mkdir(parents=True)
                 apk.write_bytes(b'owned-apk')
                 return ''
-            with self.subTest(changed=changed), patch('reproloop.repair.run_command', command):
+            with self.subTest(changed=changed), patch('reproof.repair.run_command', command):
                 with self.assertRaises(ContractError):
                     build_android(source, 'gradle', '/java', '/sdk', ':app:assembleDebug',
                                   profile.data['build']['apk'], app_profile=profile)

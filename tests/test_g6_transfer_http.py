@@ -8,12 +8,12 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop.live.artifact_transfer import ArtifactRead, ArtifactTransferStore
-from reproloop.live.disk_budget import DiskBudget
-from reproloop.live.evidence_store import EvidenceStore
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.providers import demo_device
-from reproloop.live.worker import WorkerClient, WorkerServer, _WorkerHandler
+from reproof.live.artifact_transfer import ArtifactRead, ArtifactTransferStore
+from reproof.live.disk_budget import DiskBudget
+from reproof.live.evidence_store import EvidenceStore
+from reproof.live.model import Lab, LiveError
+from reproof.live.providers import demo_device
+from reproof.live.worker import WorkerClient, WorkerServer, _WorkerHandler
 from tests.test_fixture_allocations import collection_policy, project_document
 
 

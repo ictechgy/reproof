@@ -12,8 +12,8 @@ if [ -e "$output" ]; then
   exit 2
 fi
 mkdir -p "$output"
-python3 -m reproloop ios-doctor --simulator "$simulator"
-python3 -m reproloop ios-build --simulator "$simulator" --output "$output/build"
-python3 -m reproloop ios-record --simulator "$simulator" --build "$output/build" --output "$output/record"
-python3 -m reproloop ios-repair "$output/record/bundle" --simulator "$simulator" \
+python3 -m reproof ios-doctor --simulator "$simulator"
+python3 -m reproof ios-build --simulator "$simulator" --output "$output/build"
+python3 -m reproof ios-record --simulator "$simulator" --build "$output/build" --output "$output/record"
+python3 -m reproof ios-repair "$output/record/bundle" --simulator "$simulator" \
   --patch-file scripts/ios-sample-fix.json --output "$output/repair"

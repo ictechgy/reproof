@@ -2,7 +2,7 @@
 import unittest
 from unittest.mock import patch
 
-from reproloop.live.model import LiveError
+from reproof.live.model import LiveError
 from tests.g4_support import G4Environment, ScenarioProvider
 
 

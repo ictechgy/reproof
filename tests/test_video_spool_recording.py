@@ -5,11 +5,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.disk_budget import DiskBudget
-from reproloop.live.evidence_store import EvidenceStore
-from reproloop.live.recording_session import RecordingStore, RecordingStoreError
-from reproloop.live.video import VideoFrameSink, VideoLimits
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.disk_budget import DiskBudget
+from reproof.live.evidence_store import EvidenceStore
+from reproof.live.recording_session import RecordingStore, RecordingStoreError
+from reproof.live.video import VideoFrameSink, VideoLimits
 from tests.test_clock_sync import FakeClock
 from tests.test_recording_recovery import begin_recording
 from tests.test_video_state_machine import FakeEncoder, limits
@@ -66,7 +66,7 @@ class VideoSpoolRecordingTests(unittest.TestCase):
         self.assertEqual(manifest['sourceFrames'], [
             {'sequence': 1, 'acquisitionSequence': 1, 'digest': publication.digest}])
         self.assertEqual({item['mimeType'] for item in result['original']['media']},
-                         {'video/mp4', 'application/vnd.reproloop.video-manifest+json'})
+                         {'video/mp4', 'application/vnd.reproof.video-manifest+json'})
         self.assertIsNone(self.evidence.lookup(publication.digest))
         self.assertEqual(list((self.sink.source_spool.root / 'frames').iterdir()), [])
 
@@ -103,7 +103,7 @@ class VideoSpoolRecordingTests(unittest.TestCase):
         self.assertEqual(session.freeze()['status'], 'frozen-complete')
 
     def test_package_graph_round_trip_uses_video_and_source_commitments(self):
-        from reproloop.issue_package import build_archive, inspect_archive
+        from reproof.issue_package import build_archive, inspect_archive
         from tests.test_issue_package import example
         session = self.start()
         publication = self.frame(session, 1)

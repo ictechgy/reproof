@@ -1,11 +1,11 @@
-package io.reproloop.autotrace
+package io.reproof.autotrace
 
 import android.app.Activity
 import android.content.pm.ApplicationInfo
 import android.os.Looper
 import android.view.View
 import android.widget.TextView
-import io.reproloop.sdk.ReproRecorder
+import io.reproof.sdk.ReproRecorder
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File

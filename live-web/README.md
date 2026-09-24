@@ -1,9 +1,9 @@
-# Repro Loop Live console
+# Reproof Live console
 
 Dependency-free ES module UI for the same-origin Live session service.
 
 ```bash
-python3 -m reproloop live-serve --demo
+python3 -m reproof live-serve --demo
 ```
 
 Open the printed loopback URL. The synthetic device goes through the real HTTP session, input, recording, and replay APIs; it is labelled Demo and never used as evidence of native device support. Native Simulator setup and capability limits are in [the Live runbook](../docs/LIVE-RUNBOOK.md).

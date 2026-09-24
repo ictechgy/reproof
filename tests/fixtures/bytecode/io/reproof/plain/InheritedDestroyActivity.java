@@ -1,4 +1,4 @@
-package io.reproloop.plain;
+package io.reproof.plain;
 
 public class InheritedDestroyActivity extends FinalDestroyBase {
     @Override

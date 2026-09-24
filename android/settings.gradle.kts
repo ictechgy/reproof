@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "repro-loop-android"
+rootProject.name = "reproof-android"
 include(":sdk", ":sample", ":driver", ":live")

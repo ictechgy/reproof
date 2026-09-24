@@ -2,7 +2,7 @@ import json
 import struct
 import unittest
 
-from reproloop.live.video import VideoLimits, encode_configuration
+from reproof.live.video import VideoLimits, encode_configuration
 
 
 class VideoRecordingProfileTests(unittest.TestCase):

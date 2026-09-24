@@ -6,14 +6,14 @@ import threading
 import unittest
 from unittest import mock
 
-from reproloop.execution.artifacts import BlobSet, send_blobs
-from reproloop.execution.backend import ExecutionDenied, QualificationAuthority, REQUIRED_PROBES
-from reproloop.execution.journal import RunStore
-from reproloop.execution.native import NativeError
-from reproloop.execution.qualification import qualify_backend
-from reproloop.execution.resources import provision
-from reproloop.execution.wire import ProtocolError, accept_bootstrap, canonical
-from reproloop.contracts.versions import digest
+from reproof.execution.artifacts import BlobSet, send_blobs
+from reproof.execution.backend import ExecutionDenied, QualificationAuthority, REQUIRED_PROBES
+from reproof.execution.journal import RunStore
+from reproof.execution.native import NativeError
+from reproof.execution.qualification import qualify_backend
+from reproof.execution.resources import provision
+from reproof.execution.wire import ProtocolError, accept_bootstrap, canonical
+from reproof.contracts.versions import digest
 from tests.test_execution_resources import resource_inputs
 
 
@@ -165,7 +165,7 @@ class ExecutionQualificationTests(unittest.TestCase):
         ProbeVMDouble.instances = []
         ProbeVMDouble.external_cancel = None
         ProbeVMDouble.cancel_after_first_stop = False
-        patcher = mock.patch("reproloop.execution.qualification.NativeVM", ProbeVMDouble)
+        patcher = mock.patch("reproof.execution.qualification.NativeVM", ProbeVMDouble)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -230,7 +230,7 @@ class ExecutionQualificationTests(unittest.TestCase):
         BlockingVMDouble.phase = "wait-ready"
         BlockingVMDouble.instances = []
         BlockingVMDouble.created.clear(); BlockingVMDouble.wait_ready_called.clear()
-        patcher = mock.patch("reproloop.execution.qualification.NativeVM", BlockingVMDouble)
+        patcher = mock.patch("reproof.execution.qualification.NativeVM", BlockingVMDouble)
         patcher.start(); self.addCleanup(patcher.stop)
         holder = []
         worker = threading.Thread(target=lambda: holder.append(
@@ -253,7 +253,7 @@ class ExecutionQualificationTests(unittest.TestCase):
         BlockingVMDouble.instances = []
         BlockingVMDouble.created.clear(); BlockingVMDouble.wait_ready_called.clear()
         BlockingVMDouble.channel_ready.clear()
-        patcher = mock.patch("reproloop.execution.qualification.NativeVM", BlockingVMDouble)
+        patcher = mock.patch("reproof.execution.qualification.NativeVM", BlockingVMDouble)
         patcher.start(); self.addCleanup(patcher.stop)
         holder = []
         worker = threading.Thread(target=lambda: holder.append(

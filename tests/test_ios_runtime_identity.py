@@ -8,14 +8,14 @@ import unittest
 import uuid
 import tempfile
 
-from reproloop.core import ContractError
-from reproloop.ios_runtime_identity import (
+from reproof.core import ContractError
+from reproof.ios_runtime_identity import (
     IOSRuntimeIdentityObservation,
     validate_ios_runtime_identity,
 )
 
-HELPER = Path(__file__).resolve().parents[1] / "reproloop/ios_instrumentation_templates/ReproRuntimeIdentity.swift"
-XCODE_DEVELOPER = Path("/Applications/Xcode-27.0.0-beta.app/Contents/Developer")
+HELPER = Path(__file__).resolve().parents[1] / "reproof/ios_instrumentation_templates/ReproRuntimeIdentity.swift"
+XCODE_DEVELOPER = Path(os.environ.get("DEVELOPER_DIR") or subprocess.run(["xcode-select","-p"],capture_output=True,text=True,check=True).stdout.strip())
 
 
 RUN_ID = "11111111-1111-4111-8111-111111111111"
@@ -23,7 +23,7 @@ PROFILE = "a" * 64
 BASE = {
     "schemaVersion": 1,
     "kind": "ios-runtime-identity",
-    "bundleId": "io.reproloop.sample.ios",
+    "bundleId": "io.reproof.sample.ios",
     "buildId": "fixture-build-id",
     "runId": RUN_ID,
     "profileDigest": PROFILE,
@@ -37,7 +37,7 @@ class IOSRuntimeIdentityTests(unittest.TestCase):
         marker.update(changes)
         return validate_ios_runtime_identity(
             marker,
-            bundle_id="io.reproloop.sample.ios",
+            bundle_id="io.reproof.sample.ios",
             build_id="fixture-build-id",
             profile_digest=PROFILE,
             run_id=RUN_ID,
@@ -86,7 +86,7 @@ class IOSRuntimeIdentityTests(unittest.TestCase):
 
     def test_expected_arguments_are_themselves_strict(self):
         kwargs = dict(
-            bundle_id="io.reproloop.sample.ios",
+            bundle_id="io.reproof.sample.ios",
             build_id="fixture-build-id",
             profile_digest=PROFILE,
             run_id=RUN_ID,
@@ -118,7 +118,7 @@ import Foundation
 let root = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
 let firstRun = "11111111-1111-4111-8111-111111111111"
 let secondRun = "22222222-2222-4222-8222-222222222222"
-try ReproRuntimeIdentityWriter.write(bundleID: "io.reproloop.sample.ios",
+try ReproRuntimeIdentityWriter.write(bundleID: "io.reproof.sample.ios",
     buildID: "fixture-build-id", runID: firstRun,
     profileDigest: String(repeating: "a", count: 64), startedAtMs: 10, to: root)
 let marker = root.appendingPathComponent(ReproRuntimeIdentityWriter.filename)
@@ -127,7 +127,7 @@ let firstObject = try JSONSerialization.jsonObject(with: first) as! [String: Any
 precondition(firstObject["runId"] as? String == firstRun)
 let attributes = try FileManager.default.attributesOfItem(atPath: marker.path)
 precondition((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
-try ReproRuntimeIdentityWriter.write(bundleID: "io.reproloop.sample.ios",
+try ReproRuntimeIdentityWriter.write(bundleID: "io.reproof.sample.ios",
     buildID: "fixture-build-id", runID: secondRun,
     profileDigest: String(repeating: "b", count: 64), startedAtMs: 20, to: root)
 let second = try Data(contentsOf: marker)
@@ -135,7 +135,7 @@ let secondObject = try JSONSerialization.jsonObject(with: second) as! [String: A
 precondition(secondObject["runId"] as? String == secondRun)
 precondition(secondObject["profileDigest"] as? String == String(repeating: "b", count: 64))
 do {
-    try ReproRuntimeIdentityWriter.write(bundleID: "io.reproloop.sample.ios",
+    try ReproRuntimeIdentityWriter.write(bundleID: "io.reproof.sample.ios",
         buildID: "unknown", runID: secondRun,
         profileDigest: String(repeating: "b", count: 64), startedAtMs: 21, to: root)
     fatalError("invalid build ID was accepted")

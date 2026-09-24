@@ -9,9 +9,9 @@ import stat
 import threading
 import uuid
 
-from reproloop.core import ContractError
-from reproloop.contracts.versions import bounded_int, digest, exact, require, validate_digest, validate_id
-from reproloop.storage import Lease
+from reproof.core import ContractError
+from reproof.contracts.versions import bounded_int, digest, exact, require, validate_digest, validate_id
+from reproof.storage import Lease
 from .artifacts import ArtifactError, open_directory, read_regular
 from .wire import ProtocolError, canonical, decode_json
 

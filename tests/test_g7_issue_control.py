@@ -2,9 +2,9 @@
 import unittest
 from unittest import mock
 
-from reproloop.live.issue_sessions import IssueSessionError
-from reproloop.live.model import LiveError
-from reproloop.live.disk_budget import DiskBudgetError
+from reproof.live.issue_sessions import IssueSessionError
+from reproof.live.model import LiveError
+from reproof.live.disk_budget import DiskBudgetError
 from tests.g4_support import G4Environment
 
 

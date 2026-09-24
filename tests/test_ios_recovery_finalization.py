@@ -6,17 +6,17 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.ios_recovery_finalization import (
+from reproof.ios_recovery_finalization import (
     IOSRecoveryFinalizationError,
     IOSRecoveryFinalizationObservation,
     finalize_recovery,
 )
-from reproloop.ios_mobile_finalization import IOSNativeFinalizationError
-from reproloop.ios_mobile_operation import IOSMobileOperationStore
-from reproloop.live.authority import HostAuthority
-from reproloop.live.authority import issue_local_parent_grant
-from reproloop.ios_native_recovery import native_recovery
-from reproloop.execution.wire import canonical
+from reproof.ios_mobile_finalization import IOSNativeFinalizationError
+from reproof.ios_mobile_operation import IOSMobileOperationStore
+from reproof.live.authority import HostAuthority
+from reproof.live.authority import issue_local_parent_grant
+from reproof.ios_native_recovery import native_recovery
+from reproof.execution.wire import canonical
 from tests import test_ios_recovery_execution as support
 from tests.ios_service_support import SanitationHTTPDouble
 from tests.ios_service_support import IOSServiceFixture
@@ -77,7 +77,7 @@ class IOSRecoveryFinalizationTests(unittest.TestCase):
             os.close(descriptor)
 
     def test_interrupted_disposal_resumes_without_repeating_device_reconciliation(self):
-        from reproloop import ios_recovery_finalization as finalization
+        from reproof import ios_recovery_finalization as finalization
         dispose = finalization.discard_recovery_native_staged
 
         def interrupted(*args, **kwargs):
@@ -144,7 +144,7 @@ class IOSRecoveryFinalizationTests(unittest.TestCase):
         )
 
     def test_wrong_request_and_reintroduced_staged_file_cannot_report_release(self):
-        from reproloop import ios_recovery_finalization as finalization
+        from reproof import ios_recovery_finalization as finalization
         dispose = finalization.discard_recovery_native_staged
         def interrupted(*args, **kwargs):
             dispose(*args, **kwargs)
@@ -192,7 +192,7 @@ class IOSRecoveryFinalizationTests(unittest.TestCase):
         self.assertTrue((operation / "attempt-002").is_dir())
 
     def test_completed_record_write_failure_closes_exact_device_before_retry(self):
-        from reproloop import ios_recovery_finalization as finalization
+        from reproof import ios_recovery_finalization as finalization
         save = finalization._Session.save
         def interrupted(session, state, **kwargs):
             if state == "completed":
@@ -239,8 +239,8 @@ class IOSRecoveryFinalizationTests(unittest.TestCase):
         self.assertEqual(device["quarantine_reason"], "recovery-cleanup-pending")
 
     def test_normal_finalizer_recovers_same_owner_post_publish_interruption(self):
-        from reproloop import ios_mobile_finalization as finalization
-        from reproloop.ios_mobile_callbacks import IOSNativeCallbackCoordinator
+        from reproof import ios_mobile_finalization as finalization
+        from reproof.ios_mobile_callbacks import IOSNativeCallbackCoordinator
         from tests.test_ios_mobile_finalization import IOSMobileFinalizationTests
 
         normal = IOSMobileFinalizationTests(methodName="runTest")
@@ -268,8 +268,8 @@ class IOSRecoveryFinalizationTests(unittest.TestCase):
             self.assertRegex(evidence, r"^[0-9a-f]{64}$")
 
     def test_normal_finalizer_recovers_empty_record_directory_and_mid_role_stop(self):
-        from reproloop import ios_mobile_finalization as finalization
-        from reproloop.ios_mobile_callbacks import IOSNativeCallbackCoordinator
+        from reproof import ios_mobile_finalization as finalization
+        from reproof.ios_mobile_callbacks import IOSNativeCallbackCoordinator
         from tests.test_ios_mobile_finalization import IOSMobileFinalizationTests
 
         for interruption in ("after-mkdir-fsync", "before-intent", "after-candidate"):
@@ -331,8 +331,8 @@ class IOSRecoveryFinalizationTests(unittest.TestCase):
                     self.assertRegex(evidence, r"^[0-9a-f]{64}$")
 
     def test_native_restart_inspects_empty_and_intent_only_finalization_publish(self):
-        from reproloop import ios_mobile_finalization as finalization
-        from reproloop.ios_mobile_callbacks import IOSNativeCallbackCoordinator
+        from reproof import ios_mobile_finalization as finalization
+        from reproof.ios_mobile_callbacks import IOSNativeCallbackCoordinator
         from tests.test_ios_mobile_finalization import IOSMobileFinalizationTests
 
         for interruption in ("empty", "intent-only", "linked-temp"):
@@ -416,8 +416,8 @@ class IOSRecoveryFinalizationTests(unittest.TestCase):
                     self.assertEqual(context.operation_id, operation.context.operation_id)
 
     def test_intent_only_restart_runs_fresh_recovery_and_consumes_reservation(self):
-        from reproloop import ios_mobile_finalization as mobile_finalization
-        from reproloop.ios_mobile_callbacks import IOSNativeCallbackCoordinator
+        from reproof import ios_mobile_finalization as mobile_finalization
+        from reproof.ios_mobile_callbacks import IOSNativeCallbackCoordinator
 
         fixture = IOSServiceFixture()
         self.addCleanup(fixture.close)

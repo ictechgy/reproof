@@ -9,13 +9,13 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.live.access import AccessController, AccessStore
-from reproloop.live.configuration import issue_bounded_project_grant
-from reproloop.live.issue_configuration import IssueRuntimeBundle
-from reproloop.live.issue_workflow import IssueWorkflow, ProjectIssueRuntime
-from reproloop.live.model import LiveError
-from reproloop.repair_configuration import ProtectedServiceConfiguration
+from reproof import contracts
+from reproof.live.access import AccessController, AccessStore
+from reproof.live.configuration import issue_bounded_project_grant
+from reproof.live.issue_configuration import IssueRuntimeBundle
+from reproof.live.issue_workflow import IssueWorkflow, ProjectIssueRuntime
+from reproof.live.model import LiveError
+from reproof.repair_configuration import ProtectedServiceConfiguration
 from tests import test_android_recovery_finalization as support
 from tests.test_protected_service_configuration import configuration, issue_configuration
 from tests.test_protected_mobile_inputs import blob, sha
@@ -78,7 +78,7 @@ class ProtectedRecoveryServiceTests(unittest.TestCase):
         path=Path(row['mobile']['definition']['path']);path.write_text(json.dumps(definition));path.chmod(0o600)
         row['mobile']['definition']['sha256']=sha(path)
         self.configuration=ProtectedServiceConfiguration(self.document)
-        from reproloop.live.protected_recovery import ProtectedRecoveryService
+        from reproof.live.protected_recovery import ProtectedRecoveryService
         self.recovery=ProtectedRecoveryService(self.configuration,self.issue,self.bundle)
         self.addCleanup(lambda:self.recovery.close(deadline_monotonic=time.monotonic()+10))
         if not getattr(self,'keep_owner_open',False):
@@ -107,7 +107,7 @@ class ProtectedRecoveryServiceTests(unittest.TestCase):
         self.assertNotIn(str(self.root),json.dumps(status))
 
     def test_recovery_startup_inventory_does_not_probe_or_offer_normal_device_effects(self):
-        from reproloop.protected_mobile_inputs import recovery_device_descriptors
+        from reproof.protected_mobile_inputs import recovery_device_descriptors
         with patch('subprocess.Popen',side_effect=AssertionError('startup dispatched a process')), \
                 patch('socket.socket',side_effect=AssertionError('startup contacted a device')):
             devices=recovery_device_descriptors(self.configuration)
@@ -199,7 +199,7 @@ class ProtectedRecoveryServiceTests(unittest.TestCase):
         self.assertGreater(self.f.runs.status(self.f.f.operation.operation_id)['reservedBytes'],0)
 
     def test_startup_composition_registers_recovery_without_starting_device_effects(self):
-        from reproloop.live.protected_recovery import compose_recovery_workflow
+        from reproof.live.protected_recovery import compose_recovery_workflow
         configured=copy.deepcopy(self.issue)
         plans=self.f.f.config.preparations
         recipes={row['id']:row for row in self.f.f.config.registration.project['fixtures']}

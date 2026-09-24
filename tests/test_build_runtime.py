@@ -4,11 +4,11 @@ import subprocess
 import tempfile
 import unittest
 
-from reproloop.kotlin_instrumenter import _ensure_built, _java_home, _subprocess_environment
+from reproof.kotlin_instrumenter import _ensure_built, _java_home, _subprocess_environment
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME = ROOT / "reproloop" / "build_instrumentation_templates" / "runtime" / "io" / "reproloop" / "autotrace" / "ReproHooks.kt"
+RUNTIME = ROOT / "reproof" / "build_instrumentation_templates" / "runtime" / "io" / "reproof" / "autotrace" / "ReproHooks.kt"
 FIXTURES = ROOT / "tests" / "fixtures" / "build-runtime"
 
 
@@ -19,7 +19,7 @@ class BuildRuntimeTests(unittest.TestCase):
         java = str(Path(java_home) / "bin" / "java")
         javac = str(Path(java_home) / "bin" / "javac")
 
-        with tempfile.TemporaryDirectory(prefix="reproloop-build-runtime-") as directory:
+        with tempfile.TemporaryDirectory(prefix="reproof-build-runtime-") as directory:
             classes = Path(directory) / "classes"
             classes.mkdir()
             java_sources = sorted(FIXTURES.rglob("*.java"))

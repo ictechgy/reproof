@@ -4,10 +4,10 @@ import json
 from pathlib import Path
 import unittest
 
-from reproloop import contracts
-from reproloop.ios_mobile_inputs import LoadedIOSMobileInputs
-from reproloop.protected_validation_inputs import load_ios_validation_inputs
-from reproloop.validation import ValidationError
+from reproof import contracts
+from reproof.ios_mobile_inputs import LoadedIOSMobileInputs
+from reproof.protected_validation_inputs import load_ios_validation_inputs
+from reproof.validation import ValidationError
 from tests.ios_service_support import IOSServiceFixture
 
 

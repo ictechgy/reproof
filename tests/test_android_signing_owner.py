@@ -163,7 +163,7 @@ class AndroidSigningOwnerTests(unittest.TestCase):
         cls.classes.mkdir(mode=0o700)
         cls.native = cls.root / "native"
         cls.native.mkdir(mode=0o700)
-        library = cls.native / "libreproloop_signing_owner_fd.dylib"
+        library = cls.native / "libreproof_signing_owner_fd.dylib"
         native = subprocess.run([
             "/usr/bin/clang", "-dynamiclib", "-O2", "-Wall", "-Wextra",
             "-Werror", "-I", str(cls.java_home / "include"), "-I",
@@ -182,7 +182,7 @@ class AndroidSigningOwnerTests(unittest.TestCase):
         if compiled.returncode != 0:
             raise RuntimeError("fixed signing owner did not compile: " +
                                compiled.stderr.decode("utf-8", "replace"))
-        cls.owner_jar = cls.root / "reproloop-android-signing-owner.jar"
+        cls.owner_jar = cls.root / "reproof-android-signing-owner.jar"
         packaged = subprocess.run([
             str(cls.jar_tool), "--create", "--file", str(cls.owner_jar),
             "-C", str(cls.classes), ".",
@@ -195,10 +195,10 @@ class AndroidSigningOwnerTests(unittest.TestCase):
             str(cls.java), "--add-opens=java.base/java.io=ALL-UNNAMED",
             "-Xmx256m", "-Djava.library.path=" + str(cls.native),
             "-cp", str(cls.owner_jar) + os.pathsep + str(APKSIGNER_JAR),
-            "io.reproloop.signing.SigningOwner")
+            "io.reproof.signing.SigningOwner")
         cls.password = secrets.token_hex(18).encode("ascii")
         cls.keystore = cls.root / "owned-test.p12"
-        variable = "REPROLOOP_OWNER_TEST_PASSWORD"
+        variable = "REPROOF_OWNER_TEST_PASSWORD"
         environment = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C",
                        variable: cls.password.decode("ascii")}
         arguments = [
@@ -206,7 +206,7 @@ class AndroidSigningOwnerTests(unittest.TestCase):
             "-keystore", str(cls.keystore), "-storepass:env", variable,
             "-keypass:env", variable, "-alias", "owned-test",
             "-keyalg", "RSA", "-keysize", "2048", "-validity", "1",
-            "-dname", "CN=ReproLoop Signing Owner Test",
+            "-dname", "CN=Reproof Signing Owner Test",
         ]
         if cls.password.decode("ascii") in arguments:
             raise RuntimeError("test password entered argv")
@@ -332,7 +332,7 @@ class AndroidSigningOwnerTests(unittest.TestCase):
         self.assertEqual(_record(work / "termination.json")["state"], "succeeded")
         self.assertEqual(_record(work / "termination.json")["recordMeaning"],
                          "exit-intent")
-        class_bytes = (self.classes / "io/reproloop/signing/SigningOwner.class").read_bytes()
+        class_bytes = (self.classes / "io/reproof/signing/SigningOwner.class").read_bytes()
         self.assertNotIn(b"ProcessBuilder", class_bytes)
         source_text = SOURCE.read_text()
         self.assertNotIn("ProcessBuilder", source_text)

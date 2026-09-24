@@ -5,9 +5,9 @@ import tempfile
 import time
 import unittest
 
-from reproloop.core import ContractError, digest
-from reproloop.live.model import Lab, LiveError, validate_gesture
-from reproloop.live.recordings import derive_recording, validate_recording
+from reproof.core import ContractError, digest
+from reproof.live.model import Lab, LiveError, validate_gesture
+from reproof.live.recordings import derive_recording, validate_recording
 
 
 class PointerProvider:

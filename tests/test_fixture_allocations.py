@@ -12,10 +12,10 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.fixtures import (AdapterCapabilities, FixtureCoordinator,
+from reproof.fixtures import (AdapterCapabilities, FixtureCoordinator,
                                 FixtureError, LoopbackFixtureAdapter)
-from reproloop.live.model import Lab
-from reproloop.live.clock_sync import ClockSynchronizer
+from reproof.live.model import Lab
+from reproof.live.clock_sync import ClockSynchronizer
 from tests.test_clock_sync import FakeClock
 
 
@@ -294,7 +294,7 @@ class FixtureAllocationTests(unittest.TestCase):
         # its advertised expiry. A 2 ms lifetime can elapse during the initial
         # HTTP response and incorrectly turns setup into the expiry scenario.
         expiry = _read_state(self.remote.state)["operations"]["operation_retention"]["retentionExpiresAtMs"]
-        with patch('reproloop.fixtures.time.time', return_value=(expiry+1000)/1000):
+        with patch('reproof.fixtures.time.time', return_value=(expiry+1000)/1000):
             duplicate=self.coordinator.prepare(
                 self.plan,allocation,payload={"retentionMs":60_000},
                 operation_id="operation_retention")
@@ -444,7 +444,7 @@ class FixtureAllocationTests(unittest.TestCase):
         self.assertEqual(self.coordinator.status(allocation)['state'],'reserved')
 
     def test_reservation_seals_respect_the_history_limit(self):
-        with patch('reproloop.fixtures.MAX_OPERATIONS',1):
+        with patch('reproof.fixtures.MAX_OPERATIONS',1):
             self.coordinator.seal_unstarted_reservation(self.plan,allocation_id='allocation_first_seal',
                 owner='owner',device_id='device')
             with self.assertRaises(FixtureError):

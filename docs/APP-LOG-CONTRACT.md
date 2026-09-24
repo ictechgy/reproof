@@ -4,7 +4,7 @@ Implementation contract for Android/iOS automatic click, screen, and lifecycle o
 
 ## Storage and identity
 
-Android base: `files/repro`. iOS base: `Library/Application Support/ReproLoop`.
+Android base: `files/repro`. iOS base: `Library/Application Support/Reproof`.
 
 - `app-log-session.json`: exact keys `schemaVersion`, `platform`, `applicationId`, `runId`, `sessionId`, `profileDigest`, `startedAtMs`.
 - `app-logs/SESSION_UUID/app-log.json`: same identity keys plus `endSequence`, `truncated`, `lostEvents`, `events`.

@@ -13,12 +13,12 @@ SDK 호출이 없는 저장소 소유 합성 앱을 만드는 아래 명령은 �
 
 ```bash
 python3 scripts/prepare-ios-instrumentation-fixture.py --output artifacts/NEW_IOS_PLAIN
-python3 -m reproloop ios-instrument \
+python3 -m reproof ios-instrument \
   --source artifacts/NEW_IOS_PLAIN/source --output artifacts/NEW_IOS_PREPARED
-python3 -m reproloop ios-build \
+python3 -m reproof ios-build \
   --source artifacts/NEW_IOS_PREPARED/source --output artifacts/NEW_IOS_BUILD \
   --simulator "$REPRO_SIMULATOR_ID"
-python3 -m reproloop ios-record \
+python3 -m reproof ios-record \
   --build artifacts/NEW_IOS_BUILD --case counter --output artifacts/NEW_IOS_RECORD \
   --simulator "$REPRO_SIMULATOR_ID"
 ```
@@ -42,12 +42,12 @@ python3 -m reproloop ios-record \
 
 ## 원본 보존과 Release
 
-준비 복사본의 `ReproLoop.xcodeproj/project.pbxproj`와 새 `ReproLoopInstrumentation/`만 계측으로 변경한다. Xcode 프로젝트 파일은 plist로 다시 직렬화하므로 diff가 클 수 있다. 기존 지원 제품 입력의 바이트 일치는 preparation receipt로 확인한다. 복사본은 OS 샌드박스가 아니다.
+준비 복사본의 `Reproof.xcodeproj/project.pbxproj`와 새 `ReproofInstrumentation/`만 계측으로 변경한다. Xcode 프로젝트 파일은 plist로 다시 직렬화하므로 diff가 클 수 있다. 기존 지원 제품 입력의 바이트 일치는 preparation receipt로 확인한다. 복사본은 OS 샌드박스가 아니다.
 
 현재 입력 복사는 기존 iOS 어댑터가 허용한 Swift/Objective-C/header/plist/Xcode project/scheme/yml 등에 한정된다. assets/storyboard/외부 패키지를 포함한 모든 앱 빌드 입력을 복사한다고 보장하지 않는다.
 
 ```bash
-python3 -m reproloop ios-build \
+python3 -m reproof ios-build \
   --source artifacts/NEW_IOS_PREPARED/source --configuration Release \
   --output artifacts/NEW_IOS_RELEASE --simulator "$REPRO_SIMULATOR_ID"
 ```
@@ -59,7 +59,7 @@ Release에는 세 런타임 소스를 빌드에서 제외하고 원래 Info.plis
 현재 `live-ios` 소스로 `ReproLive` scheme을 `build-for-testing`한 Simulator용 helper가 필요하다.
 
 ```bash
-python3 -m reproloop live-serve \
+python3 -m reproof live-serve \
   --simulator "$REPRO_SIMULATOR_ID" --products "$REPRO_LIVE_PRODUCTS" \
   --repair-source artifacts/NEW_IOS_PREPARED/source \
   --repair-build artifacts/NEW_IOS_BUILD --repair-agent claude \

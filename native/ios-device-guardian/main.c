@@ -337,7 +337,7 @@ int main(int argc, char **argv) {
         command[2]="copy";command[3]="from";
         command[index++]="--domain-type";command[index++]="appDataContainer";
         command[index++]="--domain-identifier";command[index++]=argv[11];
-        command[index++]="--source";command[index++]="Library/Application Support/ReproLoop/runtime-identity.json";
+        command[index++]="--source";command[index++]="Library/Application Support/Reproof/runtime-identity.json";
         command[index++]="--destination";command[index++]=identity_output;
     }
     else if (!strcmp(argv[9],"apps")) { command[index++]="--bundle-id";command[index++]=argv[11]; }

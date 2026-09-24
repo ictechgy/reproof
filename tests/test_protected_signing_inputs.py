@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.ios_signing_inputs import IOSSigningDefinition,IOSSigningIdentity,IOSSigningProvisioning
-from reproloop.repair_android_signing import AndroidSigningIdentity
+from reproof import contracts
+from reproof.ios_signing_inputs import IOSSigningDefinition,IOSSigningIdentity,IOSSigningProvisioning
+from reproof.repair_android_signing import AndroidSigningIdentity
 
 
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -56,13 +56,13 @@ class ProtectedSigningDefinitionTests(unittest.TestCase):
         return {'path':str(path),'sha256':sha(path)}
 
     def load(self, document=None, **changes):
-        from reproloop.protected_signing_inputs import load_signing_definition
+        from reproof.protected_signing_inputs import load_signing_definition
         return load_signing_definition(self.reference(document),policy_document=changes.get('policy',self.policy),
             application=changes.get('application',self.application))
 
     def test_ios_definition_loads_immutable_profiles_without_opening_a_key_or_running_tools(self):
         with (patch('subprocess.Popen',side_effect=AssertionError('definition loading ran a process')),
-              patch('reproloop.ios_signing_inputs.IOSSigningMaterialResolver.open',side_effect=AssertionError('key opened'))):
+              patch('reproof.ios_signing_inputs.IOSSigningMaterialResolver.open',side_effect=AssertionError('key opened'))):
             loaded=self.load()
         self.assertIs(type(loaded.definition),IOSSigningDefinition)
         self.assertIs(type(loaded.provisioning),IOSSigningProvisioning)
@@ -84,12 +84,12 @@ class ProtectedSigningDefinitionTests(unittest.TestCase):
         application={'id':'android_app','platform':'android','bundle':'com.example.android'}
         loaded=self.load(document,policy=policy,application=application)
         self.assertIs(type(loaded.identity),AndroidSigningIdentity);self.assertEqual(loaded.identity,identity)
-        from reproloop.protected_signing_inputs import ProtectedSigningInputsError
+        from reproof.protected_signing_inputs import ProtectedSigningInputsError
         with self.assertRaises(ProtectedSigningInputsError):
             self.load(document,policy=dict(policy,entitlementsDigest='f'*64),application=application)
 
     def test_top_digest_blob_size_hash_symlink_and_private_key_roles_are_rejected(self):
-        from reproloop.protected_signing_inputs import load_signing_definition,ProtectedSigningInputsError
+        from reproof.protected_signing_inputs import load_signing_definition,ProtectedSigningInputsError
         reference=self.reference();reference['sha256']='0'*64
         with self.assertRaises(ProtectedSigningInputsError):
             load_signing_definition(reference,policy_document=self.policy,application=self.application)
@@ -101,7 +101,7 @@ class ProtectedSigningDefinitionTests(unittest.TestCase):
         with self.assertRaises(ProtectedSigningInputsError):self.load(changed)
 
     def test_application_policy_and_unknown_credential_fields_cannot_be_loaded(self):
-        from reproloop.protected_signing_inputs import ProtectedSigningInputsError
+        from reproof.protected_signing_inputs import ProtectedSigningInputsError
         for changed in (dict(self.document,password='OwnedCredentialCanary'),dict(self.document,schemaVersion=True)):
             with self.assertRaises(ProtectedSigningInputsError) as error:self.load(changed)
             self.assertNotIn('OwnedCredentialCanary',str(error.exception))
@@ -115,19 +115,19 @@ class ProtectedSigningDefinitionTests(unittest.TestCase):
         self.assertEqual(loaded.identity.certificate_sha256,sha(path))
 
     def test_declared_profile_total_is_bounded_before_certificate_or_profile_reads(self):
-        from reproloop.protected_signing_inputs import ProtectedSigningInputsError
+        from reproof.protected_signing_inputs import ProtectedSigningInputsError
         changed=copy.deepcopy(self.document)
         for index in range(17):
             changed['profiles'][f'PlugIns/Owned{index}.appex']={'cms':dict(blob(self.root/'owned-profile.cms'),bytes=4*1024**2),
                                                              'profileDigest':'a'*64}
-        with patch('reproloop.protected_signing_inputs._read_blob',side_effect=AssertionError('oversized set read a blob')) as read:
+        with patch('reproof.protected_signing_inputs._read_blob',side_effect=AssertionError('oversized set read a blob')) as read:
             with self.assertRaises(ProtectedSigningInputsError):self.load(changed)
             read.assert_not_called()
 
     def test_remaining_service_profile_budget_is_checked_before_blob_reads(self):
-        from reproloop.protected_signing_inputs import load_signing_definition,ProtectedSigningInputsError
+        from reproof.protected_signing_inputs import load_signing_definition,ProtectedSigningInputsError
         reference=self.reference()
-        with patch('reproloop.protected_signing_inputs._read_blob') as read:
+        with patch('reproof.protected_signing_inputs._read_blob') as read:
             with self.assertRaises(ProtectedSigningInputsError):
                 load_signing_definition(reference,policy_document=self.policy,application=self.application,profile_bytes_limit=0)
             read.assert_not_called()
@@ -145,9 +145,9 @@ class LoadedNativeIOSDefinitionTests(unittest.TestCase):
         import secrets
         import threading
         import time
-        from reproloop.ios_signing_operation import IOSSigningOperationStore
-        from reproloop.protected_signing_inputs import load_signing_definition
-        from reproloop.repair_signing import SigningObservation,SignatureObservation
+        from reproof.ios_signing_operation import IOSSigningOperationStore
+        from reproof.protected_signing_inputs import load_signing_definition
+        from reproof.repair_signing import SigningObservation,SignatureObservation
         case=self.native(methodName='runTest');case.setUp()
         self.addCleanup(case.tearDown)
         document=ios_document(case.root,policies=case.definition.bundle_policies,

@@ -6,9 +6,9 @@ import subprocess
 import sys
 from unittest.mock import patch
 
-from reproloop.core import ContractError
-from reproloop.live.authority import HostAuthority, ProviderResult
-from reproloop.live.state_store import FORMAT_VERSION, StateStore
+from reproof.core import ContractError
+from reproof.live.authority import HostAuthority, ProviderResult
+from reproof.live.state_store import FORMAT_VERSION, StateStore
 from tests.test_live_authority import AuthorityTestCase, DIGEST_A, DIGEST_B, DIGEST_C
 
 
@@ -147,7 +147,7 @@ class AuthorityRecoveryMigrationTests(AuthorityTestCase):
         script = """
 import os
 import sys
-from reproloop.live.state_store import StateStore
+from reproof.live.state_store import StateStore
 class InterruptedStore(StateStore):
     def _migrate_v1(self, connection):
         super()._migrate_v1(connection)

@@ -9,7 +9,7 @@ import tempfile
 import threading
 import unittest
 
-from reproloop.live.model import Lab
+from reproof.live.model import Lab
 
 
 class BlockingProvider:

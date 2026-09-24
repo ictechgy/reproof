@@ -21,8 +21,8 @@ _Last updated: 2026-09-18 by devin (r63)_
 - **helper 경계 exercise** ([device-boundary-exercise.json](artifacts/product-delivery/d4-ios-device-qualification-r1/device-boundary-exercise.json)):
   tunnel ULA listen, 토큰 없음/오류 401, incarnation 일치, `/activate`·`/retire`, 다른 incarnation·retire 후 명령 거절,
   XCTest exit 0(1 pass/0 skip), helper 프로세스 부재, 앱 삭제 확인. 이전 세션이 남긴
-  `io.reproloop.*` 앱 3개가 기기에 남아 있었고 이번에 제거했다.
-- **새 코드: `reproloop/ios_device_qualification.py`** — `qualify_ios_device()`와 `PhysicalIOSProbeSubject`.
+  `io.reproof.*` 앱 3개가 기기에 남아 있었고 이번에 제거했다.
+- **새 코드: `reproof/ios_device_qualification.py`** — `qualify_ios_device()`와 `PhysicalIOSProbeSubject`.
   `mobile-device` 필수 probe 5개(device-boundary / network-boundary / backend-scope / process-termination /
   state-cleanup)를 실기기에서 측정해 `QualificationAuthority`에서만 capability를 발급한다. 저장 JSON·helper 응답으로는
   발급 불가, 새 측정은 이전 qualification 폐기. 문서는 [IOS-PROTECTED-SERVICE.md](docs/IOS-PROTECTED-SERVICE.md) 새 절.
@@ -159,7 +159,7 @@ _Last updated: 2026-09-18 by devin (r63)_
   `sleep`·wrapper 스크립트)를 digest로 pin한 host 번들을 `provision_host`로 봉인 →
   `qualify_host_build` 3 probe 통과 → `ProtectedBuildSupervisor.build`로 ios/ 샘플
   프로젝트를 **실제 xcodebuild로 빌드**(6.6초) → 무서명 `candidate.ipa` 산출·검증
-  (`io.reproloop.sample.ios`, `_CodeSignature` 없음 = unsigned) → 저널 `succeeded`,
+  (`io.reproof.sample.ios`, `_CodeSignature` 없음 = unsigned) → 저널 `succeeded`,
   run 디렉터리 완전 제거, `buildIsolation: "host"` 표시.
 - 의미: `.p12` 서명 입력만 들어오면 보호 서비스의 빌드 단계가 VM 없이 실제로 돌 수
   있음을 코드가 아닌 실행으로 증명했다. `run/result.json` 참고.
@@ -218,7 +218,7 @@ _Last updated: 2026-09-18 by devin (r63)_
   4. Lab 실기기 디스크립터 capabilities에 `applicationIdentity`/`applicationProfile`/
      `applicationProfileDigest` 필요 — 활성화 스크립트가 runtime profile에서 도출하도록 수정.
   5. collection policy `captureMode: 'test-data'` 필요(native 디바이스 정책) — 수정.
-  6. observer `socketPath` 130B > 104B 한계 — `/private/tmp/reproloop-observer-qa-iphone.sock`으로 단축.
+  6. observer `socketPath` 130B > 104B 한계 — `/private/tmp/reproof-observer-qa-iphone.sock`으로 단축.
   7. `project.json`의 `recipes`에 build recipe(`host-sample-build`, productFile
      `src/checks/build.json`) 누락 — `ProjectRepair`가 요구. 생성기가 build.json을
      봉인 소스에 쓰고 recipes에 선언하도록 수정.
@@ -226,7 +226,7 @@ _Last updated: 2026-09-18 by devin (r63)_
   9. **stale lease cutover 마커**: 재생성으로 mobile journal `environmentDigest`가 바뀌면
      `protected-repair-mobile-device-<scope>` 마커의 `authorityRoot`가 불일치해
      `repair_scope_lease`가 `RunDenied` — 운영자 cutover로 마커 파일 삭제 필요
-     (`$TMPDIR/reproloop-leases-<uid>/<key>.authority.json`). signing scope도 동일 주의.
+     (`$TMPDIR/reproof-leases-<uid>/<key>.authority.json`). signing scope도 동일 주의.
   10. `activate-service.py`가 `work/`를 정리하지 않아 재실행 시 `bootstrap_denied` —
       시작 시 `shutil.rmtree(WORK)` 추가.
 - materials 문서(`~/secure/protected-materials.json`)는 `configurationDigest`만 최신값으로
@@ -240,7 +240,7 @@ _Last updated: 2026-09-18 by devin (r63)_
 
 - **요청**: HANDOFF(r61) 기준 "툴 보안 구조 성능 개선 파악" → "개선해줘" → "나머지 개선들도".
 - **적용한 개선(미커밋, `main`에 working tree로 존재)**:
-  - `reproloop/execution/artifacts.py` — `BlobSet`이 매번 전체 바이트를 재해시하던 것을
+  - `reproof/execution/artifacts.py` — `BlobSet`이 매번 전체 바이트를 재해시하던 것을
     생성 시 1회 계산 후 `_files`(path, digest, size)·`_digest`로 캐싱(`field(init=False,
     repr=False, compare=False)`, slots 호환). `manifest`는 캐시에서 새 dict를 만들어
     반환하므로 호출자가 manifest를 변조해도 내부 해시가 오염되지 않는다. 측정: 8MiB
@@ -251,14 +251,14 @@ _Last updated: 2026-09-18 by devin (r63)_
     (`python3.11 -m unittest tests.test_execution_artifacts tests.test_execution_runtime
     tests.test_execution_host_build -q`).
 - **파악만 하고 적용하지 않은 것(다음 세션 후보)**:
-  - 저널 512건 누적 제한(`reproloop/execution/journal.py:19,157,203,540`): terminal 기록
+  - 저널 512건 누적 제한(`reproof/execution/journal.py:19,157,203,540`): terminal 기록
     아카이빙 설계까지 조사 완료(옵션 A: 레코드당 archive 파일 + state 병합, 옵션 B/C
     비권장). fail-closed 조건: terminal+reservedBytes==0+흔적 부재만 이동, archive commit
     후 state 삭제 순서, 중복 ID 영구 거부, 읽기 preflight 무쓰기, 아카이브 변조 거절.
     docs/REPAIR-EXECUTION.md:166 "512 identities, 무음 eviction 금지" 준수 필요.
   - 플랫폼 복구 코드가 공통 저널에 직접 import되는 결합
     (`journal.py` 내 `finish_mobile_recovery` 등 5개 — 책임 분리 별도 작업).
-  - qualification 시간 제한·취소 경계(`reproloop/ios_device_qualification.py`) 강화 미착수.
+  - qualification 시간 제한·취소 경계(`reproof/ios_device_qualification.py`) 강화 미착수.
   - 보안 우선순위(측정 필요, 코드 변경 아님): host-build는 격리 아님, 대상 앱 자체 네트워크
     egress 격리는 별도 정책 필요(HANDOFF r58/r61의 미측정 항목과 동일).
 - **기존 실패(이번 변경과 무관)**: Python 3.14 전체 suite는 120초 제한으로 중단. 그 안의
@@ -278,7 +278,7 @@ _Last updated: 2026-09-18 by devin (r63)_
   - `8463b8c` — 실행 저널 terminal 레코드 아카이빙.
   - `7ff93c1` — 플랫폼 복구 종결 로직 `journal_recovery.py` 분리.
   - (아래 qualification 경계 변경은 별도 커밋 — 해시는 git log 참고.)
-- **저널 512건 terminal 아카이빙(`reproloop/execution/journal.py`, 옵션 A 구현)**:
+- **저널 512건 terminal 아카이빙(`reproof/execution/journal.py`, 옵션 A 구현)**:
   - `archive/<operation_id>`에 레코드당 1파일(canonical JSON: `schemaVersion/operationId/
     requestDigest/state/reservedBytes`), temp+`os.replace` 원자 커밋, 0600.
   - `state.json`에 `archive: {count, digest}` 메타데이터 — 아카이브 집합 전체에 대한
@@ -291,7 +291,7 @@ _Last updated: 2026-09-18 by devin (r63)_
   - `docs/REPAIR-EXECUTION.md:166`의 "512 identities·무음 eviction 금지" 문구를
     아카이브 동작에 맞게 갱신. 테스트 12개 추가(`tests/test_execution_journal.py`),
     저널 관련 suite 통과.
-- **저널-복구 결합 분리(`reproloop/execution/journal_recovery.py` 신규)**:
+- **저널-복구 결합 분리(`reproof/execution/journal_recovery.py` 신규)**:
   - `finish_mobile_recovery`·`finish_ios_native_recovery`·`finish_ios_preparation_recovery`·
     `consume_ios_native_disposal`·`finish_signing_recovery` 5개 본문을 이동.
     `RunStore`는 lazy import delegate 메서드만 유지(공개 API·호출부 ~30곳 무수정).
@@ -299,7 +299,7 @@ _Last updated: 2026-09-18 by devin (r63)_
   - 복구 관련 129 테스트 중 126 통과. 실패 3건은 전부 네이티브 툴체인 환경 문제로
     변경 전 stash 상태에서도 동일 재현 확인: Android guardian 컴파일 실패,
     iOS native pipeline·signing — `Xcode-27.0.0-beta.app`의 `MacOSX27.0.sdk` sysroot 부재.
-- **qualification 시간 제한·취소 경계(`reproloop/ios_device_qualification.py`)**:
+- **qualification 시간 제한·취소 경계(`reproof/ios_device_qualification.py`)**:
   - `_devicectl` — `subprocess.run(timeout=60)` 고정을 Popen+poll로 교체.
     `deadline_monotonic`·`cancellation` 인수 추가, 호출당 상한은 `min(60s, 잔여 데드라인)`.
     취소/만료 시 `SIGKILL`로 프로세스 그룹(`start_new_session`) 정리 후 fail.
@@ -548,7 +548,7 @@ r66에서 발견한 재부팅 내구성 결함을 코드로 수정했다:
   하니스에 적용할지는 별도 결정.
 
 세 번째 r66 후속인 **sanctioned 운영자 종결(close-run) 경로**도 같은
-브랜치에서 추가했다(`reproloop/ios_mobile_close.py` + `ios-mobile
+브랜치에서 추가했다(`reproof/ios_mobile_close.py` + `ios-mobile
 close-run`):
 
 - `close_run`이 원본 `operationId`·`requestDigest`를 검증하고, native-bound
@@ -603,7 +603,7 @@ close-run`):
 
 ## Current Status (r51 기준 + r66 갱신)
 
-- 저장소 위치: `/Users/repro/Desktop/repro-loop`. **r61부터 git 저장소다**
+- 저장소 위치: `/Users/repro/Desktop/reproof`. **r61부터 git 저장소다**
   (`main`). r63에서 r62 잔여 개선 3건(저널 아카이빙·복구 분리·qualification 경계)을
   완료·커밋했다 — 최신 커밋은 `git log` 참고(r63 절에 나열). remote는 아직 없다.
   로컬 AGENTS.md는 없고 대화에 제공된 전역 지침을 적용했다.
@@ -611,7 +611,7 @@ close-run`):
   원본 복원, native 재시작 복구, fixture 정리, 서비스 factory·자료 입력·인증 복구 CLI.
 - [최종 수용 기록](artifacts/product-delivery/d4-ios-service-r1/acceptance.json):
   **594 검사 통과, skip 0, Python 3.11.15, 고정 입력 596개 불변**.
-- [wheel r18](artifacts/product-delivery/d4-foundation-package-r18/dist/repro_loop-0.1.0-py3-none-any.whl):
+- [wheel r18](artifacts/product-delivery/d4-foundation-package-r18/dist/reproof-0.1.0-py3-none-any.whl):
   **175 모듈·112 리소스**, SHA-256
   `945e004272590dce550d1fa70b3bd5e780341912ae43165e75b106e2c43aa9b9`.
   [새 설치 수용](artifacts/product-delivery/d4-foundation-package-r18/acceptance.json)도 통과했다.
@@ -627,12 +627,12 @@ close-run`):
 | --- | --- |
 | [IOS-PROTECTED-SERVICE.md](docs/IOS-PROTECTED-SERVICE.md) | 서비스 조합·복구·인증 CLI와 실환경 경계 |
 | [IOS-SANITATION.md](docs/IOS-SANITATION.md) | 명시적 파일/defaults/Keychain 초기화 계약 |
-| `reproloop/repair_ios.py`, `reproloop/repair_mobile.py`, `reproloop/repair_composition.py` | 같은 owner로 설치·독립 검증·후보 3회 재생·원본 복원과 정리 |
-| `reproloop/ios_sanitation.py`, `reproloop/ios_instrumentation_templates/RLSanitationRuntime.swift` | 고정 정책, 시작·종료 초기화 영수증, 실패 시 정상 시작 차단 |
-| `reproloop/ios_mobile_xctest.py`, `reproloop/ios_mobile_helper.py`, `reproloop/ios_mobile_runtime_identity.py` | 실제 발급된 launch·native grant·앱 marker·helper/호스트 수거 |
-| `reproloop/ios_native_recovery.py`, `reproloop/ios_recovery_execution.py`, `reproloop/ios_recovery_helper.py` | 원래 잠금·새 recovery lease, 이전 helper 부재, bounded 복구 사본·고정 원본 실행 |
-| `reproloop/ios_fixture_recovery.py`, `reproloop/ios_recovery_finalization.py`, `reproloop/ios_mobile_finalization.py` | 정확한 fixture 복구, reconciliation, 파일 부재 확인 후 예약·기기 해제 |
-| `reproloop/protected_service.py`, `reproloop/protected_service_materials.py`, `reproloop/live/protected_recovery.py` | iOS factory·private 자료 stream·인증 복구 서비스 |
+| `reproof/repair_ios.py`, `reproof/repair_mobile.py`, `reproof/repair_composition.py` | 같은 owner로 설치·독립 검증·후보 3회 재생·원본 복원과 정리 |
+| `reproof/ios_sanitation.py`, `reproof/ios_instrumentation_templates/RLSanitationRuntime.swift` | 고정 정책, 시작·종료 초기화 영수증, 실패 시 정상 시작 차단 |
+| `reproof/ios_mobile_xctest.py`, `reproof/ios_mobile_helper.py`, `reproof/ios_mobile_runtime_identity.py` | 실제 발급된 launch·native grant·앱 marker·helper/호스트 수거 |
+| `reproof/ios_native_recovery.py`, `reproof/ios_recovery_execution.py`, `reproof/ios_recovery_helper.py` | 원래 잠금·새 recovery lease, 이전 helper 부재, bounded 복구 사본·고정 원본 실행 |
+| `reproof/ios_fixture_recovery.py`, `reproof/ios_recovery_finalization.py`, `reproof/ios_mobile_finalization.py` | 정확한 fixture 복구, reconciliation, 파일 부재 확인 후 예약·기기 해제 |
+| `reproof/protected_service.py`, `reproof/protected_service_materials.py`, `reproof/live/protected_recovery.py` | iOS factory·private 자료 stream·인증 복구 서비스 |
 
 `IOSMobileInputsConfig`의 보호 실행에는 `xctest`와 `sanitation`이 필수다. 공식 준비기가
 정책과 digest를 Swift/Info.plist에 넣고 runtime schema 2를 선언한다. 정책 없는 기존 경로는
@@ -959,7 +959,7 @@ bundle `com.example.ProductAppIOS`, profile `qa-iphone-productapp`)에서
 
 안전한 재개 프롬프트:
 
-> `/Users/repro/Desktop/repro-loop`의 HANDOFF.md를 읽어줘. 저장소는 git `main`이고
+> `/Users/repro/Desktop/reproof`의 HANDOFF.md를 읽어줘. 저장소는 git `main`이고
 > r64(verified 완주)·r65(negative 3종)·r66(SIGKILL 중단/복원력)·r68
 > (UI-only 샘플로 candidate_mismatch 도달 — repair verdict 전 경로 증명)까지
 > 실기기 증명됐다.

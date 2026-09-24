@@ -11,7 +11,7 @@ single-user console. The modes are deliberately separate:
 - A shared non-loopback listener requires a TLS certificate and private key.
   HTTP is accepted only on loopback for synthetic/local integration.
 
-The configuration format is `reproloop-shared-coordinator` schema version 2.
+The configuration format is `reproof-shared-coordinator` schema version 2.
 See [the non-secret example](examples/shared-coordinator-v2.json). The
 `coordinator-v2` state root is an isolated, service-owned SQLite namespace; it
 does not reuse or rewrite the G1 host-authority database.
@@ -44,53 +44,53 @@ commit these files. The paths and identities below are examples, not secrets.
 Create the isolated store and its first bounded administrator credential:
 
 ```sh
-python3 -m reproloop live-admin init \
-  --state-root /var/lib/reproloop/coordinator-v2 \
+python3 -m reproof live-admin init \
+  --state-root /var/lib/reproof/coordinator-v2 \
   --administrator release-admin \
   --lifetime-seconds 3600 \
-  --output /run/reproloop/admin-credential.json
+  --output /run/reproof/admin-credential.json
 ```
 
 Register the exact project revision that shared startup will load, then create
 identities and memberships:
 
 ```sh
-python3 -m reproloop live-admin project-register \
-  --state-root /var/lib/reproloop/coordinator-v2 \
+python3 -m reproof live-admin project-register \
+  --state-root /var/lib/reproof/coordinator-v2 \
   --credential-stdin \
-  --project /etc/reproloop/checkout-project.json \
-  < /run/reproloop/admin-credential.json
+  --project /etc/reproof/checkout-project.json \
+  < /run/reproof/admin-credential.json
 
-python3 -m reproloop live-admin identity-add \
-  --state-root /var/lib/reproloop/coordinator-v2 \
+python3 -m reproof live-admin identity-add \
+  --state-root /var/lib/reproof/coordinator-v2 \
   --credential-stdin --identity qa-operator \
-  < /run/reproloop/admin-credential.json
+  < /run/reproof/admin-credential.json
 
-python3 -m reproloop live-admin membership-grant \
-  --state-root /var/lib/reproloop/coordinator-v2 \
+python3 -m reproof live-admin membership-grant \
+  --state-root /var/lib/reproof/coordinator-v2 \
   --credential-stdin --project checkout \
   --identity qa-operator --role operator \
-  < /run/reproloop/admin-credential.json
+  < /run/reproof/admin-credential.json
 
-python3 -m reproloop live-admin credential-issue \
-  --state-root /var/lib/reproloop/coordinator-v2 \
+python3 -m reproof live-admin credential-issue \
+  --state-root /var/lib/reproof/coordinator-v2 \
   --credential-stdin --identity qa-operator \
   --lifetime-seconds 3600 \
-  --output /run/reproloop/qa-operator-credential.json \
-  < /run/reproloop/admin-credential.json
+  --output /run/reproof/qa-operator-credential.json \
+  < /run/reproof/admin-credential.json
 ```
 
 Create a host-scoped, single-use enrollment and deliver the resulting private
 file through the deployment's credential channel:
 
 ```sh
-python3 -m reproloop live-admin host-enrollment-create \
-  --state-root /var/lib/reproloop/coordinator-v2 \
+python3 -m reproof live-admin host-enrollment-create \
+  --state-root /var/lib/reproof/coordinator-v2 \
   --credential-stdin --host-id mac-worker-01 \
   --project checkout --trust-group qa \
   --lifetime-seconds 600 --credential-lifetime-seconds 86400 \
-  --output /run/reproloop/mac-worker-01-enrollment.json \
-  < /run/reproloop/admin-credential.json
+  --output /run/reproof/mac-worker-01-enrollment.json \
+  < /run/reproof/admin-credential.json
 ```
 
 The worker bootstrap stdin document contains `enrollmentToken` and the
@@ -98,19 +98,19 @@ existing transport-only `transportToken`; both values come from private
 credential delivery. The host credential is also written privately:
 
 ```sh
-python3 -m reproloop live-worker \
+python3 -m reproof live-worker \
   --host 0.0.0.0 --port 9876 \
   --advertised-host worker-01.example.internal \
-  --tls-cert /etc/reproloop/worker.crt \
-  --tls-key /etc/reproloop/worker.key \
-  --output /var/lib/reproloop/worker-output \
-  --authority-root /var/lib/reproloop/worker-authority-v1 \
+  --tls-cert /etc/reproof/worker.crt \
+  --tls-key /etc/reproof/worker.key \
+  --output /var/lib/reproof/worker-output \
+  --authority-root /var/lib/reproof/worker-authority-v1 \
   --coordinator https://coordinator.example.internal:9443 \
-  --coordinator-ca /etc/reproloop/coord-ca.pem \
+  --coordinator-ca /etc/reproof/coord-ca.pem \
   --host-id mac-worker-01 --host-incarnation boot-2026-09-12 \
   --enrollment-stdin \
-  --host-credential-output /run/reproloop/mac-worker-01-host.json \
-  --demo < /run/reproloop/mac-worker-01-bootstrap.json
+  --host-credential-output /run/reproof/mac-worker-01-host.json \
+  --demo < /run/reproof/mac-worker-01-bootstrap.json
 ```
 
 Assign a known inventory device only after enrollment. Reassignment to another
@@ -118,11 +118,11 @@ project, trust group, or host requires a schema-version-1 sanitation receipt
 whose `previousAssignment` exactly matches the durable current assignment.
 
 ```sh
-python3 -m reproloop live-admin device-assign \
-  --state-root /var/lib/reproloop/coordinator-v2 \
+python3 -m reproof live-admin device-assign \
+  --state-root /var/lib/reproof/coordinator-v2 \
   --credential-stdin --device-id mac-worker-01--demo \
   --project checkout --host-id mac-worker-01 \
-  < /run/reproloop/admin-credential.json
+  < /run/reproof/admin-credential.json
 ```
 
 For reassignment, pass `--sanitation-receipt /path/to/receipt.json`; its exact
@@ -154,10 +154,10 @@ Start the coordinator after all configured projects and devices match durable
 administration:
 
 ```sh
-python3 -m reproloop live-serve \
-  --shared-config /etc/reproloop/shared-coordinator-v2.json \
-  --workers-stdin --output /var/lib/reproloop/coordinator-output \
-  < /run/reproloop/coordinator-workers.json
+python3 -m reproof live-serve \
+  --shared-config /etc/reproof/shared-coordinator-v2.json \
+  --workers-stdin --output /var/lib/reproof/coordinator-output \
+  < /run/reproof/coordinator-workers.json
 ```
 
 `coordinator-workers.json` is a private stdin document with each worker's
@@ -231,12 +231,12 @@ format, byte count, and limited meaning, and imports no grants, hosts, result
 status, or fixture work:
 
 ```sh
-python3 -m reproloop live-admin legacy-adopt \
-  --state-root /var/lib/reproloop/coordinator-v2 \
+python3 -m reproof live-admin legacy-adopt \
+  --state-root /var/lib/reproof/coordinator-v2 \
   --credential-stdin --adoption-id checkout-recording-2026-09-12 \
-  --source /var/lib/reproloop/import/recording.json \
+  --source /var/lib/reproof/import/recording.json \
   --format recording-v1 --meaning legacy-recording-only \
-  < /run/reproloop/admin-credential.json
+  < /run/reproof/admin-credential.json
 ```
 
 Execution remains denied until a separate local administrator binds the exact
@@ -244,12 +244,12 @@ imported recording digest to that adoption with
 `legacy-recording-authorize`:
 
 ```sh
-python3 -m reproloop live-admin legacy-recording-authorize \
-  --state-root /var/lib/reproloop/coordinator-v2 \
+python3 -m reproof live-admin legacy-recording-authorize \
+  --state-root /var/lib/reproof/coordinator-v2 \
   --credential-stdin --recording-id recording-imported-01 \
   --adoption-id checkout-recording-2026-09-12 \
   --recording-digest 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
-  < /run/reproloop/admin-credential.json
+  < /run/reproof/admin-credential.json
 ```
 
 A historical `verified` field remains inert legacy data and never becomes

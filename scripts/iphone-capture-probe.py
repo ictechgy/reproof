@@ -9,10 +9,10 @@ import subprocess
 import sys
 import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from reproloop.ios_signing import sign_products
-from reproloop.live.iphone import select_iphone, _devicectl, validate_signed_products
-from reproloop.ios_runner import prepare_xctestrun, _targets
-from reproloop.storage import read_json, write_json
+from reproof.ios_signing import sign_products
+from reproof.live.iphone import select_iphone, _devicectl, validate_signed_products
+from reproof.ios_runner import prepare_xctestrun, _targets
+from reproof.storage import read_json, write_json
 
 p = argparse.ArgumentParser()
 p.add_argument('--build', type=Path, required=True)
@@ -34,7 +34,7 @@ with tempfile.TemporaryDirectory(prefix='repro-capture-probe-') as directory:
     document = plistlib.loads(config.read_bytes())
     for _, target in _targets(document):
         target.setdefault('EnvironmentVariables', {}).update(REPRO_CAPTURE_DIAGNOSTICS='1',
-            REPRO_TARGET_BUNDLE='io.reproloop.sample.ios')
+            REPRO_TARGET_BUNDLE='io.reproof.sample.ios')
     config.write_bytes(plistlib.dumps(document))
     run = subprocess.run(['/usr/bin/xcodebuild', 'test-without-building', '-xctestrun', str(config),
         '-destination', 'id=' + device.udid, '-resultBundlePath', str(temporary / 'result.xcresult'),

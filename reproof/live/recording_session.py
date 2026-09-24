@@ -2048,7 +2048,7 @@ class RecordingSession:
             _integer(artifact["bytes"], "video artifact bytes", 1,
                      64 * 1024 * 1024)
             _require(artifact["mimeType"] in {
-                "video/mp4", "application/vnd.reproloop.video-manifest+json"
+                "video/mp4", "application/vnd.reproof.video-manifest+json"
             }, "Invalid finalized video MIME type")
             reference = self.store.evidence.lookup(artifact["digest"])
             _require(reference is not None

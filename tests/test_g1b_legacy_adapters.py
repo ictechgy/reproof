@@ -6,13 +6,13 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from reproloop.core import ContractError
-from reproloop.device import AdbDevice
-from reproloop.ios_device import IosPhysicalDevice
-from reproloop.ios_runner import IosSimulator
-from reproloop.live.authority import HostAuthority, issue_local_parent_grant
-from reproloop.live.clock_sync import ClockReading
-from reproloop.storage import PACKAGE
+from reproof.core import ContractError
+from reproof.device import AdbDevice
+from reproof.ios_device import IosPhysicalDevice
+from reproof.ios_runner import IosSimulator
+from reproof.live.authority import HostAuthority, issue_local_parent_grant
+from reproof.live.clock_sync import ClockReading
+from reproof.storage import PACKAGE
 
 
 class Clock:
@@ -71,7 +71,7 @@ class G1bLegacyAdapterTests(unittest.TestCase):
             effects.append(list(args))
             return ''
 
-        with patch('reproloop.ios_runner.run_command', side_effect=command):
+        with patch('reproof.ios_runner.run_command', side_effect=command):
             device = IosSimulator(udid)
             with self.assertRaises(ContractError):
                 device.stop()
@@ -93,9 +93,9 @@ class G1bLegacyAdapterTests(unittest.TestCase):
             effects.append(list(args))
             return {}
 
-        with patch('reproloop.ios_device.select_iphone', return_value=descriptor), \
-             patch('reproloop.ios_device.public_device_status', return_value={'ready': True}), \
-             patch('reproloop.ios_device._devicectl', side_effect=devicectl):
+        with patch('reproof.ios_device.select_iphone', return_value=descriptor), \
+             patch('reproof.ios_device.public_device_status', return_value={'ready': True}), \
+             patch('reproof.ios_device._devicectl', side_effect=devicectl):
             device = IosPhysicalDevice('synthetic-public-id')
             with self.assertRaises(ContractError):
                 device.stop()

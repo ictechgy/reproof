@@ -6,14 +6,14 @@ import threading
 import time
 import unittest
 
-from reproloop.execution.artifacts import ArtifactValidationAuthority, BlobSet
-from reproloop.execution.backend import ExecutionDenied, QualificationAuthority
-from reproloop.execution.journal import RunStore
-from reproloop.execution.qualification import qualify_host_build
-from reproloop.execution.resources import HostBuildBundle, provision_host, ResourceError
-from reproloop.execution.runtime import HostBuildBackend, run_host_recipe
-from reproloop.repair_composition import ProtectedRepairComposition
-from reproloop.repair_execution import ProtectedBuildSupervisor, RepairExecutionError
+from reproof.execution.artifacts import ArtifactValidationAuthority, BlobSet
+from reproof.execution.backend import ExecutionDenied, QualificationAuthority
+from reproof.execution.journal import RunStore
+from reproof.execution.qualification import qualify_host_build
+from reproof.execution.resources import HostBuildBundle, provision_host, ResourceError
+from reproof.execution.runtime import HostBuildBackend, run_host_recipe
+from reproof.repair_composition import ProtectedRepairComposition
+from reproof.repair_execution import ProtectedBuildSupervisor, RepairExecutionError
 
 
 def _sha256(path):
@@ -254,7 +254,7 @@ class HostHardeningTests(HostBuildFixture):
             backend.reconcile("host_build_x", "f" * 64)
 
     def test_cleanup_does_not_follow_replaced_run_root(self):
-        from reproloop.execution.runtime import _discard_run_tree
+        from reproof.execution.runtime import _discard_run_tree
         # 후보가 run 디렉터리를 외부 경로의 symlink로 바꿔친 상황을 재현한다.
         outside = self.root / "outside"
         outside.mkdir()
@@ -265,7 +265,7 @@ class HostHardeningTests(HostBuildFixture):
         self.assertTrue((outside / "victim.txt").exists())
 
     def test_cleanup_unlinks_nested_symlink_without_touching_target(self):
-        from reproloop.execution.runtime import _discard_run_tree
+        from reproof.execution.runtime import _discard_run_tree
         outside = self.root / "outside2"
         outside.mkdir()
         (outside / "victim.txt").write_text("keep me")
@@ -356,23 +356,23 @@ class HostConfigurationTests(unittest.TestCase):
                                "observers": {"path": "/opt/observers.json", "sha256": "0" * 64}}}
 
     def _document(self, **kwargs):
-        return {"schemaVersion": 1, "kind": "reproloop-protected-service",
+        return {"schemaVersion": 1, "kind": "reproof-protected-service",
                 "profiles": [self._profile(**kwargs)]}
 
     def test_host_build_profile_with_host_path_is_accepted(self):
-        from reproloop.repair_configuration import ProtectedServiceConfiguration
+        from reproof.repair_configuration import ProtectedServiceConfiguration
         configuration = ProtectedServiceConfiguration(self._document())
         self.assertEqual(configuration.document["profiles"][0]["build"]["route"]["executionClass"],
                          "host-build")
 
     def test_host_path_is_rejected_for_guest_route(self):
-        from reproloop.repair_configuration import (ProtectedServiceConfiguration,
+        from reproof.repair_configuration import (ProtectedServiceConfiguration,
             ProtectedServiceConfigurationError)
         with self.assertRaises(ProtectedServiceConfigurationError):
             ProtectedServiceConfiguration(self._document(build_class="build-guest"))
 
     def test_bundle_path_is_rejected_for_host_route(self):
-        from reproloop.repair_configuration import (ProtectedServiceConfiguration,
+        from reproof.repair_configuration import (ProtectedServiceConfiguration,
             ProtectedServiceConfigurationError)
         with self.assertRaises(ProtectedServiceConfigurationError):
             ProtectedServiceConfiguration(self._document(build_key="bundlePath"))

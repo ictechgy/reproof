@@ -41,7 +41,7 @@ MIN_OPERATION_BYTES = 2 * MAX_TRANSFER_BYTES + 512 * 1024
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _ID = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
 _PHASES = ("sign", "inspect")
-_OWNER_CLASS = "io.reproloop.signing.SigningOwner"
+_OWNER_CLASS = "io.reproof.signing.SigningOwner"
 
 
 class SigningRecoveryError(RuntimeError):
@@ -156,7 +156,7 @@ class SigningOwnerTools:
                      and _DIGEST.fullmatch(getattr(self, name)) is not None,
                      "signing_recovery_tool_invalid")
         self.verify()
-        _require(self.jni_library.name == "libreproloop_signing_owner_fd.dylib",
+        _require(self.jni_library.name == "libreproof_signing_owner_fd.dylib",
                  "signing_recovery_tool_invalid")
 
     def verify(self):

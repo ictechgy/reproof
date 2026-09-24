@@ -14,11 +14,11 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 
-from reproloop.live.authority import HostAuthority
-from reproloop.live.configuration import issue_bounded_project_grant
-from reproloop.live.enrollment import EnrollmentClient
-from reproloop.live.model import LiveError
-from reproloop.live.worker import RemoteProvider, WorkerClient
+from reproof.live.authority import HostAuthority
+from reproof.live.configuration import issue_bounded_project_grant
+from reproof.live.enrollment import EnrollmentClient
+from reproof.live.model import LiveError
+from reproof.live.worker import RemoteProvider, WorkerClient
 from tests.test_project_access import SharedHttpFixture
 
 
@@ -36,7 +36,7 @@ class ParentEnrolledWorkerTests(unittest.TestCase):
         self.transport = transport
         root = self.fixture.root
         self.process = subprocess.Popen([
-            sys.executable, "-m", "reproloop", "live-worker", "--demo",
+            sys.executable, "-m", "reproof", "live-worker", "--demo",
             "--port", "0", "--output", str(root / "worker-output"),
             "--authority-root", str(root / "worker-authority"),
             "--host-credential-stdin", "--coordinator", self.fixture.server.origin,

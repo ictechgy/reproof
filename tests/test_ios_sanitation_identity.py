@@ -1,8 +1,8 @@
 from copy import deepcopy
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.ios_runtime_identity import validate_ios_runtime_identity
+from reproof.core import ContractError
+from reproof.ios_runtime_identity import validate_ios_runtime_identity
 from tests.test_ios_runtime_identity import BASE
 
 

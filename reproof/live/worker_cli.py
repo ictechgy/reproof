@@ -166,7 +166,7 @@ def configured_local_devices(path):
 
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(prog='reproloop live-worker',description='Device worker with authenticated private transport')
+    parser=argparse.ArgumentParser(prog='reproof live-worker',description='Device worker with authenticated private transport')
     parser.add_argument('--host',default='127.0.0.1');parser.add_argument('--port',type=int,default=9876)
     parser.add_argument('--output',type=Path,required=True);parser.add_argument('--advertised-host')
     parser.add_argument('--tls-cert',type=Path);parser.add_argument('--tls-key',type=Path)
@@ -197,7 +197,7 @@ def main(argv=None):
     parser.add_argument('--iphone-app',type=Path)
     parser.add_argument('--project-registration',type=Path,action='append',default=[],
                         help='Trusted local {project,collectionPolicy} registration')
-    parser.add_argument('--bundle',default='io.reproloop.sample.ios');parser.add_argument('--demo',action='store_true')
+    parser.add_argument('--bundle',default='io.reproof.sample.ios');parser.add_argument('--demo',action='store_true')
     parser.add_argument('--authority-mode',choices=['shared-v2','legacy-offline-v1'],default='shared-v2')
     args=parser.parse_args(argv)
     if args.devices_config and (args.android or args.iphone or args.simulator or args.demo
@@ -374,7 +374,7 @@ def main(argv=None):
                     try:client.refresh_inventory(host_credential,inventory_document())
                     except Exception:pass
             inventory_thread=threading.Thread(
-                target=refresh_inventory,name='reproloop-inventory-refresh',daemon=True)
+                target=refresh_inventory,name='reproof-inventory-refresh',daemon=True)
             inventory_thread.start()
         public={'worker':server.origin,'devices':len(devices)}
         if host_public is not None:

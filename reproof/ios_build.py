@@ -28,7 +28,7 @@ def build_ios(source,output,simulator_id,*,include_ui=True,physical_device=None,
     profile = profile_from_source(source)
     preparation = validate_ios_preparation(source) if profile and (source / MARKER).exists() else None
     before=tree_manifest(source,True);build_id=digest(before)[:32]
-    project=source/'ReproLoop.xcodeproj'
+    project=source/'Reproof.xcodeproj'
     require(project.is_dir(),'Missing generated iOS project')
     env=xcode_environment();output.mkdir(parents=True,mode=0o700)
     physical=physical_device is not None
@@ -59,7 +59,7 @@ def build_ios(source,output,simulator_id,*,include_ui=True,physical_device=None,
         embedded = profile_from_app(apps[0])
         require(embedded is not None and embedded.digest == profile.digest, 'Automatic iOS app lost its build profile')
         receipt['automaticInstrumentation'] = {'profile': profile.data, 'profileDigest': profile.digest,
-            'sourceFiles': {name: checksum for name, checksum in before.items() if name.startswith('ReproLoopInstrumentation/')}}
+            'sourceFiles': {name: checksum for name, checksum in before.items() if name.startswith('ReproofInstrumentation/')}}
         if preparation is not None:
             receipt['automaticInstrumentation']['preparationDigest'] = digest(preparation)
             write_json(output/'instrumentation.json', preparation)

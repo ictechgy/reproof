@@ -2,7 +2,7 @@
 from contextlib import ExitStack
 from unittest.mock import patch
 
-from reproloop.repair_signing import TrustedSigningSupervisor
+from reproof.repair_signing import TrustedSigningSupervisor
 
 
 def check_interrupted_factory(case, configure, *, owner, operations_type,

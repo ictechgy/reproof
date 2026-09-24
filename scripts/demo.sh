@@ -7,11 +7,11 @@ if [ -e "$output" ]; then
   exit 2
 fi
 mkdir -p "$output"
-python3 -m reproloop doctor
-python3 -m reproloop build --receipt "$output/build.json"
-python3 -m reproloop record \
+python3 -m reproof doctor
+python3 -m reproof build --receipt "$output/build.json"
+python3 -m reproof record \
   --apk android/sample/build/outputs/apk/buggy/debug/sample-buggy-debug.apk \
   --driver-apk android/driver/build/outputs/apk/debug/driver-debug.apk \
   --receipt "$output/build.json" --scripted --output "$output/bundle"
-python3 -m reproloop repair "$output/bundle" \
+python3 -m reproof repair "$output/bundle" \
   --patch-file scripts/sample-fix.json --output "$output/repair"

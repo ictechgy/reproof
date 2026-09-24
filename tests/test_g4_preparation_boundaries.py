@@ -3,9 +3,9 @@ import copy
 import json
 import unittest
 
-from reproloop import contracts
-from reproloop.fixtures import FixtureCoordinator
-from reproloop.live.issue_sessions import FixturePreparation, IssueSessionError
+from reproof import contracts
+from reproof.fixtures import FixtureCoordinator
+from reproof.live.issue_sessions import FixturePreparation, IssueSessionError
 from tests.g4_support import G4Environment, qualification, runtime_policy, specification
 
 

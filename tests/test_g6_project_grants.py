@@ -4,10 +4,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.live.authority import HostAuthority
-from reproloop.live.configuration import issue_bounded_project_grant
-from reproloop.live.model import Lab, LiveError
-from reproloop.ios_profile import validate_ios_profile
+from reproof.live.authority import HostAuthority
+from reproof.live.configuration import issue_bounded_project_grant
+from reproof.live.model import Lab, LiveError
+from reproof.ios_profile import validate_ios_profile
 from tests.test_fixture_allocations import collection_policy, project_document
 from tests.test_live_authority import FakeClock
 from tests.test_worker_recovery import _ReservedProvider

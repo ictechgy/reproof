@@ -13,8 +13,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from reproloop.live import worker_cli
-from reproloop.live.model import check
+from reproof.live import worker_cli
+from reproof.live.model import check
 from tests.fixtures.g6_worker_process import _profile, _read_configuration, _SyntheticPhysicalProvider
 
 
@@ -77,7 +77,7 @@ def main():
     credentials = io.StringIO(json.dumps({
         "enrollmentToken": configuration["enrollmentToken"],
         "transportToken": configuration["transportToken"]}))
-    with patch("reproloop.live.iphone.iphone_device", side_effect=synthetic_iphone), \
+    with patch("reproof.live.iphone.iphone_device", side_effect=synthetic_iphone), \
             patch.object(worker_cli, "connected_worker_devices",
                          side_effect=lambda devices: {device["id"] for device in devices}), \
             patch.object(sys, "stdin", credentials), \

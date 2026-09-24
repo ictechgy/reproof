@@ -3,8 +3,8 @@ import hashlib
 from pathlib import Path
 import tempfile
 import unittest
-from reproloop.core import ContractError
-from reproloop.storage import create_bundle, load_bundle, Lease, read_json
+from reproof.core import ContractError
+from reproof.storage import create_bundle, load_bundle, Lease, read_json
 from tests.test_core import capture, oracle
 
 

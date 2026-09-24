@@ -3,12 +3,12 @@ import plistlib
 import tempfile
 import unittest
 
-from reproloop.core import digest
-from reproloop.ios_storage import tree_manifest
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.providers import demo_device
-from reproloop.live.repair_jobs import LiveRepairJobs
-from reproloop.storage import write_json
+from reproof.core import digest
+from reproof.ios_storage import tree_manifest
+from reproof.live.model import Lab, LiveError
+from reproof.live.providers import demo_device
+from reproof.live.repair_jobs import LiveRepairJobs
+from reproof.storage import write_json
 
 
 class SimulatorRepairProjectTests(unittest.TestCase):
@@ -23,7 +23,7 @@ class SimulatorRepairProjectTests(unittest.TestCase):
             app = products / 'Debug-iphonesimulator/ReproSample.app'
             app.mkdir(parents=True)
             (app / 'Info.plist').write_bytes(plistlib.dumps({
-                'CFBundleIdentifier': 'io.reproloop.sample.ios', 'ReproBuildID': 'fixture-build'}))
+                'CFBundleIdentifier': 'io.reproof.sample.ios', 'ReproBuildID': 'fixture-build'}))
             receipt = {'executionEnvironment': 'simulator', 'buildCompleted': True,
                 'buildId': 'fixture-build', 'sourceDigest': digest(tree_manifest(source, True)),
                 'productsDigest': digest(tree_manifest(products)), 'appRelative': 'Debug-iphonesimulator/ReproSample.app'}

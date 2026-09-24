@@ -215,7 +215,7 @@ private final class NativeAuthorityContext {
 
 final class LiveControlTests: XCTestCase {
     private let targetBundle = ProcessInfo.processInfo.environment["REPRO_TARGET_BUNDLE"]
-        ?? "io.reproloop.sample.ios"
+        ?? "io.reproof.sample.ios"
     private var targetApplication: XCUIApplication!
     private var springboard: XCUIApplication!
     private var isOnHomeScreen = false
@@ -243,7 +243,7 @@ final class LiveControlTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["REPRO_CAPTURE_DIAGNOSTICS"] == "1" else {
             throw XCTSkip("Explicit sample capture diagnostics only")
         }
-        XCTAssertEqual(targetBundle, "io.reproloop.sample.ios")
+        XCTAssertEqual(targetBundle, "io.reproof.sample.ios")
         defer { targetApplication.terminate() }
         for round in 0..<3 {
             launchTarget()
@@ -605,7 +605,7 @@ final class LiveControlTests: XCTestCase {
 
         case "report_capture":
             guard ProcessInfo.processInfo.environment["REPRO_LIVE_RECORD_SDK"] == "1",
-                  targetBundle == "io.reproloop.sample.ios", !isOnHomeScreen else {
+                  targetBundle == "io.reproof.sample.ios", !isOnHomeScreen else {
                 return .failure("capture_unavailable")
             }
             if let profileDigest = activeAutoProfileDigest {
@@ -649,7 +649,7 @@ final class LiveControlTests: XCTestCase {
                       UUID(uuidString: runID)?.uuidString.lowercased() == runID,
                       effectAuthorized(command) else { return .failure("sanitation_configuration_invalid") }
                 CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                    CFNotificationName(rawValue: ("io.reproloop.sanitize." + runID) as CFString),
+                    CFNotificationName(rawValue: ("io.reproof.sanitize." + runID) as CFString),
                     nil, nil, true)
             } else if targetWasLaunched {
                 targetApplication.terminate()
@@ -797,9 +797,9 @@ private final class DarwinAutoAckWaiter {
     private var outcome: String?
 
     init(runID: String) {
-        request = "io.reproloop.auto.freeze.\(runID)"
-        finalized = "io.reproloop.auto.finalized.\(runID)"
-        invalid = "io.reproloop.auto.invalid.\(runID)"
+        request = "io.reproof.auto.freeze.\(runID)"
+        finalized = "io.reproof.auto.finalized.\(runID)"
+        invalid = "io.reproof.auto.invalid.\(runID)"
         CFNotificationCenterAddObserver(center, observer, { _, observer, name, _, _ in
             guard let observer, let name else { return }
             let waiter = Unmanaged<DarwinAutoAckWaiter>.fromOpaque(UnsafeMutableRawPointer(mutating: observer)).takeUnretainedValue()
@@ -1872,7 +1872,7 @@ private final class NativeHTTPBridge: LiveBridge {
         }
         if let cleanupEvidence {
             let expectedBundle = ProcessInfo.processInfo.environment["REPRO_TARGET_BUNDLE"]
-                ?? "io.reproloop.sample.ios"
+                ?? "io.reproof.sample.ios"
             guard cleanupEvidence.bundleID == expectedBundle,
                   cleanupEvidence.state == "not-running",
                   cleanupEvidence.observer == "xctest-application-state" else {

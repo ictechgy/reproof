@@ -5,7 +5,7 @@ import tempfile
 import threading
 import unittest
 
-from reproloop.execution.journal import RunDenied, RunStore
+from reproof.execution.journal import RunDenied, RunStore
 
 
 class RepairScopeJournalTests(unittest.TestCase):
@@ -46,7 +46,7 @@ class RepairScopeJournalTests(unittest.TestCase):
         with self.store.repair_scope_lease('signing', self.scope): pass
 
     def test_read_only_availability_preserves_markers_and_denies_foreign_or_quarantined_scope(self):
-        from reproloop.storage import Lease
+        from reproof.storage import Lease
         marker = Lease('protected-repair-signing-'+self.scope).marker
         original = (self.root/'state.json').read_bytes()
         self.store.require_scope_available('signing', self.scope)

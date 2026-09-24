@@ -3,9 +3,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.android_profile import validate_app_profile
-from reproloop.core import ContractError
-from reproloop.storage import create_bundle, load_bundle
+from reproof.android_profile import validate_app_profile
+from reproof.core import ContractError
+from reproof.storage import create_bundle, load_bundle
 from tests.test_android_profile import profile_document
 
 
@@ -46,7 +46,7 @@ class InstrumentationContractTests(unittest.TestCase):
                 validate_app_profile(document)
 
     def test_diagnostics_bind_sdk_session_events_profile_and_source_sites(self):
-        from reproloop.instrumentation_diagnostics import validate_diagnostics
+        from reproof.instrumentation_diagnostics import validate_diagnostics
         profile = validate_app_profile(auto_profile_document())
         result = validate_diagnostics(diagnostics(profile), captured(profile), profile)
         self.assertEqual(result['actions'][0]['after'], {'quantity': '2'})

@@ -7,8 +7,8 @@ import subprocess
 import tempfile
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.ios_sanitation import (
+from reproof.core import ContractError
+from reproof.ios_sanitation import (
     IOSSanitationPolicy,
     policy_from_app,
     validate_ios_sanitation_policy,
@@ -16,9 +16,9 @@ from reproloop.ios_sanitation import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATES = ROOT / "reproloop/ios_instrumentation_templates"
+TEMPLATES = ROOT / "reproof/ios_instrumentation_templates"
 SANITATION_FIXTURE = ROOT / "tests/fixtures/ios-sanitation-runtime"
-XCODE_DEVELOPER = Path("/Applications/Xcode-27.0.0-beta.app/Contents/Developer")
+XCODE_DEVELOPER = Path(os.environ.get("DEVELOPER_DIR") or subprocess.run(["xcode-select","-p"],capture_output=True,text=True,check=True).stdout.strip())
 
 
 def policy_document():
@@ -114,7 +114,7 @@ class IOSSanitationPolicyTests(unittest.TestCase):
             validate_ios_sanitation_policy(value)
 
         value["paths"] = [
-            {"root": "application-support", "relativePath": "reproloop/Sessions"}
+            {"root": "application-support", "relativePath": "reproof/Sessions"}
         ]
         with self.assertRaises(ContractError):
             validate_ios_sanitation_policy(value)
@@ -188,7 +188,7 @@ class IOSSanitationPolicyTests(unittest.TestCase):
 class IOSSanitationPreparationTests(unittest.TestCase):
     def test_legacy_preparation_compiles_policy_and_embeds_matching_info(self):
         from tests.test_ios_instrumentation import minimal_project
-        from reproloop.ios_instrumentation import (
+        from reproof.ios_instrumentation import (
             prepare_ios_instrumentation,
             validate_ios_preparation,
         )
@@ -205,19 +205,19 @@ class IOSSanitationPreparationTests(unittest.TestCase):
             prepared = output / "source"
             validate_ios_preparation(prepared)
             info = plistlib.loads(
-                (prepared / "ReproLoopInstrumentation/Info.plist").read_bytes()
+                (prepared / "ReproofInstrumentation/Info.plist").read_bytes()
             )
             self.assertEqual(info["ReproRuntimeIdentitySchemaVersion"], 2)
             self.assertEqual(info["ReproSanitationPolicy"], policy.data)
             self.assertEqual(info["ReproSanitationPolicyDigest"], policy.digest)
             config = (
                 prepared
-                / "ReproLoopInstrumentation/Runtime/RLSanitationConfig.swift"
+                / "ReproofInstrumentation/Runtime/RLSanitationConfig.swift"
             ).read_text()
             self.assertIn(policy.digest, config)
             self.assertNotIn("static let policyJSON: String? = nil", config)
             project = plistlib.loads(
-                (prepared / "ReproLoop.xcodeproj/project.pbxproj").read_bytes()
+                (prepared / "Reproof.xcodeproj/project.pbxproj").read_bytes()
             )
             release = project["objects"]["RELEASE"]["buildSettings"]
             self.assertIn(
@@ -229,7 +229,7 @@ class IOSSanitationPreparationTests(unittest.TestCase):
 
     def test_omitted_policy_generates_nil_config_and_no_info_capability(self):
         from tests.test_ios_instrumentation import minimal_project
-        from reproloop.ios_instrumentation import prepare_ios_instrumentation
+        from reproof.ios_instrumentation import prepare_ios_instrumentation
 
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -239,20 +239,20 @@ class IOSSanitationPreparationTests(unittest.TestCase):
             prepare_ios_instrumentation(source, output)
             prepared = output / "source"
             info = plistlib.loads(
-                (prepared / "ReproLoopInstrumentation/Info.plist").read_bytes()
+                (prepared / "ReproofInstrumentation/Info.plist").read_bytes()
             )
             self.assertNotIn("ReproSanitationPolicy", info)
             self.assertNotIn("ReproSanitationPolicyDigest", info)
             config = (
                 prepared
-                / "ReproLoopInstrumentation/Runtime/RLSanitationConfig.swift"
+                / "ReproofInstrumentation/Runtime/RLSanitationConfig.swift"
             ).read_text()
             self.assertIn("static let policyJSON: String? = nil", config)
             self.assertIn("static let policyDigest: String? = nil", config)
 
     def test_observation_preparation_uses_the_same_fixed_policy_contract(self):
         from tests.test_ios_observation import ordinary_project
-        from reproloop.ios_instrumentation import (
+        from reproof.ios_instrumentation import (
             prepare_ios_instrumentation,
             validate_ios_preparation,
         )
@@ -272,7 +272,7 @@ class IOSSanitationPreparationTests(unittest.TestCase):
             receipt = validate_ios_preparation(prepared)
             self.assertEqual(receipt["sanitationPolicyDigest"], policy.digest)
             info = plistlib.loads(
-                (prepared / "ReproLoopInstrumentation/Info.plist").read_bytes()
+                (prepared / "ReproofInstrumentation/Info.plist").read_bytes()
             )
             self.assertEqual(info["ReproRuntimeIdentitySchemaVersion"], 2)
             self.assertEqual(info["ReproSanitationPolicy"], policy.data)

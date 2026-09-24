@@ -2,8 +2,8 @@
 import copy
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.live.video_sources import validate_source_coverage
+from reproof.core import ContractError
+from reproof.live.video_sources import validate_source_coverage
 
 
 def source(sequence, native=None):

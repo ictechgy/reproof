@@ -8,11 +8,11 @@ import tempfile
 import threading
 import unittest
 
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.authority import HostAuthority
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.media import encode_frame
-from reproloop.live.providers import IosProvider
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.authority import HostAuthority
+from reproof.live.model import Lab, LiveError
+from reproof.live.media import encode_frame
+from reproof.live.providers import IosProvider
 from tests.test_clock_sync import FakeClock
 from tests.test_live_authority_integration import Clock, FencedProvider, parent_grant
 from tests.test_recording_recovery import collection_policy, preparation, project_document

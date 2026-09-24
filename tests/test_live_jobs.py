@@ -5,9 +5,9 @@ import tempfile
 import time
 import unittest
 
-from reproloop.live.jobs import JobQueue
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.providers import demo_device
+from reproof.live.jobs import JobQueue
+from reproof.live.model import Lab, LiveError
+from reproof.live.providers import demo_device
 
 
 CAPABILITIES = {
@@ -314,7 +314,7 @@ class LiveJobTests(unittest.TestCase):
             request_one = {"recordingId": recording["id"], "variables": {}, "requestId": "fifo-one"}
             request_two = {"recordingId": recording["id"], "variables": {}, "requestId": "fifo-two"}
             import unittest.mock
-            with unittest.mock.patch("reproloop.live.jobs._now_ms", return_value=123456789):
+            with unittest.mock.patch("reproof.live.jobs._now_ms", return_value=123456789):
                 first = queue.submit("owner", request_one)
                 second = queue.submit("owner", request_two)
             queue.start()

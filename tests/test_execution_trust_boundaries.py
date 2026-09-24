@@ -6,9 +6,9 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop.core import ContractError
-from reproloop.execution import backend as backend_module
-from reproloop.execution.backend import ExecutionDenied, QualificationAuthority
+from reproof.core import ContractError
+from reproof.execution import backend as backend_module
+from reproof.execution.backend import ExecutionDenied, QualificationAuthority
 from tests.test_execution_backend import REQUIRED_BUILD_PROBES, qualification_record
 from tests.test_execution_protocol import build_request, build_route, validation_plan
 

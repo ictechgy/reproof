@@ -8,14 +8,14 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from reproloop.contracts.versions import bounded_int, exact, require, safe_relative_path, validate_digest, validate_id
-from reproloop.core import ContractError
-from reproloop.execution.artifacts import ArtifactError, read_regular
-from reproloop.execution.backend import ExecutionDenied, QualificationAuthority
-from reproloop.execution.journal import RunDenied, RunStore, TERMINAL
-from reproloop.execution.qualification import qualify_backend
-from reproloop.execution.resources import GuestBundle, ResourceError
-from reproloop.execution.wire import ProtocolError, canonical, decode_json
+from reproof.contracts.versions import bounded_int, exact, require, safe_relative_path, validate_digest, validate_id
+from reproof.core import ContractError
+from reproof.execution.artifacts import ArtifactError, read_regular
+from reproof.execution.backend import ExecutionDenied, QualificationAuthority
+from reproof.execution.journal import RunDenied, RunStore, TERMINAL
+from reproof.execution.qualification import qualify_backend
+from reproof.execution.resources import GuestBundle, ResourceError
+from reproof.execution.wire import ProtocolError, canonical, decode_json
 
 
 def main():

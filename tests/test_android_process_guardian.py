@@ -12,9 +12,11 @@ import threading
 import time
 import unittest
 
-from reproloop.storage import Lease
+from reproof.storage import Lease
 
-SDK=Path('/Applications/Xcode-27.0.0-beta.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk')
+SDK=Path(os.environ.get('MACOSX_SDK_PATH') or subprocess.run(
+    ['xcrun','--sdk','macosx','--show-sdk-path'],capture_output=True,text=True,check=True
+).stdout.strip())
 ROOT=Path(__file__).resolve().parents[1]
 def sha(body):return hashlib.sha256(body).hexdigest()
 
@@ -65,7 +67,7 @@ class AndroidProcessGuardianTests(unittest.TestCase):
 
     def launch(self,command='done',gateway=None,controller_exit=False,inspector=False,inspector_operation='dump',
                inspector_apk=None,policy=None,**changes):
-        from reproloop.adb_endpoint import adb_client_sandbox
+        from reproof.adb_endpoint import adb_client_sandbox
         endpoint=self.root/'unused.sock' if gateway is None else gateway.socket_path
         if policy is None:
             policy='(version 1)(allow default)(deny network*)' if gateway is None else adb_client_sandbox(self.adb,self.staging,endpoint)
@@ -179,7 +181,7 @@ class AndroidProcessGuardianTests(unittest.TestCase):
         self.assertFalse((self.staging/'child.pid').exists())
 
     def test_actual_sdk_retains_original_locks_when_its_guardian_is_killed(self):
-        from reproloop.adb_endpoint import AdbEndpoint,AdbGateway
+        from reproof.adb_endpoint import AdbEndpoint,AdbGateway
         from tests.test_adb_endpoint import OwnedAdbServer,ADB
         server=OwnedAdbServer(self.root);release=threading.Event();entered=threading.Event()
         original=server.request

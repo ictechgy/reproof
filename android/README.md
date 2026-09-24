@@ -1,6 +1,6 @@
-# Repro Loop Android MVP
+# Reproof Android MVP
 
-This directory contains the Android side of the Repro Loop MVP: a small
+This directory contains the Android side of the Reproof MVP: a small
 semantic capture SDK, a deterministic sample app with buggy and fixed flavors,
 and a dependency-free accessibility driver.
 
@@ -47,14 +47,14 @@ driver requires a unique visible resource ID and uses accessibility actions only
 
 ```sh
 adb shell am instrument -w \
-  -e op observe -e package io.reproloop.sample \
-  io.reproloop.driver/.DriverInstrumentation
+  -e op observe -e package io.reproof.sample \
+  io.reproof.driver/.DriverInstrumentation
 adb shell am instrument -w \
-  -e op replace -e package io.reproloop.sample \
-  -e target name -e value QA io.reproloop.driver/.DriverInstrumentation
+  -e op replace -e package io.reproof.sample \
+  -e target name -e value QA io.reproof.driver/.DriverInstrumentation
 adb shell am instrument -w \
-  -e op tap -e package io.reproloop.sample \
-  -e target add io.reproloop.driver/.DriverInstrumentation
+  -e op tap -e package io.reproof.sample \
+  -e target add io.reproof.driver/.DriverInstrumentation
 ```
 
 Each invocation finishes with a compact JSON object in Bundle key `result`.

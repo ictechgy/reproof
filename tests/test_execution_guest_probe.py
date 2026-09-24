@@ -5,10 +5,10 @@ import threading
 import time
 import unittest
 
-from reproloop.execution.artifacts import BlobSet, receive_blobs
-from reproloop.execution.guest import GuestError, serve_one
-from reproloop.execution.guest_probe import GuestProbe
-from reproloop.execution.wire import Channel, ProtocolError, validate_message
+from reproof.execution.artifacts import BlobSet, receive_blobs
+from reproof.execution.guest import GuestError, serve_one
+from reproof.execution.guest_probe import GuestProbe
+from reproof.execution.wire import Channel, ProtocolError, validate_message
 from tests.test_execution_resources import catalog
 
 

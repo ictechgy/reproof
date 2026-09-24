@@ -10,12 +10,12 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from reproloop.core import ContractError
-from reproloop.live.authority import HostAuthority, issue_local_parent_grant
-from reproloop.live.clock_sync import ClockReading
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.providers import demo_device
-from reproloop.live.worker import (WORKER_CODE_VERSION, WORKER_PROTOCOL_VERSION,
+from reproof.core import ContractError
+from reproof.live.authority import HostAuthority, issue_local_parent_grant
+from reproof.live.clock_sync import ClockReading
+from reproof.live.model import Lab, LiveError
+from reproof.live.providers import demo_device
+from reproof.live.worker import (WORKER_CODE_VERSION, WORKER_PROTOCOL_VERSION,
                                    RemoteProvider, WorkerClient, WorkerServer, remote_devices)
 
 
@@ -43,7 +43,7 @@ class WorkerProtocolUnitTests(unittest.TestCase):
             def getresponse(self):return Response()
             def close(self):pass
         connection=Connection()
-        with patch('reproloop.live.worker.http.client.HTTPConnection',return_value=connection):
+        with patch('reproof.live.worker.http.client.HTTPConnection',return_value=connection):
             client=WorkerClient('http://127.0.0.1:8765',TOKEN)
             self.assertEqual(client.call('/v1/authority/exchange'),{'ok':True})
         self.assertEqual(connection.path,'/v1/authority/exchange')

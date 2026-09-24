@@ -17,15 +17,15 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.core import ContractError, digest
-from reproloop.ios_core import compile_ios_capture
-from reproloop.ios_repair import repair_ios_job
-from reproloop.ios_runner import extract_attachment
-from reproloop.ios_storage import create_ios_bundle, tree_manifest
-from reproloop.ios_build import PRODUCT_FILE as IOS_PRODUCT_FILE
-from reproloop.orchestrator import APK_RELATIVE, PRODUCT_FILE, repair_job
-from reproloop.repair import CommandError, run_command, snapshot_source
-from reproloop.storage import create_bundle, sha_file
+from reproof.core import ContractError, digest
+from reproof.ios_core import compile_ios_capture
+from reproof.ios_repair import repair_ios_job
+from reproof.ios_runner import extract_attachment
+from reproof.ios_storage import create_ios_bundle, tree_manifest
+from reproof.ios_build import PRODUCT_FILE as IOS_PRODUCT_FILE
+from reproof.orchestrator import APK_RELATIVE, PRODUCT_FILE, repair_job
+from reproof.repair import CommandError, run_command, snapshot_source
+from reproof.storage import create_bundle, sha_file
 
 from tests.test_core import capture, oracle
 from tests.test_ios_core import ios_capture, ios_oracle
@@ -142,7 +142,7 @@ def _ios_job_fixture(root: Path):
     with (app / "Info.plist").open("wb") as stream:
         plistlib.dump(
             {
-                "CFBundleIdentifier": "io.reproloop.sample.ios",
+                "CFBundleIdentifier": "io.reproof.sample.ios",
                 "ReproBuildID": "original-build",
             },
             stream,
@@ -205,7 +205,7 @@ class AttachmentBoundaryTests(unittest.TestCase):
                     },
                 ],
             )
-            with patch("reproloop.ios_runner.run_command", return_value=""):
+            with patch("reproof.ios_runner.run_command", return_value=""):
                 with self.assertRaises(ContractError):
                     extract_attachment("result.xcresult", output, "simulator-id")
 
@@ -221,7 +221,7 @@ class AttachmentBoundaryTests(unittest.TestCase):
                     }
                 ],
             )
-            with patch("reproloop.ios_runner.run_command", return_value=""):
+            with patch("reproof.ios_runner.run_command", return_value=""):
                 with self.assertRaises(ContractError):
                     extract_attachment("result.xcresult", output, "simulator-id")
 
@@ -240,7 +240,7 @@ class RepairBoundaryTests(unittest.TestCase):
         with (app / "Info.plist").open("wb") as stream:
             plistlib.dump(
                 {
-                    "CFBundleIdentifier": "io.reproloop.sample.ios",
+                    "CFBundleIdentifier": "io.reproof.sample.ios",
                     "ReproBuildID": "patched-build",
                 },
                 stream,
@@ -257,7 +257,7 @@ class RepairBoundaryTests(unittest.TestCase):
     def test_ios_baseline_cancellation_is_persisted(self):
         source, _, bundle = _ios_job_fixture(self.root)
         output = self.root / "repair"
-        with patch("reproloop.ios_repair.build_ios") as build:
+        with patch("reproof.ios_repair.build_ios") as build:
             try:
                 result = repair_ios_job(
                     _IOSBaselineCancellingSimulator(), bundle, source, output, _IOSAgent()
@@ -275,8 +275,8 @@ class RepairBoundaryTests(unittest.TestCase):
             (source / "Protected.swift").write_text("let protected = false\n", encoding="utf-8")
 
         simulator = _IOSMutatingSimulator(mutate)
-        with patch("reproloop.ios_repair.build_ios", self._ios_build), patch(
-            "reproloop.ios_repair.run_logic_test", return_value={"passedTests": 1}
+        with patch("reproof.ios_repair.build_ios", self._ios_build), patch(
+            "reproof.ios_repair.run_logic_test", return_value={"passedTests": 1}
         ):
             result = repair_ios_job(
                 simulator, bundle, source, self.root / "repair-source", _IOSAgent()
@@ -295,8 +295,8 @@ class RepairBoundaryTests(unittest.TestCase):
             state["correctPatch"] = "return 1" in (source_path / IOS_PRODUCT_FILE).read_text()
             return self._ios_build(source_path, output, simulator_id, **kwargs)
 
-        with patch("reproloop.ios_repair.build_ios", build), patch(
-            "reproloop.ios_repair.run_logic_test", return_value={"passedTests": 1}
+        with patch("reproof.ios_repair.build_ios", build), patch(
+            "reproof.ios_repair.run_logic_test", return_value={"passedTests": 1}
         ):
             result = repair_ios_job(
                 _IOSSourceAwareSimulator(state),
@@ -320,8 +320,8 @@ class RepairBoundaryTests(unittest.TestCase):
                 plistlib.dump(info, stream)
 
         simulator = _IOSMutatingSimulator(mutate)
-        with patch("reproloop.ios_repair.build_ios", self._ios_build), patch(
-            "reproloop.ios_repair.run_logic_test", return_value={"passedTests": 1}
+        with patch("reproof.ios_repair.build_ios", self._ios_build), patch(
+            "reproof.ios_repair.run_logic_test", return_value={"passedTests": 1}
         ):
             result = repair_ios_job(
                 simulator, bundle, source, self.root / "repair-runner", _IOSAgent()
@@ -371,8 +371,8 @@ class RepairBoundaryTests(unittest.TestCase):
             def propose(self, *args):
                 return [{"path": PRODUCT_FILE, "old": "increment() = 2", "new": "increment() = 1"}]
 
-        with patch("reproloop.orchestrator.build_android", build), patch(
-            "reproloop.orchestrator.run_command", tests_pass
+        with patch("reproof.orchestrator.build_android", build), patch(
+            "reproof.orchestrator.run_command", tests_pass
         ):
             result = repair_job(
                 device,

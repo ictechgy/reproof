@@ -7,17 +7,17 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.device import DeviceError
-from reproloop.execution.artifacts import ArtifactValidationAuthority, BlobSet
-from reproloop.execution.backend import REQUIRED_PROBES
-from reproloop.execution.journal import RunStore
-from reproloop.repair_android import AndroidTrustedMobileAdapter
-from reproloop.repair_android_operation import AndroidOperationStore
-from reproloop.repair_mobile import MobileFailureObservation, MobileInstallationObservation
-from reproloop.repair_composition import ProtectedRepairComposition
-from reproloop.repair_execution import RepairExecutionError
-from reproloop.repair_signing import TrustedSigningSupervisor
+from reproof import contracts
+from reproof.device import DeviceError
+from reproof.execution.artifacts import ArtifactValidationAuthority, BlobSet
+from reproof.execution.backend import REQUIRED_PROBES
+from reproof.execution.journal import RunStore
+from reproof.repair_android import AndroidTrustedMobileAdapter
+from reproof.repair_android_operation import AndroidOperationStore
+from reproof.repair_mobile import MobileFailureObservation, MobileInstallationObservation
+from reproof.repair_composition import ProtectedRepairComposition
+from reproof.repair_execution import RepairExecutionError
+from reproof.repair_signing import TrustedSigningSupervisor
 from tests import test_repair_android as support
 from tests.g9_execution_support import SyntheticRepairExecution
 from tests.test_execution_protocol import build_route

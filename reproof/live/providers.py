@@ -343,7 +343,7 @@ class IosProvider:
         if self.auto_profile is None or self.auto_run_id is None:return None
         expected_fixture=expected_fixture or case_spec(self.fixture).fixture
         _require_profile_fixture(self.auto_profile, expected_fixture)
-        try:marker=self._simulator_json('Library/Application Support/ReproLoop/auto-session.json')
+        try:marker=self._simulator_json('Library/Application Support/Reproof/auto-session.json')
         except (ContractError, LiveError, OSError, ValueError, json.JSONDecodeError):return None
         from ..ios_runner import validate_ios_auto_marker
         result=subprocess.run(['/usr/bin/xcrun','simctl','get_app_container',self.udid,self.bundle,'app'],
@@ -383,7 +383,7 @@ class IosProvider:
         capture=reader.collect_capture(self.capture_started_at,expected_run_id=self.auto_run_id,
                                         auto_profile=self.auto_profile,
                                         expected_fixture=case_spec(self.fixture).fixture)
-        self.auto_marker=reader.read_app_json('Library/Application Support/ReproLoop/auto-session.json')
+        self.auto_marker=reader.read_app_json('Library/Application Support/Reproof/auto-session.json')
         return capture
     def collect_sdk_diagnostics_authorized(self,capture,permit):
         self._check_permit(permit)
@@ -396,7 +396,7 @@ class IosProvider:
             capture,self.auto_run_id,self.auto_profile,expected_fixture=case_spec(self.fixture).fixture)
     def _read_app_log_json(self,relative):
         from ..app_logs import MAX_APP_LOG_BYTES
-        return self._simulator_json('Library/Application Support/ReproLoop/'+relative,MAX_APP_LOG_BYTES)
+        return self._simulator_json('Library/Application Support/Reproof/'+relative,MAX_APP_LOG_BYTES)
     def collect_app_logs_authorized(self,permit):
         self._check_permit(permit)
         result = self.collect_app_logs()
@@ -588,7 +588,7 @@ def ios_device(udid,products,bundle,*,app=None,fixture='counter',record_sdk=Fals
     public_id='ios-simulator-'+hashlib.sha256(udid.encode()).hexdigest()[:16]
     descriptor={'id':public_id,'name':'iOS Simulator','platform':'ios','kind':'ios-simulator',
             'capabilities':dict(CAPABILITIES,applicationIdentity=identity,fixture=fixture,sdkCapture=record_sdk,
-                                resetContract='sample-'+fixture+'-fixture-v1' if bundle=='io.reproloop.sample.ios' else 'app-relaunch-only',
+                                resetContract='sample-'+fixture+'-fixture-v1' if bundle=='io.reproof.sample.ios' else 'app-relaunch-only',
                                 authorityMode=authority_mode),
             'factory':lambda:IosProvider(udid,products,bundle,identity,app=app,fixture=fixture,record_sdk=record_sdk,profile=profile)}
     if profile is not None:

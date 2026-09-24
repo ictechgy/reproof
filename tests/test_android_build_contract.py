@@ -3,11 +3,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from reproloop.android_build import create_protected_build, validate_protected_build
-from reproloop.core import ContractError, digest
-from reproloop.repair import snapshot_source
-from reproloop.replay import replay_suite
-from reproloop.storage import create_bundle, sha_file
+from reproof.android_build import create_protected_build, validate_protected_build
+from reproof.core import ContractError, digest
+from reproof.repair import snapshot_source
+from reproof.replay import replay_suite
+from reproof.storage import create_bundle, sha_file
 
 
 def _capture():
@@ -101,7 +101,7 @@ class ProtectedAndroidBuildTests(unittest.TestCase):
 
     def test_freezes_both_apks_and_receipt_proofs(self):
         output = self.root / "protected"
-        with patch("reproloop.android_build.build_android", self._fake_build):
+        with patch("reproof.android_build.build_android", self._fake_build):
             receipt = create_protected_build(
                 self.source,
                 output,
@@ -124,7 +124,7 @@ class ProtectedAndroidBuildTests(unittest.TestCase):
 
     def test_swapped_or_tampered_frozen_artifact_is_rejected(self):
         output = self.root / "protected"
-        with patch("reproloop.android_build.build_android", self._fake_build):
+        with patch("reproof.android_build.build_android", self._fake_build):
             create_protected_build(
                 self.source,
                 output,
@@ -150,7 +150,7 @@ class ProtectedAndroidBuildTests(unittest.TestCase):
 
     def test_swapped_installed_runner_blocks_replay(self):
         output = self.root / "protected"
-        with patch("reproloop.android_build.build_android", self._fake_build):
+        with patch("reproof.android_build.build_android", self._fake_build):
             create_protected_build(
                 self.source,
                 output,

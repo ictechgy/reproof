@@ -3,9 +3,9 @@ from contextlib import nullcontext
 import unittest
 from unittest.mock import Mock, patch
 
-from reproloop.android_profile import validate_app_profile
-from reproloop.core import ContractError
-from reproloop.device import AdbDevice, DeviceError
+from reproof.android_profile import validate_app_profile
+from reproof.core import ContractError
+from reproof.device import AdbDevice, DeviceError
 from tests.test_instrumentation_contract import auto_profile_document, captured, diagnostics
 
 
@@ -28,12 +28,12 @@ class InstrumentedCaptureTests(unittest.TestCase):
         ready = {'sessionId': 'auto-session', 'finalized': True, 'incomplete': False,
                  'lostEvents': False, 'unsupported': False}
         self.device._sdk_json = Mock(side_effect=[stale, current, pending, current, ready])
-        with patch('reproloop.device.time.sleep'):
+        with patch('reproof.device.time.sleep'):
             self.assertEqual(self.device.freeze_capture(), current)
         self.device.driver.assert_not_called()
         args = self.device.shell.call_args.args
-        self.assertEqual(args[-1], self.device.package + '/io.reproloop.autotrace.AutoExportReceiver')
-        self.assertIn('io.reproloop.EXPORT_CAPTURE', args)
+        self.assertEqual(args[-1], self.device.package + '/io.reproof.autotrace.AutoExportReceiver')
+        self.assertIn('io.reproof.EXPORT_CAPTURE', args)
 
     def test_rejected_export_does_not_read_an_old_capture(self):
         self.device.shell.return_value = 'Broadcast completed: result=1\n'
@@ -44,7 +44,7 @@ class InstrumentedCaptureTests(unittest.TestCase):
 
     def test_diagnostics_wait_for_publication_and_reject_sequence_mismatch(self):
         self.device._sdk_json = Mock(side_effect=[DeviceError('Not published'), diagnostics(self.profile)])
-        with patch('reproloop.device.time.sleep'):
+        with patch('reproof.device.time.sleep'):
             value = self.device.collect_instrumentation_diagnostics(captured(self.profile))
         self.assertEqual(value['actions'][0]['eventId'], 'e2')
         invalid = diagnostics(self.profile); invalid['endSequence'] = 1

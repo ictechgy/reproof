@@ -157,7 +157,7 @@ def load_issue_configuration(path):
               and 66 * 1024 * 1024 <= document['repairStorageBytes'] <= 512 * 1024 ** 3,
               'issue_configuration', 'Invalid repair storage bound', 400)
     check(type(document["schemaVersion"]) is int and document["schemaVersion"] == 1
-          and document["kind"] == "reproloop-issue-runtime"
+          and document["kind"] == "reproof-issue-runtime"
           and type(document["projects"]) is list and 1 <= len(document["projects"]) <= 128,
           "issue_configuration", "Invalid issue runtime configuration", 400)
     seen = set()

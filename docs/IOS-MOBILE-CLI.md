@@ -1,11 +1,11 @@
 # iOS preparation status and recovery CLI
 
-`reproloop ios-mobile` operates on an already admitted iOS IPA preparation
+`reproof ios-mobile` operates on an already admitted iOS IPA preparation
 journal. It has two offline commands:
 
 ```text
-reproloop ios-mobile status --config /absolute/reference.json --operation mobile-one
-reproloop ios-mobile recover --config /absolute/reference.json --operation mobile-one \
+reproof ios-mobile status --config /absolute/reference.json --operation mobile-one
+reproof ios-mobile recover --config /absolute/reference.json --operation mobile-one \
   --request-digest <original-request-sha256> --timeout-seconds 30
 ```
 

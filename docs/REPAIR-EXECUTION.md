@@ -95,7 +95,7 @@ A trusted administrator supplies a JSON recipe catalog. Each entry has exactly
 `outputPaths`, `maxOutputBytes`, and `timeoutMs`. `argv[0]` is an absolute **guest**
 tool path; commands and policies never arrive from a candidate/package RPC.
 Build wrappers must use supplied offline dependencies and write the declared
-regular output files under `$REPROLOOP_OUTPUT_DIR`. Candidate-influenced build
+regular output files under `$REPROOF_OUTPUT_DIR`. Candidate-influenced build
 scripts execute inside the VM. The input source is the working directory.
 
 ```bash
@@ -110,17 +110,17 @@ The package contains only fixed agent code, its native launchers, the selected
 catalog and a digest-bound policy. It does not install itself. Inside the owned
 guest, arrange the following before sealing the VM:
 
-- Install package contents at `/Library/ReproLoopGuest`, owned by root and not
+- Install package contents at `/Library/ReproofGuest`, owned by root and not
   writable by the candidate UID/group. The installation directory must permit
   traversal to the offline Python runtime; agent policy/code remain root-only.
 - Supply a working offline Python 3.10+ runtime at
-  `/Library/ReproLoopGuest/python/bin/python3`, with its library files readable
+  `/Library/ReproofGuest/python/bin/python3`, with its library files readable
   by the candidate. The executable must be protected against candidate writes.
 - Use a dedicated non-root UID, with no unrelated processes, login account state
   or credential access. The agent removes all processes of that UID after a job,
   including detached children. The final boundary is independently observed VM
   shutdown, even if a guest child changes process group.
-- Install `io.reproloop.guest.plist` as a root launch daemon. It invokes the fixed
+- Install `io.reproof.guest.plist` as a root launch daemon. It invokes the fixed
   `guest-connect` program, which checks the kernel's guest marker and connects
   only to host CID 2, vsock port 4050. No TCP endpoint is configurable.
 - Confirm that the toolchain volume is mounted and the agent starts after a cold
@@ -236,7 +236,7 @@ result. A durable cancelled run remains cancelled after confirmed cleanup.
 
 ## Public integration interfaces
 
-`reproloop.execution.protocol` validates JSON-compatible registration data:
+`reproof.execution.protocol` validates JSON-compatible registration data:
 
 - `validate_guest_image_manifest` and `validate_toolchain_manifest` accept only
   IDs, architecture, bounded size, digests, and bounded tool versions. They do
@@ -261,7 +261,7 @@ result. A durable cancelled run remains cancelled after confirmed cleanup.
 - `validate_backend_qualification_record` validates a bounded, expiring record.
   The returned dictionary is inert and cannot authorize execution.
 
-`reproloop.execution.backend.QualificationAuthority` is an object capability
+`reproof.execution.backend.QualificationAuthority` is an object capability
 owned by the trusted supervisor process. Its public integration sequence is:
 
 1. The G8b supervisor performs a real independent probe and calls
@@ -289,7 +289,7 @@ owned by the trusted supervisor process. Its public integration sequence is:
 
 `DisabledExecutionBackend` remains available for unconfigured integrations and
 always raises `ExecutionDenied`. The concrete implementation is in
-`reproloop.execution.runtime`; registration does not enable a host subprocess
+`reproof.execution.runtime`; registration does not enable a host subprocess
 fallback for candidate code.
 
 ## Read-only doctor

@@ -1,4 +1,4 @@
-package io.reproloop.driver
+package io.reproof.driver
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
@@ -8,7 +8,7 @@ import android.graphics.Rect
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
-import io.reproloop.nativecommon.NativeAppProfile
+import io.reproof.nativecommon.NativeAppProfile
 import org.json.JSONArray
 import org.json.JSONObject
 

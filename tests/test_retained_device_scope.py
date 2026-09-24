@@ -6,10 +6,10 @@ import threading
 import unittest
 from pathlib import Path
 
-from reproloop.core import ContractError
-from reproloop import contracts
-from reproloop.live.authority import HostAuthority
-from reproloop.live.model import Lab, LiveError
+from reproof.core import ContractError
+from reproof import contracts
+from reproof.live.authority import HostAuthority
+from reproof.live.model import Lab, LiveError
 from tests.test_fixture_allocations import collection_policy, project_document
 from tests.g4_support import G4Environment
 from tests.test_live_authority_integration import Clock, FencedProvider, parent_grant
@@ -54,7 +54,7 @@ class RetainedDeviceScopeTests(unittest.TestCase):
 
     def external_lock_state(self):
         code = """import sys
-from reproloop.storage import Lease
+from reproof.storage import Lease
 try:
     with Lease('retained-device', sys.argv[1]): print('available')
 except Exception:

@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from unittest import mock
 
-from reproloop import contracts
-from reproloop.execution.journal import RunDenied, RunStore
-from reproloop.repair_signing_recovery import MIN_OPERATION_BYTES, SigningOperationStore
+from reproof import contracts
+from reproof.execution.journal import RunDenied, RunStore
+from reproof.repair_signing_recovery import MIN_OPERATION_BYTES, SigningOperationStore
 from tests import test_repair_signing_recovery as support
 
 

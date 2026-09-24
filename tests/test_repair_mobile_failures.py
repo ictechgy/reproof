@@ -1,8 +1,8 @@
 """Known native failures still require final cleanup and never issue a pass."""
 import unittest
 
-from reproloop.qualification import QualificationError
-from reproloop.repair_execution import RepairExecutionError
+from reproof.qualification import QualificationError
+from reproof.repair_execution import RepairExecutionError
 from tests import test_repair_mobile as mobile_tests
 
 
@@ -11,7 +11,7 @@ class MobileFailureTests(unittest.TestCase):
     verify = mobile_tests.ProtectedMobileTests.verify
 
     def install_failure(self, **changes):
-        from reproloop.repair_mobile import MobileFailureObservation
+        from reproof.repair_mobile import MobileFailureObservation
         def failed(context, artifacts, **kwargs):
             values = dict(context_digest=context.digest, code='mobile_install_failed',
                           evidence_digest='a' * 64, effects_settled=True)
@@ -29,7 +29,7 @@ class MobileFailureTests(unittest.TestCase):
         self.assertEqual(mobile._proofs, {})
 
     def test_known_replay_failure_revokes_candidate_and_requires_restore(self):
-        from reproloop.repair_mobile import MobileFailureObservation
+        from reproof.repair_mobile import MobileFailureObservation
         replay = self.runtime.replay
         def fail_second(context, execution, number, **kwargs):
             if number == 2:

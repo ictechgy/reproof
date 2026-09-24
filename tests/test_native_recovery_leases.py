@@ -6,8 +6,8 @@ import subprocess
 import sys
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.live.authority import HostAuthority
+from reproof.core import ContractError
+from reproof.live.authority import HostAuthority
 from tests import test_live_authority as support
 
 

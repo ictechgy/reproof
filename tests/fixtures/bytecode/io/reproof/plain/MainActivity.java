@@ -1,4 +1,4 @@
-package io.reproloop.plain;
+package io.reproof.plain;
 
 import android.app.Activity;
 import android.os.Bundle;

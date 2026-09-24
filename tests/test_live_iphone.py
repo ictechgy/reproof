@@ -3,8 +3,8 @@ from pathlib import Path
 import plistlib
 from types import SimpleNamespace
 from unittest.mock import patch, Mock
-from reproloop.live.iphone import device_from_details,public_device_status,validate_tunnel_address
-from reproloop.live.model import LiveError
+from reproof.live.iphone import device_from_details,public_device_status,validate_tunnel_address
+from reproof.live.model import LiveError
 
 
 class IphoneDiscoveryTests(unittest.TestCase):
@@ -28,21 +28,21 @@ class IphoneDiscoveryTests(unittest.TestCase):
             with self.subTest(address=address):
                 with self.assertRaises(LiveError):validate_tunnel_address(address)
     def test_start_refreshes_tunnel_after_install_before_launching_helper(self):
-        from reproloop.live.iphone import PhysicalIosProvider
+        from reproof.live.iphone import PhysicalIosProvider
         old=device_from_details(self.details())
         details=self.details();details['connectionProperties']['tunnelIPAddress']='fd00::3'
         fresh=device_from_details(details)
-        identity={'bundle':'io.reproloop.sample.ios','artifactDigest':'a'*64}
+        identity={'bundle':'io.reproof.sample.ios','artifactDigest':'a'*64}
         provider=PhysicalIosProvider(old,Path('products'),Path('sample.app'),identity)
         def config(products,target,path):
             path.write_bytes(plistlib.dumps({'__xctestrun_metadata__':{'FormatVersion':1},
                 'ReproLiveTests':{'BlueprintName':'ReproLiveTests'}}))
             return path
         process=Mock(returncode=0)
-        with patch('reproloop.live.iphone.Lease'),patch('reproloop.live.iphone.validate_signed_products',return_value=identity),\
-             patch('reproloop.live.iphone._devicectl') as install,patch('reproloop.live.iphone.select_iphone',return_value=fresh) as refresh,\
-             patch('reproloop.live.iphone.prepare_xctestrun',side_effect=config),\
-             patch('reproloop.live.iphone.subprocess.Popen',return_value=process),patch('reproloop.live.iphone.threading.Thread'):
+        with patch('reproof.live.iphone.Lease'),patch('reproof.live.iphone.validate_signed_products',return_value=identity),\
+             patch('reproof.live.iphone._devicectl') as install,patch('reproof.live.iphone.select_iphone',return_value=fresh) as refresh,\
+             patch('reproof.live.iphone.prepare_xctestrun',side_effect=config),\
+             patch('reproof.live.iphone.subprocess.Popen',return_value=process),patch('reproof.live.iphone.threading.Thread'):
             provider.start({'id':'sample-session'},Mock())
             try:
                 self.assertTrue(install.called)

@@ -1,6 +1,6 @@
 import unittest
-from reproloop.core import ContractError
-from reproloop.ios_profile import validate_ios_profile
+from reproof.core import ContractError
+from reproof.ios_profile import validate_ios_profile
 from tests.test_worker_profiles import physical_ios_document
 
 

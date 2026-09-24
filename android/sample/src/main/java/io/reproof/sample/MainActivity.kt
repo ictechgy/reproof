@@ -1,4 +1,4 @@
-package io.reproloop.sample
+package io.reproof.sample
 
 import android.app.Activity
 import android.content.res.Configuration
@@ -15,7 +15,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import io.reproloop.sdk.ReproRecorder
+import io.reproof.sdk.ReproRecorder
 import org.json.JSONObject
 
 /** A deliberately small app used by the host replay and driver integration tests. */

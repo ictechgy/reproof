@@ -3,9 +3,9 @@ import threading
 from pathlib import Path
 import unittest
 
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.providers import demo_device
-from reproloop.live.worker import WorkerClient, WorkerServer
+from reproof.live.model import Lab, LiveError
+from reproof.live.providers import demo_device
+from reproof.live.worker import WorkerClient, WorkerServer
 
 
 TOKEN = "enrolled-worker-transport-token-0123456789"

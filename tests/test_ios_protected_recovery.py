@@ -10,15 +10,15 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.live.access import AccessController, AccessStore
-from reproloop.live.configuration import issue_bounded_project_grant
-from reproloop.live.issue_configuration import IssueRuntimeBundle
-from reproloop.live.issue_workflow import IssueWorkflow, ProjectIssueRuntime
-from reproloop.live.protected_recovery import ProtectedRecoveryService
-from reproloop.live.server import LiveServer
-from reproloop.protected_mobile_inputs import recovery_device_descriptors
-from reproloop.repair_configuration import ProtectedServiceConfiguration
+from reproof import contracts
+from reproof.live.access import AccessController, AccessStore
+from reproof.live.configuration import issue_bounded_project_grant
+from reproof.live.issue_configuration import IssueRuntimeBundle
+from reproof.live.issue_workflow import IssueWorkflow, ProjectIssueRuntime
+from reproof.live.protected_recovery import ProtectedRecoveryService
+from reproof.live.server import LiveServer
+from reproof.protected_mobile_inputs import recovery_device_descriptors
+from reproof.repair_configuration import ProtectedServiceConfiguration
 from tests import test_ios_recovery_execution as support
 from tests.test_protected_service_configuration import configuration, issue_configuration
 from tests.g4_support import runtime_policy
@@ -112,7 +112,7 @@ class IOSProtectedRecoveryTests(unittest.TestCase):
             server.close_operations(); server.shutdown(); thread.join(3); server.server_close()
         self.addCleanup(close)
         def cli(action, *args):
-            result = subprocess.run([sys.executable, '-m', 'reproloop', 'protected-service', action,
+            result = subprocess.run([sys.executable, '-m', 'reproof', 'protected-service', action,
                 '--server', server.origin, '--credential-stdin', '--profile', 'protected-ios',
                 '--operation', self.f.fixture.context.operation_id, *args],
                 input=self.tokens['viewer']+'\n', text=True, capture_output=True, timeout=15)

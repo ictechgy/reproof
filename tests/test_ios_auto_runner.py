@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from reproloop.ios_runner import IosSimulator
-from reproloop.live.providers import IosProvider
+from reproof.ios_runner import IosSimulator
+from reproof.live.providers import IosProvider
 
 
 class AutoProfile(SimpleNamespace):
@@ -20,7 +20,7 @@ def profile():
     return AutoProfile(data={
         "schemaVersion": 1,
         "platform": "ios",
-        "applicationId": "io.reproloop.sample.ios",
+        "applicationId": "io.reproof.sample.ios",
         "fixture": {"id": "ios-counter", "version": 1, "inputs": {}},
     }, digest="a" * 64)
 
@@ -29,7 +29,7 @@ def app_tree(root, build_id="build-auto"):
     app = root / "ReproSample.app"
     app.mkdir()
     (app / "Info.plist").write_bytes(plistlib.dumps({
-        "CFBundleIdentifier": "io.reproloop.sample.ios",
+        "CFBundleIdentifier": "io.reproof.sample.ios",
         "ReproBuildID": build_id,
         "ReproAutoProfileDigest": "a" * 64,
         "ReproAutoProfile": profile().data,
@@ -57,17 +57,17 @@ def products_tree(root):
 
 class AutoRunnerTests(unittest.TestCase):
     def test_capture_rejects_marker_identity_replacement_during_collection(self):
-        from reproloop.core import ContractError
-        from reproloop.ios_cases import case_spec
-        from reproloop.ios_device import IosPhysicalDevice
-        from reproloop.ios_instrumentation import sample_ios_auto_profile
+        from reproof.core import ContractError
+        from reproof.ios_cases import case_spec
+        from reproof.ios_device import IosPhysicalDevice
+        from reproof.ios_instrumentation import sample_ios_auto_profile
 
         selected = sample_ios_auto_profile()
         fixture = case_spec('counter').fixture
         for adapter in (IosSimulator, IosPhysicalDevice):
             for changed in ('runId', 'profileDigest', 'buildId', 'startedAtMs'):
                 with self.subTest(adapter=adapter.__name__, changed=changed), tempfile.TemporaryDirectory() as directory:
-                    base = Path(directory) / 'Library/Application Support/ReproLoop'
+                    base = Path(directory) / 'Library/Application Support/Reproof'
                     base.mkdir(parents=True)
                     run_id, session_id = str(uuid.uuid4()), str(uuid.uuid4())
                     capture = case_spec('counter').capture()
@@ -93,7 +93,7 @@ class AutoRunnerTests(unittest.TestCase):
                     reads = []
 
                     def read(relative, **_kwargs):
-                        relative = relative.removeprefix('Library/Application Support/ReproLoop/')
+                        relative = relative.removeprefix('Library/Application Support/Reproof/')
                         if relative == 'auto-session.json':
                             reads.append(relative)
                             return dict(marker if len(reads) == 1 else replacement)
@@ -105,7 +105,7 @@ class AutoRunnerTests(unittest.TestCase):
                                                expected_fixture=fixture)
 
     def test_live_reset_rotates_host_run_id_in_native_payload(self):
-        identity = {"bundle": "io.reproloop.sample.ios", "artifactDigest": "a" * 64}
+        identity = {"bundle": "io.reproof.sample.ios", "artifactDigest": "a" * 64}
         provider = IosProvider("simulator", Path("products"), identity["bundle"], identity,
                                app=Path("sample.app"), fixture="counter", record_sdk=True)
         provider.auto_profile = profile()
@@ -123,8 +123,8 @@ class AutoRunnerTests(unittest.TestCase):
                 provider.bridge("ack", {"id": command["id"], "ok": True})
                 return True
 
-        with patch("reproloop.live.providers.installed_identity", return_value=identity), \
-             patch("reproloop.live.providers.threading.Event", side_effect=lambda: ImmediateEvent()):
+        with patch("reproof.live.providers.installed_identity", return_value=identity), \
+             patch("reproof.live.providers.threading.Event", side_effect=lambda: ImmediateEvent()):
             result = provider.execute("reset", {})
         self.assertTrue(result["ok"])
         self.assertRegex(captured["payload"]["autoRunId"],
@@ -182,8 +182,8 @@ class AutoRunnerTests(unittest.TestCase):
                 return value
 
             current_run = [None]
-            with patch("reproloop.ios_runner.run_command", side_effect=fake_command), \
-                 patch("reproloop.ios_runner.extract_attachment", side_effect=fake_attachment):
+            with patch("reproof.ios_runner.run_command", side_effect=fake_command), \
+                 patch("reproof.ios_runner.extract_attachment", side_effect=fake_attachment):
                 result = simulator.run_scenario(products, app, scenario, output,
                                                  mode="record", auto_profile=profile())
 
@@ -198,7 +198,7 @@ class AutoRunnerTests(unittest.TestCase):
     def test_auto_collection_pins_marker_and_diagnostics(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            base = root / "Library/Application Support/ReproLoop"
+            base = root / "Library/Application Support/Reproof"
             session = base / "session-1"
             session.mkdir(parents=True)
             capture = {"schemaVersion": 2, "sessionId": "session-1", "startedAtMs": 10,
@@ -224,13 +224,13 @@ class AutoRunnerTests(unittest.TestCase):
             simulator.udid = "11111111-2222-3333-4444-555555555555"
             simulator.simctl = lambda *args: str(root)
             (root / "Info.plist").write_bytes(plistlib.dumps({
-                "CFBundleIdentifier": "io.reproloop.sample.ios",
+                "CFBundleIdentifier": "io.reproof.sample.ios",
                 "ReproBuildID": "build-auto",
             }))
 
-            with patch("reproloop.ios_runner.validate_finalization", return_value=True), \
-                 patch("reproloop.ios_runner.validate_ios_auto_marker", return_value=True), \
-                 patch("reproloop.ios_runner.validate_ios_auto_diagnostics", side_effect=lambda value, *_args, **_kwargs: value):
+            with patch("reproof.ios_runner.validate_finalization", return_value=True), \
+                 patch("reproof.ios_runner.validate_ios_auto_marker", return_value=True), \
+                 patch("reproof.ios_runner.validate_ios_auto_diagnostics", side_effect=lambda value, *_args, **_kwargs: value):
                 collected = simulator.collect_capture(expected_run_id="run-1", auto_profile=profile(),
                                                       expected_fixture=capture["fixture"])
                 sidecar = simulator.collect_auto_diagnostics(collected, "run-1", profile(),

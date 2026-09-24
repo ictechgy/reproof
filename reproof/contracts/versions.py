@@ -2,7 +2,7 @@
 from __future__ import annotations
 import hashlib, json, math, re
 from pathlib import PurePosixPath
-from reproloop.core import ContractError
+from reproof.core import ContractError
 CONTRACT_VERSION = 1
 ID_RE = re.compile('[a-z][a-z0-9_-]{0,63}\\Z')
 HEX64_RE = re.compile('[0-9a-f]{64}\\Z')

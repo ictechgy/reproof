@@ -7,9 +7,9 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from reproloop.execution.artifacts import ArtifactError, read_regular
-from reproloop.execution.resources import RESOURCE_FILES, ResourceError, provision
-from reproloop.execution.wire import ProtocolError, decode_json
+from reproof.execution.artifacts import ArtifactError, read_regular
+from reproof.execution.resources import RESOURCE_FILES, ResourceError, provision
+from reproof.execution.wire import ProtocolError, decode_json
 
 
 def main():

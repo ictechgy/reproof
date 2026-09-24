@@ -7,10 +7,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from reproloop.core import require
-from reproloop.ios_storage import copy_ios_source
-from reproloop.repair import run_command
-from reproloop.storage import write_json
+from reproof.core import require
+from reproof.ios_storage import copy_ios_source
+from reproof.repair import run_command
+from reproof.storage import write_json
 
 
 def remove_function(text, signature):

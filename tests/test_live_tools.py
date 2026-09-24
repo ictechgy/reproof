@@ -6,11 +6,11 @@ import threading
 import unittest
 from urllib.error import URLError
 
-from reproloop.live.client import Client
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.providers import demo_device
-from reproloop.live.server import LiveServer
-from reproloop.live.tools import MAX_LINE, serve
+from reproof.live.client import Client
+from reproof.live.model import Lab, LiveError
+from reproof.live.providers import demo_device
+from reproof.live.server import LiveServer
+from reproof.live.tools import MAX_LINE, serve
 
 
 class StubClient:

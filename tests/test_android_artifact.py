@@ -4,8 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.android_artifact import stage_apk
-from reproloop.core import ContractError
+from reproof.android_artifact import stage_apk
+from reproof.core import ContractError
 
 
 class AndroidArtifactTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class AndroidArtifactTests(unittest.TestCase):
         self.assertEqual(self.output.read_bytes(), b'owned apk bytes')
 
     def test_registration_verifies_the_same_regular_file_boundary_as_staging(self):
-        from reproloop.android_artifact import verify_apk
+        from reproof.android_artifact import verify_apk
         verify_apk(self.source, **self.expected)
         alias = self.root / 'alias'; alias.symlink_to(self.root, target_is_directory=True)
         with self.assertRaises(ContractError):

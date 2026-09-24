@@ -1024,7 +1024,7 @@ def _build_manifest(catalog, recovery, recording_id, limits, barrier, sources):
     _require(len(segments) <= limits.max_segments, "Video segment limit exceeded")
     body = {
         "schemaVersion": 2,
-        "kind": "reproloop-avfoundation-video",
+        "kind": "reproof-avfoundation-video",
         "recordingId": recording_id,
         "status": "incomplete",
         "failureReason": "process-interruption",

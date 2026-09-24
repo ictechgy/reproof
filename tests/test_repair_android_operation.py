@@ -12,27 +12,27 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop import contracts
-from reproloop.android_profile import (
+from reproof import contracts
+from reproof.android_profile import (
     AndroidRuntimeProfile, validate_android_runtime_profile,
 )
-from reproloop.execution.artifacts import BlobSet
-from reproloop.execution.journal import RunStore
-from reproloop.fixtures import FixtureCoordinator
-from reproloop.live.authority import HostAuthority
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.model import Lab
-from reproloop.live.recording_session import TrustedProjectRegistration
-from reproloop.qualification import ScenarioRegistry
-from reproloop.repair_android import (
+from reproof.execution.artifacts import BlobSet
+from reproof.execution.journal import RunStore
+from reproof.fixtures import FixtureCoordinator
+from reproof.live.authority import HostAuthority
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.model import Lab
+from reproof.live.recording_session import TrustedProjectRegistration
+from reproof.qualification import ScenarioRegistry
+from reproof.repair_android import (
     AndroidMobileAdapterConfig, AndroidMobileTools,
 )
-from reproloop.repair_android_operation import (
+from reproof.repair_android_operation import (
     AndroidNativeBinding, AndroidOperationError, AndroidOperationStore,
     AndroidRecoveryInspection,
 )
-from reproloop.repair_mobile import MobileContext
-from reproloop.scenario_runner import (
+from reproof.repair_mobile import MobileContext
+from reproof.scenario_runner import (
     ObservationRegistry, ScenarioRunner, VariableResolverRegistry,
 )
 from tests.test_clock_sync import FakeClock
@@ -591,7 +591,7 @@ class AndroidOperationTests(unittest.TestCase):
         self.assertEqual(self.store.status(self.context.operation_id)['state'], 'record-invalid')
 
     def test_failed_recovery_lock_closes_every_opened_descriptor(self):
-        from reproloop import repair_android_operation as module
+        from reproof import repair_android_operation as module
         with self.store.admit(self.context, self.artifacts):
             pass
         producer = self.store._producer(self.store._intent(self.context.operation_id))
@@ -619,12 +619,12 @@ class AndroidOperationTests(unittest.TestCase):
         source = self.root / 'source-directory'; source.mkdir()
         original = source / 'owned.apk'; original.write_bytes(b'owned')
         link = self.root / 'source-link'; link.symlink_to(source, target_is_directory=True)
-        with mock.patch('reproloop.repair_android_operation._file_digest') as read:
+        with mock.patch('reproof.repair_android_operation._file_digest') as read:
             with self.assertRaises(AndroidOperationError):
                 self.store._source(link / original.name, 64)
             read.assert_not_called()
         alias = source / 'alias.apk'; os.link(original, alias)
-        with mock.patch('reproloop.repair_android_operation._file_digest') as read:
+        with mock.patch('reproof.repair_android_operation._file_digest') as read:
             with self.assertRaises(AndroidOperationError):
                 self.store._source(original, 64)
             read.assert_not_called()

@@ -522,7 +522,7 @@ class WorkerServer:
         self.lab.start_maintenance()
         if self.artifact_store is not None:
             self._artifact_maintenance_thread = threading.Thread(
-                target=self._maintain_artifacts, name="reproloop-artifact-retention", daemon=True)
+                target=self._maintain_artifacts, name="reproof-artifact-retention", daemon=True)
             self._artifact_maintenance_thread.start()
 
     @property
@@ -1389,7 +1389,7 @@ class RemoteProvider:
         # Preserve the acknowledged ownership before checking an authority
         # that may have expired during I/O. Cleanup still needs these IDs.
         self._origin_current()
-        self.thread = threading.Thread(target=self._poll, name="reproloop-remote-provider", daemon=True)
+        self.thread = threading.Thread(target=self._poll, name="reproof-remote-provider", daemon=True)
         self.thread.start()
 
     def _poll(self):

@@ -5,8 +5,8 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop.app_logs import APP_LOG_MIME
-from reproloop.live.model import LiveError
+from reproof.app_logs import APP_LOG_MIME
+from reproof.live.model import LiveError
 from tests.g4_support import ScenarioProvider
 from tests.test_fixture_allocations import project_document
 from tests.test_repair_diagnostics import app_log

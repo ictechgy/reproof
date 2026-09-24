@@ -208,8 +208,8 @@ def replay_recording(recording_id,expected_digest=None,argv=None):
 def export_script(record):
     check(record['status']=='complete' and record['replayable'],'not_replayable','Only complete replayable recordings can be exported as scripts')
     return ('#!/usr/bin/env python3\n'
-            '"""Run from the Repro Loop checkout. Text variables are prompted without echo.\n'
+            '"""Run from the Reproof checkout. Text variables are prompted without echo.\n'
             'Requires the original recording in the local server; use --session to attach.\n"""\n'
-            'from reproloop.live.client import replay_recording\n\n'
+            'from reproof.live.client import replay_recording\n\n'
             'if __name__ == "__main__":\n'
             f'    raise SystemExit(replay_recording({record["id"]!r}, {record["digest"]!r}))\n').encode()

@@ -7,14 +7,14 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop.contracts.versions import digest
-from reproloop.execution.artifacts import ArtifactValidationAuthority, BlobSet
-from reproloop.execution.backend import ExecutionDenied, QualificationAuthority, REQUIRED_PROBES
-from reproloop.execution.guest import GuestError, serve_one
-from reproloop.execution.journal import RunStore
-from reproloop.execution.resources import RESOURCE_FILES, provision
-from reproloop.execution.runtime import MacOSVirtualizationBackend
-from reproloop.execution.wire import accept_bootstrap
+from reproof.contracts.versions import digest
+from reproof.execution.artifacts import ArtifactValidationAuthority, BlobSet
+from reproof.execution.backend import ExecutionDenied, QualificationAuthority, REQUIRED_PROBES
+from reproof.execution.guest import GuestError, serve_one
+from reproof.execution.journal import RunStore
+from reproof.execution.resources import RESOURCE_FILES, provision
+from reproof.execution.runtime import MacOSVirtualizationBackend
+from reproof.execution.wire import accept_bootstrap
 from tests.test_execution_protocol import build_request, build_route, validation_plan
 from tests.test_execution_resources import resource_inputs
 
@@ -97,7 +97,7 @@ class ExecutionRuntimeTests(unittest.TestCase):
         VMDouble.stop_confirmed = True
         VMDouble.wait_for_cancel = False
         VMDouble.started_recipe = threading.Event()
-        patcher = mock.patch("reproloop.execution.runtime.NativeVM", VMDouble)
+        patcher = mock.patch("reproof.execution.runtime.NativeVM", VMDouble)
         patcher.start()
         self.addCleanup(patcher.stop)
 

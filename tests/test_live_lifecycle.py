@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from reproloop.live.model import Lab,LiveError
+from reproof.live.model import Lab,LiveError
 from tests.test_live_model import Provider
 
 
@@ -69,7 +69,7 @@ if __name__=='__main__':unittest.main()
 
 class RecoveryTests(unittest.TestCase):
     def test_inactive_device_marker_survives_other_device_server(self):
-        from reproloop.live.providers import demo_device
+        from reproof.live.providers import demo_device
         with tempfile.TemporaryDirectory() as output:
             first=Lab([demo_device()],output);s=first.create_session('demo','owner','c')
             other=demo_device();other['id']='other'
@@ -78,7 +78,7 @@ class RecoveryTests(unittest.TestCase):
             self.assertEqual(restarted.list_devices()[0]['state'],'quarantined')
             first.close_all();second.close_all()
     def test_demo_recovery_releases_only_orphan_quarantine(self):
-        from reproloop.live.providers import demo_device
+        from reproof.live.providers import demo_device
         with tempfile.TemporaryDirectory() as output:
             first=Lab([demo_device()],output);s=first.create_session('demo','owner','c')
             restarted=Lab([demo_device()],output)

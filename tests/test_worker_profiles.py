@@ -6,12 +6,12 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from reproloop.android_profile import validate_android_runtime_profile
-from reproloop.core import ContractError, digest
-from reproloop.ios_profile import validate_ios_profile
-from reproloop.ios_storage import tree_manifest
-from reproloop.live.android_live import AndroidLiveProvider
-from reproloop.live.iphone import PhysicalIosProvider, validate_signed_products
+from reproof.android_profile import validate_android_runtime_profile
+from reproof.core import ContractError, digest
+from reproof.ios_profile import validate_ios_profile
+from reproof.ios_storage import tree_manifest
+from reproof.live.android_live import AndroidLiveProvider
+from reproof.live.iphone import PhysicalIosProvider, validate_signed_products
 
 
 PROJECT_DIGEST = "1" * 64
@@ -21,7 +21,7 @@ PROVENANCE_DIGEST = "2" * 64
 def ios_document(artifact_digest="3" * 64):
     return {
         "schemaVersion": 2,
-        "kind": "reproloop-runtime-application",
+        "kind": "reproof-runtime-application",
         "id": "checkout_ios",
         "projectId": "checkout",
         "projectDigest": PROJECT_DIGEST,
@@ -54,7 +54,7 @@ def ios_document(artifact_digest="3" * 64):
 def android_document(artifact_digest="4" * 64):
     return {
         "schemaVersion": 2,
-        "kind": "reproloop-runtime-application",
+        "kind": "reproof-runtime-application",
         "id": "checkout_android",
         "projectId": "checkout",
         "projectDigest": PROJECT_DIGEST,
@@ -97,7 +97,7 @@ class GeneralApplicationProfileTests(unittest.TestCase):
         value['capabilities']['observations'].append('logs')
         value['capabilities']['logAdapter'] = {'id': 'repro-app-log', 'version': 1}
         profile = validate_ios_profile(value)
-        with patch('reproloop.live.iphone.TunnelClient'), self.assertRaises(ContractError):
+        with patch('reproof.live.iphone.TunnelClient'), self.assertRaises(ContractError):
             PhysicalIosProvider(Mock(udid='synthetic', tunnel_address='fd00::1'), Path('products'), Path('app'),
                                 profile.application_identity, profile=profile)
 
@@ -149,7 +149,7 @@ class GeneralApplicationProfileTests(unittest.TestCase):
             document["artifact"]["bytes"] = sum(
                 item.stat().st_size for item in app.rglob("*") if item.is_file())
             profile = validate_ios_profile(document)
-            with patch("reproloop.live.iphone.subprocess.run",
+            with patch("reproof.live.iphone.subprocess.run",
                        return_value=Mock(returncode=0)):
                 identity = validate_signed_products(products, app, profile=profile)
             self.assertEqual(identity["bundle"], "com.example.checkout")
@@ -158,7 +158,7 @@ class GeneralApplicationProfileTests(unittest.TestCase):
             wrong = copy.deepcopy(document)
             wrong["bundle"] = "com.example.other"
             wrong["launchTarget"]["value"] = "com.example.other"
-            with patch("reproloop.live.iphone.subprocess.run",
+            with patch("reproof.live.iphone.subprocess.run",
                        return_value=Mock(returncode=0)), self.assertRaises(Exception):
                 validate_signed_products(products, app,
                                          profile=validate_ios_profile(wrong))
@@ -199,7 +199,7 @@ class GeneralApplicationProfileTests(unittest.TestCase):
             document["artifact"]["sha256"] = hashlib.sha256(body).hexdigest()
             document["artifact"]["bytes"] = len(body)
             profile = validate_ios_profile(document)
-            with patch("reproloop.live.iphone.subprocess.run",
+            with patch("reproof.live.iphone.subprocess.run",
                        return_value=Mock(returncode=0)):
                 identity = validate_signed_products(products, app,
                                                     profile=profile, ipa=ipa)
@@ -208,34 +208,34 @@ class GeneralApplicationProfileTests(unittest.TestCase):
                              hashlib.sha256(body).hexdigest())
 
             # ipa 없이 ios-ipa를 검증하면 명시적으로 거절한다.
-            with patch("reproloop.live.iphone.subprocess.run",
+            with patch("reproof.live.iphone.subprocess.run",
                        return_value=Mock(returncode=0)), self.assertRaises(Exception):
                 validate_signed_products(products, app, profile=profile)
 
             # 선언 페이로드 내용이 설치 트리에서 바뀌면 거절한다.
             (app / "PkgInfo").write_bytes(b"tampered-payload")
-            with patch("reproloop.live.iphone.subprocess.run",
+            with patch("reproof.live.iphone.subprocess.run",
                        return_value=Mock(returncode=0)), self.assertRaises(Exception):
                 validate_signed_products(products, app, profile=profile, ipa=ipa)
 
             # 선언 멤버가 설치 트리에 없으면 거절한다.
             (app / "PkgInfo").write_bytes(b"APPL????")
             (app / "Checkout").unlink()
-            with patch("reproloop.live.iphone.subprocess.run",
+            with patch("reproof.live.iphone.subprocess.run",
                        return_value=Mock(returncode=0)), self.assertRaises(Exception):
                 validate_signed_products(products, app, profile=profile, ipa=ipa)
 
             # 선언 IPA 자체가 바뀌면 컨테이너 바인딩이 거절한다.
             (app / "Checkout").write_bytes(b"synthetic-executable")
             ipa.write_bytes(body + b"changed")
-            with patch("reproloop.live.iphone.subprocess.run",
+            with patch("reproof.live.iphone.subprocess.run",
                        return_value=Mock(returncode=0)), self.assertRaises(Exception):
                 validate_signed_products(products, app, profile=profile, ipa=ipa)
 
     def test_general_providers_do_not_select_sample_reset_or_sdk_defaults(self):
         ios = validate_ios_profile(physical_ios_document())
         device = Mock(udid="private-udid", tunnel_address="fd00::2")
-        with patch("reproloop.live.iphone.TunnelClient"):
+        with patch("reproof.live.iphone.TunnelClient"):
             provider = PhysicalIosProvider(
                 device, Path("products"), Path("Checkout.app"),
                 ios.application_identity, profile=ios)
@@ -244,7 +244,7 @@ class GeneralApplicationProfileTests(unittest.TestCase):
         self.assertEqual(provider.profile.digest, ios.digest)
 
         unsupported = validate_ios_profile(ios_document())
-        with patch("reproloop.live.iphone.TunnelClient"), self.assertRaises(Exception):
+        with patch("reproof.live.iphone.TunnelClient"), self.assertRaises(Exception):
             PhysicalIosProvider(
                 device, Path("products"), Path("Checkout.app"),
                 unsupported.application_identity, profile=unsupported)
@@ -260,7 +260,7 @@ class GeneralApplicationProfileTests(unittest.TestCase):
             document["capabilities"]["logAdapter"] = None
             document["capabilities"]["observations"].remove("logs")
             android = validate_android_runtime_profile(document)
-            with patch("reproloop.live.android_live.AdbDevice"):
+            with patch("reproof.live.android_live.AdbDevice"):
                 provider = AndroidLiveProvider(
                     "serial", helper, app, runtime_profile=android)
             self.assertIsNone(provider.fixture)
@@ -278,7 +278,7 @@ class GeneralApplicationProfileTests(unittest.TestCase):
             app = Path(directory).resolve() / "checkout.apk"
             helper = Path(directory).resolve() / "helper.apk"
             app.write_bytes(body);helper.write_bytes(b"helper")
-            with patch("reproloop.live.android_live.AdbDevice"):
+            with patch("reproof.live.android_live.AdbDevice"):
                 provider = AndroidLiveProvider(
                     "serial", helper, app, runtime_profile=profile)
         provider.transport = Mock()

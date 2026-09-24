@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from reproloop.live.disk_budget import DiskBudget
-from reproloop.live.evidence_store import EvidenceStore
+from reproof.live.disk_budget import DiskBudget
+from reproof.live.evidence_store import EvidenceStore
 
 
 def run_probe():

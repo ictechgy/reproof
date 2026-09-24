@@ -4,8 +4,8 @@ import threading
 import time
 import unittest
 
-from reproloop.ios_device_tools import IOSDeviceToolError
-from reproloop.ios_mobile_install import IOSInstallObservation
+from reproof.ios_device_tools import IOSDeviceToolError
+from reproof.ios_mobile_install import IOSInstallObservation
 from tests import test_ios_mobile_install as install
 
 

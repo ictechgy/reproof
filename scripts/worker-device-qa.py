@@ -11,16 +11,16 @@ import sys
 import time
 import uuid
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from reproloop.live.worker import WorkerClient,remote_devices
-from reproloop.live.model import Lab
-from reproloop.device import AdbDevice
-from reproloop.storage import read_json,write_json
+from reproof.live.worker import WorkerClient,remote_devices
+from reproof.live.model import Lab
+from reproof.device import AdbDevice
+from reproof.storage import read_json,write_json
 
 p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);a=p.parse_args()
 assert not a.output.exists();a.output.mkdir(parents=True,mode=0o700)
 device=AdbDevice();rotation=device.shell('wm','user-rotation').strip();device.shell('wm','user-rotation','lock','0')
 token=secrets.token_urlsafe(32)
-process=subprocess.Popen([sys.executable,'-m','reproloop','live-worker','--port','0','--output',str(a.output/'worker'),
+process=subprocess.Popen([sys.executable,'-m','reproof','live-worker','--port','0','--output',str(a.output/'worker'),
  '--token-stdin','--android','auto','--android-helper','android/live/build/outputs/apk/debug/live-debug.apk',
  '--android-app','android/sample/build/outputs/apk/buggy/debug/sample-buggy-debug.apk'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
 process.stdin.write(__import__('json').dumps({'token':token}).encode());process.stdin.close();process.stdin=None

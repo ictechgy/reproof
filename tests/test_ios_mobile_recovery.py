@@ -10,15 +10,15 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.execution.artifacts import BlobSet
-from reproloop.execution.journal import RunDenied, RunStore
-from reproloop.execution.wire import canonical
-from reproloop.ios_mobile_operation import IOSMobileOperationError, IOSMobileOperationStore
+from reproof.execution.artifacts import BlobSet
+from reproof.execution.journal import RunDenied, RunStore
+from reproof.execution.wire import canonical
+from reproof.ios_mobile_operation import IOSMobileOperationError, IOSMobileOperationStore
 from tests import test_ios_mobile_operation as preparation
 
 
 def crash_recovery(root, udid, mode):
-    from reproloop import ios_mobile_recovery as recovery
+    from reproof import ios_mobile_recovery as recovery
     root=Path(root);body=(root/'input.ipa').read_bytes()
     selected=preparation.definition(udid,BlobSet((('original.ipa',body),)))
     runs=RunStore(root/'runs',environment_digest='9'*64,disk_limit=4*1024**3)
@@ -124,7 +124,7 @@ class IOSMobileRecoveryTests(unittest.TestCase):
         self.assertGreater(self.c.runs.status(self.c.context.operation_id)['reservedBytes'],0)
 
     def test_discarded_json_flag_cannot_replace_actual_payload_disposal(self):
-        from reproloop import ios_mobile_recovery as recovery
+        from reproof import ios_mobile_recovery as recovery
         self.staged()
         with patch.object(recovery,'_dispose_role',side_effect=RuntimeError('owned pause')):
             with self.assertRaises(IOSMobileOperationError):self.finish()
@@ -169,7 +169,7 @@ class IOSMobileRecoveryTests(unittest.TestCase):
             self.assertEqual(self.c.runs.finish_ios_preparation_recovery(capability,authority=owner)['reservedBytes'],0)
 
     def test_producer_lock_blocks_recovery_after_admission_exits_but_callback_is_live(self):
-        from reproloop import ios_mobile_operation as mobile
+        from reproof import ios_mobile_operation as mobile
         entered=threading.Event();release=threading.Event();errors=[]
         original=mobile._move_new_app
         def paused(*args):

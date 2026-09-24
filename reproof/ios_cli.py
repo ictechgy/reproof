@@ -35,7 +35,7 @@ def summary(value):print(json.dumps(value,indent=2,ensure_ascii=False,default=st
 
 
 def main(argv):
-    parser=argparse.ArgumentParser(prog='reproloop');sub=parser.add_subparsers(dest='command',required=True)
+    parser=argparse.ArgumentParser(prog='reproof');sub=parser.add_subparsers(dest='command',required=True)
     doctor=sub.add_parser('ios-doctor');doctor.add_argument('--simulator')
     instrument=sub.add_parser('ios-instrument',help='Prepare debug-only UIKit logging without app source hooks')
     instrument.add_argument('--source',type=Path,required=True);instrument.add_argument('--output',type=Path,required=True)
@@ -120,7 +120,7 @@ def main(argv):
                         else:print('Record case '+spec.name+': '+spec.expected+'; tap Report, then press Enter here when Capture ready is shown.',flush=True)
                         input()
                         if auto_profile:
-                            simulator.simctl('notify_post',simulator.udid,'io.reproloop.auto.freeze.'+run_id)
+                            simulator.simctl('notify_post',simulator.udid,'io.reproof.auto.freeze.'+run_id)
                             deadline=time.monotonic()+10
                             while True:
                                 try:

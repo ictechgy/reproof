@@ -8,13 +8,13 @@ plugins {
 apply(plugin = "org.jetbrains.kotlin.android")
 
 android {
-    namespace = "io.reproloop.live"
+    namespace = "io.reproof.live"
     compileSdk = 35
 
     sourceSets.getByName("main").java.srcDir("../native-common/src/main/java")
 
     defaultConfig {
-        applicationId = "io.reproloop.live"
+        applicationId = "io.reproof.live"
         minSdk = 26
         targetSdk = 35
         versionCode = 2

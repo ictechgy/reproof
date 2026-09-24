@@ -12,14 +12,14 @@ class IOSSigningInputTests(unittest.TestCase):
         self.root = Path(temporary.name).resolve()
 
     def identity(self, **changes):
-        from reproloop.ios_signing_inputs import IOSSigningIdentity
+        from reproof.ios_signing_inputs import IOSSigningIdentity
         # Structurally bounded DER for input-contract tests; crypto acceptance
         # remains the responsibility of the fixed native signer/inspector.
         return IOSSigningIdentity(**{**dict(reference_id='owned-key', application_id='ios_app',
             team_id='OWNEDTEAM1', certificate_chain=(b'\x30\x03\x02\x01\x01',)), **changes})
 
     def test_definition_freezes_policy_profiles_and_orders_nested_code_before_root(self):
-        from reproloop.ios_signing_inputs import IOSSigningDefinition
+        from reproof.ios_signing_inputs import IOSSigningDefinition
         policy = {'.': {'bundleId': 'com.example.app', 'entitlements': {'get-task-allow': False}},
             'Frameworks/Example.framework': {'bundleId': 'com.example.library', 'entitlements': {}},
             'PlugIns/Example.xctest': {'bundleId': 'com.example.tests', 'entitlements': {}}}
@@ -41,7 +41,7 @@ class IOSSigningInputTests(unittest.TestCase):
         self.assertNotEqual(first.definition_digest, second.definition_digest)
 
     def test_missing_profile_unknown_bundle_and_wrong_signing_policy_are_rejected(self):
-        from reproloop.ios_signing_inputs import IOSSigningDefinition, IOSSigningInputError
+        from reproof.ios_signing_inputs import IOSSigningDefinition, IOSSigningInputError
         policy = {'.': {'bundleId': 'com.example.app', 'entitlements': {}}}
         with self.assertRaises(IOSSigningInputError):
             IOSSigningDefinition(self.identity(), 'profiles', policy, {})
@@ -61,7 +61,7 @@ class IOSSigningInputTests(unittest.TestCase):
                 definition.validate_policy({**document, field: value})
 
     def test_material_registry_rejects_aliases_and_changed_files_and_revokes_new_opens(self):
-        from reproloop.ios_signing_inputs import IOSSigningMaterialResolver, IOSSigningInputError
+        from reproof.ios_signing_inputs import IOSSigningMaterialResolver, IOSSigningInputError
         identity = self.identity()
         path = self.root/'owned.p12'; path.write_bytes(b'owned bounded ciphertext fixture'); path.chmod(0o600)
         resolver = IOSSigningMaterialResolver(); self.addCleanup(resolver.close)
@@ -85,7 +85,7 @@ class IOSSigningInputTests(unittest.TestCase):
             other.register(identity, pkcs12=alias, password=b'owned')
 
     def test_identity_certificate_and_request_size_bounds_are_enforced(self):
-        from reproloop.ios_signing_inputs import IOSSigningDefinition, IOSSigningInputError
+        from reproof.ios_signing_inputs import IOSSigningDefinition, IOSSigningInputError
         with self.assertRaises(IOSSigningInputError): self.identity(certificate_chain=(b'not DER',))
         with self.assertRaises(IOSSigningInputError): self.identity(certificate_chain=(b'\x30\x00',)*9)
         with self.assertRaises(IOSSigningInputError): self.identity(team_id='wrong team')

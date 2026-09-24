@@ -16,8 +16,8 @@ import tempfile
 from .core import require
 
 ALLOWED_APPS = frozenset({
-    'io.reproloop.sample.ios', 'io.reproloop.sample.ios.replay.xctrunner',
-    'io.reproloop.live.host', 'io.reproloop.live.tests.xctrunner',
+    'io.reproof.sample.ios', 'io.reproof.sample.ios.replay.xctrunner',
+    'io.reproof.live.host', 'io.reproof.live.tests.xctrunner',
 })
 
 

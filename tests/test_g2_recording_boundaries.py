@@ -5,11 +5,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop import contracts
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.disk_budget import DiskBudget, DiskBudgetError
-from reproloop.live.evidence_store import EvidenceStore, EvidenceStoreError
-from reproloop.live.recording_session import RecordingStore, RecordingStoreError
+from reproof import contracts
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.disk_budget import DiskBudget, DiskBudgetError
+from reproof.live.evidence_store import EvidenceStore, EvidenceStoreError
+from reproof.live.recording_session import RecordingStore, RecordingStoreError
 from tests.test_clock_sync import FakeClock
 from tests.test_recording_recovery import (
     begin_recording, collection_policy, open_store, project_document, tap_input,

@@ -26,7 +26,7 @@ Android 카운터의 같은 통합 흐름도 검증했다. 실행 명령과 근�
 ## 현재 빌드로 실행
 
 ```bash
-python3 -m reproloop live-serve \
+python3 -m reproof live-serve \
   --iphone iphone-0000000000000000 \
   --iphone-products artifacts/iphone-live-integrated-build/runner/Build/Products \
   --iphone-app artifacts/iphone-repair-original-build/DerivedData/Build/Products/Debug-iphoneos/ReproSample.app \
@@ -43,15 +43,15 @@ python3 -m reproloop live-serve \
 새 빌드는 다음처럼 준비한다. `--iphone`은 `live-device-doctor`에 표시되는 public 기기 ID다. 각 output에는 새 경로를 사용한다.
 
 ```bash
-python3 -m reproloop ios-build \
+python3 -m reproof ios-build \
   --iphone iphone-0000000000000000 --source ios \
   --output artifacts/new-iphone-build
 
-python3 -m reproloop ios-record \
+python3 -m reproof ios-record \
   --iphone iphone-0000000000000000 --case counter \
   --build artifacts/new-iphone-build --output artifacts/new-counter
 
-python3 -m reproloop ios-repair artifacts/new-counter/bundle \
+python3 -m reproof ios-repair artifacts/new-counter/bundle \
   --iphone iphone-0000000000000000 --source ios --agent claude \
   --output artifacts/new-counter-repair
 ```

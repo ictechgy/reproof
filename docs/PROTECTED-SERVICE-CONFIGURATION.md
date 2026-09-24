@@ -8,7 +8,7 @@
 `executionAuthority: "none"`을 명시한다.
 
 ```sh
-reproloop protected-service check-config \
+reproof protected-service check-config \
   --config "$PROTECTED_SERVICE_CONFIG" --issue-config "$ISSUE_CONFIG"
 ```
 
@@ -18,7 +18,7 @@ profile ID만 반환하며 입력 경로·본문을 오류에 출력하지 않�
 
 ## 설정 구조
 
-최상위 필드는 `schemaVersion: 1`, `kind: "reproloop-protected-service"`, `profiles`다.
+최상위 필드는 `schemaVersion: 1`, `kind: "reproof-protected-service"`, `profiles`다.
 profile은 1~128개이며 profile ID와 프로젝트 ID는 중복되지 않아야 한다.
 아래에 없는 필드는 거절한다. 키·비밀번호·명령·모듈·callback·qualification
 기록을 전달하는 형식이 아니다.
@@ -124,7 +124,7 @@ host-build가 측정하는 것은 세 가지뿐이다: 선언된 toolchain이 �
 탐색하지 않는다. 이 프로세스의 기기는 일반 세션·기록 실행에 할당하지 않는다.
 
 ```sh
-reproloop live-serve --shared-config "$SHARED_CONFIG" --issue-config "$ISSUE_CONFIG" \
+reproof live-serve --shared-config "$SHARED_CONFIG" --issue-config "$ISSUE_CONFIG" \
   --protected-recovery-config "$PROTECTED_SERVICE_CONFIG" --output "$SAME_LIVE_OUTPUT"
 ```
 
@@ -136,16 +136,16 @@ CLI는 현재 서비스에 인증하고 공개 ID와 원래 요청 digest만 보
 비밀 입력 또는 `--credential-stdin`으로 받으며 인자·출력에 넣지 않는다.
 
 ```sh
-reproloop protected-service android-profiles --server "$REPRO_SERVER"
-reproloop protected-service android-operations --server "$REPRO_SERVER" --profile "$PROFILE_ID"
-reproloop protected-service android-status --server "$REPRO_SERVER" \
+reproof protected-service android-profiles --server "$REPRO_SERVER"
+reproof protected-service android-operations --server "$REPRO_SERVER" --profile "$PROFILE_ID"
+reproof protected-service android-status --server "$REPRO_SERVER" \
   --profile "$PROFILE_ID" --operation "$OPERATION_ID"
-reproloop protected-service android-recover --server "$REPRO_SERVER" \
+reproof protected-service android-recover --server "$REPRO_SERVER" \
   --profile "$PROFILE_ID" --operation "$OPERATION_ID" \
   --request-digest "$REQUEST_DIGEST" --request-id "$RECOVERY_REQUEST_ID" \
   --timeout-seconds 120 --wait
-reproloop protected-service recovery-job --server "$REPRO_SERVER" --id "$RECOVERY_JOB_ID"
-reproloop protected-service recovery-cancel --server "$REPRO_SERVER" --id "$RECOVERY_JOB_ID"
+reproof protected-service recovery-job --server "$REPRO_SERVER" --id "$RECOVERY_JOB_ID"
+reproof protected-service recovery-cancel --server "$REPRO_SERVER" --id "$RECOVERY_JOB_ID"
 ```
 
 조회에는 배정된 기기의 읽기 권한이 필요하다. 실행/취소는 현재 프로젝트의

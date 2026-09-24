@@ -16,7 +16,7 @@ Keychain을 자동으로 선택하지 않는다. 선언 가능한 형태는 다�
 
 경로 root는 `documents`, `application-support`, `caches`다. 상대 ASCII 경로만 받고
 숨김·상위·절대 경로, 대소문자 및 조상 경로 중복을 거절한다. SDK의
-`application-support/ReproLoop` 영역은 선택할 수 없다. 경로 최대 64개,
+`application-support/Reproof` 영역은 선택할 수 없다. 경로 최대 64개,
 현재 앱의 standard UserDefaults 키 최대 128개, Keychain 항목 최대 32개,
 정책 JSON 최대 32 KiB이며 적어도 하나의 선택이 필요하다.
 

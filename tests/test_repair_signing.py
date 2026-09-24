@@ -3,9 +3,9 @@ from dataclasses import replace
 import threading
 import unittest
 
-from reproloop import contracts
-from reproloop.execution.artifacts import ArtifactValidationAuthority, BlobSet
-from reproloop.execution.journal import RunStore
+from reproof import contracts
+from reproof.execution.artifacts import ArtifactValidationAuthority, BlobSet
+from reproof.execution.journal import RunStore
 from tests import test_repair_execution as build_tests
 
 
@@ -13,7 +13,7 @@ class ProtectedSigningTests(unittest.TestCase):
     setUp = build_tests.ProtectedRepairBuildTests.setUp
 
     def signing(self, *, signer=None, inspector=None, timeout=.5, store=None):
-        from reproloop.repair_signing import (TrustedSigningSupervisor, SigningObservation,
+        from reproof.repair_signing import (TrustedSigningSupervisor, SigningObservation,
                                              SignatureObservation)
         self.policy_document = {'schemaVersion': 1, 'id': 'test-signing', 'platform': 'ios',
             'applicationId': 'ios_app', 'identityReferenceId': 'synthetic-identity',
@@ -47,7 +47,7 @@ class ProtectedSigningTests(unittest.TestCase):
             cancellation=cancellation or threading.Event())
 
     def test_signed_proof_binds_both_artifacts_and_independent_inspection(self):
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_execution import RepairExecutionError
         signer = self.signing(); signed = self.signed(signer)
         result = signer.require_signed(signed, source_digest=self.source.digest, repair_plan_digest='b' * 64)
         self.assertFalse(result.public()['verified'])
@@ -59,8 +59,8 @@ class ProtectedSigningTests(unittest.TestCase):
                 signer.require_signed(forged, source_digest=self.source.digest, repair_plan_digest='b' * 64)
 
     def test_false_or_json_signature_cannot_authorize_installation(self):
-        from reproloop.repair_signing import SignatureObservation
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_signing import SignatureObservation
+        from reproof.repair_execution import RepairExecutionError
         signer = self.signing(inspector=lambda context, artifacts, **kw:
             SignatureObservation(context.digest, False, 'a' * 64, True, True))
         with self.assertRaises(RepairExecutionError) as caught: self.signed(signer)
@@ -68,15 +68,15 @@ class ProtectedSigningTests(unittest.TestCase):
         self.assertEqual(self.signing_store.status('candidate_sign')['state'], 'failed')
 
     def test_foreign_policy_and_untrusted_build_are_rejected_before_signing(self):
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_execution import RepairExecutionError
         signer = self.signing(signer=lambda *args, **kw: self.fail('untrusted build was dispatched'))
         with self.assertRaises(RepairExecutionError):
             signer.sign({'verified': True}, operation_id='forged_build', cancellation=threading.Event())
         self.assertFalse((self.signing_store.root / 'runs' / 'forged_build').exists())
 
     def test_unknown_signer_cleanup_quarantines_across_restart(self):
-        from reproloop.repair_signing import SigningObservation
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_signing import SigningObservation
+        from reproof.repair_execution import RepairExecutionError
         signer = self.signing(signer=lambda context, artifacts, **kw:
             SigningObservation(context.digest, artifacts, 'a' * 64, True, False))
         with self.assertRaises(RepairExecutionError) as caught: self.signed(signer)
@@ -88,8 +88,8 @@ class ProtectedSigningTests(unittest.TestCase):
             replacement.sign(self.build_proof, operation_id='retry_sign', cancellation=threading.Event())
 
     def test_timeout_rejects_late_signature_and_keeps_scope_quarantined(self):
-        from reproloop.repair_signing import SigningObservation
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_signing import SigningObservation
+        from reproof.repair_execution import RepairExecutionError
         released = threading.Event(); returned = threading.Event()
         def slow(context, artifacts, **kw):
             released.wait(2); returned.set()
@@ -103,8 +103,8 @@ class ProtectedSigningTests(unittest.TestCase):
         self.assertEqual(self.signing_store.status('candidate_sign')['state'], 'quarantined')
 
     def test_cancelled_return_still_requires_cleanup_and_cannot_publish(self):
-        from reproloop.repair_signing import SigningObservation
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_signing import SigningObservation
+        from reproof.repair_execution import RepairExecutionError
         cancelled = threading.Event()
         def cancel(context, artifacts, **kw):
             cancelled.set()
@@ -115,8 +115,8 @@ class ProtectedSigningTests(unittest.TestCase):
         self.assertEqual(self.signing_store.status('candidate_sign')['state'], 'quarantined')
 
     def test_durable_scope_cancellation_stops_before_signature_inspection(self):
-        from reproloop.repair_signing import SigningObservation
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_signing import SigningObservation
+        from reproof.repair_execution import RepairExecutionError
         def cancel(context, artifacts, **kwargs):
             state = self.signing_store.status(context.operation_id)
             self.signing_store.cancel(context.operation_id, state['requestDigest'])
@@ -128,7 +128,7 @@ class ProtectedSigningTests(unittest.TestCase):
         self.assertEqual(self.signing_store.status('candidate_sign')['state'], 'cancelled')
 
     def test_revoked_build_cannot_enter_signing_even_with_completed_bytes(self):
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_execution import RepairExecutionError
         signer = self.signing(signer=lambda *args, **kwargs: self.fail('revoked build was signed'))
         built = build_tests.ProtectedRepairBuildTests.build(self, self.builder)
         self.authority.revoke_backend('apple-vm', 'build-guest', self.bundle.environment_digest)
@@ -137,8 +137,8 @@ class ProtectedSigningTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 'build_unqualified')
 
     def test_known_clean_signing_failure_cannot_publish_and_releases_only_its_reservation(self):
-        from reproloop.repair_signing import SigningFailureObservation
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_signing import SigningFailureObservation
+        from reproof.repair_execution import RepairExecutionError
         signer = self.signing(signer=lambda context, artifacts, **kwargs:
             SigningFailureObservation(context.digest, 'signing_failed', 'a' * 64, True, True),
             inspector=lambda *args, **kwargs: self.fail('failed signing reached inspection'))
@@ -149,8 +149,8 @@ class ProtectedSigningTests(unittest.TestCase):
         self.assertEqual(signer._proofs, {})
 
     def test_known_clean_inspection_failure_and_cancellation_never_authorize_installation(self):
-        from reproloop.repair_signing import SigningFailureObservation
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_signing import SigningFailureObservation
+        from reproof.repair_execution import RepairExecutionError
         cancelled = threading.Event()
         def fail(context, artifacts, **kwargs):
             cancelled.set()
@@ -162,8 +162,8 @@ class ProtectedSigningTests(unittest.TestCase):
         self.assertEqual(signer._proofs, {})
 
     def test_wrong_failure_context_retains_quarantine(self):
-        from reproloop.repair_signing import SigningFailureObservation
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_signing import SigningFailureObservation
+        from reproof.repair_execution import RepairExecutionError
         def fail(context, artifacts, **kwargs):
             return SigningFailureObservation('f' * 64, 'signing_failed', 'a' * 64, True, True)
         signer = self.signing(signer=fail)
@@ -172,8 +172,8 @@ class ProtectedSigningTests(unittest.TestCase):
         self.assertEqual(self.signing_store.status('candidate_sign')['state'], 'quarantined')
 
     def test_known_failure_with_unconfirmed_cleanup_retains_quarantine(self):
-        from reproloop.repair_signing import SigningFailureObservation
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_signing import SigningFailureObservation
+        from reproof.repair_execution import RepairExecutionError
         signer = self.signing(signer=lambda context, artifacts, **kwargs:
             SigningFailureObservation(context.digest, 'signing_failed', 'a' * 64, True, False))
         with self.assertRaises(RepairExecutionError) as caught: self.signed(signer)
@@ -181,8 +181,8 @@ class ProtectedSigningTests(unittest.TestCase):
         self.assertEqual(self.signing_store.status('candidate_sign')['state'], 'quarantined')
 
     def test_unknown_failure_code_cannot_escape_cleanup_quarantine(self):
-        from reproloop.repair_signing import SigningFailureObservation
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_signing import SigningFailureObservation
+        from reproof.repair_execution import RepairExecutionError
         signer = self.signing(signer=lambda context, artifacts, **kwargs:
             SigningFailureObservation(context.digest, 'untrusted tool output', 'a' * 64, True, True))
         with self.assertRaises(RepairExecutionError) as caught: self.signed(signer)

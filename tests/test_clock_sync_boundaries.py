@@ -4,8 +4,8 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from reproloop.core import ContractError
-from reproloop.live.clock_sync import ClockSynchronizer, SuspendInclusiveClock
+from reproof.core import ContractError
+from reproof.live.clock_sync import ClockSynchronizer, SuspendInclusiveClock
 from tests.test_clock_sync import FakeClock
 
 
@@ -58,13 +58,13 @@ class ParentClockBoundaryTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "darwin", "macOS boot identity boundary")
     def test_unavailable_boot_identity_cannot_be_estimated_into_authority(self):
-        with patch("reproloop.live.clock_sync._darwin_sysctl", side_effect=OSError):
+        with patch("reproof.live.clock_sync._darwin_sysctl", side_effect=OSError):
             with self.assertRaises(ContractError):
                 SuspendInclusiveClock()
 
     @unittest.skipUnless(sys.platform == "darwin", "macOS boot identity boundary")
     def test_empty_boot_identity_is_not_shared_by_every_boot(self):
-        with patch("reproloop.live.clock_sync._darwin_sysctl", return_value=b""):
+        with patch("reproof.live.clock_sync._darwin_sysctl", return_value=b""):
             with self.assertRaises(ContractError):
                 SuspendInclusiveClock()
 

@@ -80,7 +80,7 @@ def _recovery_command(arguments):
 
 
 def main(argv=None):
-    parser = _ArgumentParser(prog='reproloop protected-service',
+    parser = _ArgumentParser(prog='reproof protected-service',
         description='Validate protected service references or operate authenticated mobile recovery')
     commands = parser.add_subparsers(dest='action', required=True)
     check = commands.add_parser('check-config')

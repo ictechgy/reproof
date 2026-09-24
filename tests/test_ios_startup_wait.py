@@ -8,8 +8,8 @@ import threading
 import unittest
 from unittest import mock
 
-from reproloop.core import ContractError
-from reproloop.live import providers
+from reproof.core import ContractError
+from reproof.live import providers
 
 
 class _Clock:

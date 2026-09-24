@@ -1,4 +1,4 @@
-package io.reproloop.autotrace;
+package io.reproof.autotrace;
 
 public final class ReproConfig {
     public static final boolean APP_LOGS_ENABLED = true;

@@ -7,8 +7,8 @@ import tempfile
 import unittest
 
 from tests.test_execution_resources import resource_inputs
-from reproloop.execution.journal import RunStore
-from reproloop.execution.resources import provision
+from reproof.execution.journal import RunStore
+from reproof.execution.resources import provision
 
 ROOT = Path(__file__).resolve().parents[1]
 

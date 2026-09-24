@@ -1,7 +1,7 @@
 """Strict native handshake boundary probes; no native process is launched."""
 
-from reproloop.core import ContractError
-from reproloop.live.authority import HELPER_VERSION, NATIVE_PROTOCOL_VERSION
+from reproof.core import ContractError
+from reproof.live.authority import HELPER_VERSION, NATIVE_PROTOCOL_VERSION
 from tests.test_live_authority import AuthorityTestCase, DIGEST_A
 
 

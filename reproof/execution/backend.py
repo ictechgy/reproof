@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from functools import wraps
 import threading
 
-from reproloop.contracts.versions import digest, epoch_ms, require, validate_digest, validate_id
+from reproof.contracts.versions import digest, epoch_ms, require, validate_digest, validate_id
 
 from .protocol import (
     EXECUTION_CLASSES,

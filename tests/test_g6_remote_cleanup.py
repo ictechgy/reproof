@@ -6,9 +6,9 @@ import threading
 import time
 import unittest
 
-from reproloop.live.authority import HostAuthority, issue_local_parent_grant
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.worker import WorkerClient, WorkerServer, remote_devices
+from reproof.live.authority import HostAuthority, issue_local_parent_grant
+from reproof.live.model import Lab, LiveError
+from reproof.live.worker import WorkerClient, WorkerServer, remote_devices
 from tests.test_g1b_remote_authority import Clock, FencedProvider
 
 

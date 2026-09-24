@@ -77,7 +77,7 @@ def validate_app_profile(document):
     package = document['package']
     require(isinstance(package, str) and len(package) <= 180
             and re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)+', package)
-            and package not in {'io.reproloop.live', 'io.reproloop.driver'}, 'Invalid target app package')
+            and package not in {'io.reproof.live', 'io.reproof.driver'}, 'Invalid target app package')
     activity = document['activity']
     require(isinstance(activity, str) and len(activity) <= 240
             and re.fullmatch(r'\.?[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*', activity),
@@ -191,7 +191,7 @@ def load_app_profile(path):
 
 def sample_app_profile():
     return validate_app_profile({
-        'schemaVersion': 1, 'id': 'counter', 'package': 'io.reproloop.sample', 'activity': '.MainActivity',
+        'schemaVersion': 1, 'id': 'counter', 'package': 'io.reproof.sample', 'activity': '.MainActivity',
         'fixture': {'id': 'default', 'version': 1, 'inputs': {}},
         'startState': {'screen': 'main', 'nodes': {'count': '0', 'name': ''}},
         'targets': {'tap': ['add', 'next', 'back', 'bottom'], 'text': ['name'], 'numeric': ['count'],
@@ -199,7 +199,7 @@ def sample_app_profile():
         'oracle': {'bugCondition': {'target': 'count', 'text': '2'}, 'expectedCondition': {'target': 'count', 'text': '1'}},
         'build': {'task': ':sample:assembleBuggyDebug', 'apk': 'sample/build/outputs/apk/buggy/debug/sample-buggy-debug.apk',
                   'regressionTask': ':sample:testBuggyDebugUnitTest', 'regressionResults': 'sample/build/test-results/testBuggyDebugUnitTest'},
-        'edit': {'kind': 'kotlin_numeric_expression_v1', 'path': 'sample/src/main/java/io/reproloop/sample/CounterLogic.kt',
+        'edit': {'kind': 'kotlin_numeric_expression_v1', 'path': 'sample/src/main/java/io/reproof/sample/CounterLogic.kt',
                  'function': 'increment'},
     })
 

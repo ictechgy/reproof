@@ -5,7 +5,7 @@ import sys
 import tempfile
 import time
 import unittest
-from reproloop.repair import CommandError,run_command
+from reproof.repair import CommandError,run_command
 
 
 class ProcessBoundaryTests(unittest.TestCase):

@@ -94,7 +94,7 @@ class ValidationSecretRegistry:
 
 
 def _mac(key,kind,message):
-    return hmac.new(key,b'reproloop-validation-v1/'+kind.encode('ascii')+b'\0'+canonical(message),hashlib.sha256).hexdigest()
+    return hmac.new(key,b'reproof-validation-v1/'+kind.encode('ascii')+b'\0'+canonical(message),hashlib.sha256).hexdigest()
 
 
 def _peer_uid(connection):

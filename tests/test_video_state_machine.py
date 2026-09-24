@@ -8,15 +8,15 @@ import threading
 import time
 import unittest
 
-from reproloop.live.video import (
+from reproof.live.video import (
     EncodedSegment,
     VideoCatalog,
     VideoEncodingError,
     VideoFrameSink,
     VideoLimits,
 )
-from reproloop.live.model import Lab
-from reproloop.live.clock_sync import ClockSynchronizer
+from reproof.live.model import Lab
+from reproof.live.clock_sync import ClockSynchronizer
 from tests.test_clock_sync import FakeClock
 from tests.test_recording_recovery import (
     begin_recording,
@@ -165,7 +165,7 @@ class VideoStateMachineTests(unittest.TestCase):
         self.assertEqual(len(encoder.calls), 3)
         media_types = {item["mimeType"] for item in result["original"]["media"]}
         self.assertIn("video/mp4", media_types)
-        self.assertIn("application/vnd.reproloop.video-manifest+json", media_types)
+        self.assertIn("application/vnd.reproof.video-manifest+json", media_types)
 
     def test_native_unmapped_is_unknown_and_not_a_capture_interval(self):
         sink, session = self.make_sink()
@@ -420,7 +420,7 @@ class VideoLabIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(frozen["status"], "frozen-incomplete")
                 self.assertIn(
-                    "application/vnd.reproloop.video-manifest+json",
+                    "application/vnd.reproof.video-manifest+json",
                     {item["mimeType"] for item in frozen["original"]["media"]},
                 )
             finally:

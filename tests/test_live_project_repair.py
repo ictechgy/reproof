@@ -6,7 +6,7 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop.live.server import LiveServer
+from reproof.live.server import LiveServer
 from tests.g9_support import RepairEnvironment
 from tests.test_project_repair_jobs import LocalProposalDouble
 from tests import test_issue_workflow as workflow_support
@@ -28,7 +28,7 @@ class LiveProjectRepairTests(unittest.TestCase):
         self.fixture.wait(self.issue_id, states={'reproduced'})
 
     def service(self, agent=None, executor=None, disk_limit=256 * 1024 * 1024):
-        from reproloop.live.repair_jobs import ProjectRepairConfiguration, ProjectRepairJobs
+        from reproof.live.repair_jobs import ProjectRepairConfiguration, ProjectRepairJobs
         self.agent = agent or LocalProposalDouble()
         self.repairs = ProjectRepairJobs(self.env.root / 'project-repairs', self.workflow,
             (ProjectRepairConfiguration(self.env.source, self.agent, 'build_app', ('regression_ui',), executor=executor),),
@@ -42,7 +42,7 @@ class LiveProjectRepairTests(unittest.TestCase):
         return self.protected.executor()
 
     def test_registered_executor_runs_verified_job_and_enforces_device_roles(self):
-        from reproloop.live.access import AccessError
+        from reproof.live.access import AccessError
         self.service(executor=self.protected_runtime())
         self.assertTrue(self.workflow.projects(self.fixture.owner)['projects'][0]['repair']['verificationAvailable'])
         self.assertFalse(self.workflow.projects(self.fixture.principals['viewer'])['projects'][0]['repair']['verificationAvailable'])
@@ -98,7 +98,7 @@ class LiveProjectRepairTests(unittest.TestCase):
             {'requestId': request, 'specificationDigest': self.spec_digest, 'mode': mode})['repair']
 
     def wait(self, identifier):
-        from reproloop.repair_journal import TERMINAL
+        from reproof.repair_journal import TERMINAL
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             result = self.repairs.journal.get(identifier)
@@ -107,7 +107,7 @@ class LiveProjectRepairTests(unittest.TestCase):
         self.fail('Repair job did not finish')
 
     def test_roles_separate_issue_status_from_product_source_and_execution(self):
-        from reproloop.live.access import AccessError
+        from reproof.live.access import AccessError
         self.service()
         viewer = self.fixture.principals['viewer']
         with self.assertRaises(AccessError): self.start(owner=viewer)
@@ -164,7 +164,7 @@ class LiveProjectRepairTests(unittest.TestCase):
         self.assertEqual(self.repairs.journal.get(job['id'])['outputs'], {})
 
     def test_expired_derivative_is_deleted_and_cannot_be_read(self):
-        from reproloop.live.model import LiveError
+        from reproof.live.model import LiveError
         self.service(); job = self.start(); result = self.wait(job['id'])
         self.assertIsInstance(result['retainUntilMs'], int)
         self.repairs.journal.apply_retention(now_ms=result['retainUntilMs'] + 1)
@@ -184,9 +184,9 @@ class LiveProjectRepairTests(unittest.TestCase):
         self.assertFalse((self.repairs.journal.root / job['id'] / 'candidate').exists())
 
     def test_failed_thread_start_retains_failure_and_releases_the_slot(self):
-        from reproloop.live.model import LiveError
+        from reproof.live.model import LiveError
         self.service()
-        with mock.patch('reproloop.live.project_repair_jobs.threading.Thread.start', side_effect=RuntimeError('owned failure')):
+        with mock.patch('reproof.live.project_repair_jobs.threading.Thread.start', side_effect=RuntimeError('owned failure')):
             with self.assertRaises(LiveError): self.start()
         job = self.repairs.journal.list()[0]
         self.assertEqual(job['status'], 'failed')

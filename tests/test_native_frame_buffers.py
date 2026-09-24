@@ -5,11 +5,11 @@ import subprocess
 import tempfile
 import unittest
 
-from reproloop.kotlin_instrumenter import _ensure_built, _java_home, _subprocess_environment
+from reproof.kotlin_instrumenter import _ensure_built, _java_home, _subprocess_environment
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ANDROID_SOURCE = ROOT / "android/live/src/main/java/io/reproloop/live/LiveInstrumentation.kt"
+ANDROID_SOURCE = ROOT / "android/live/src/main/java/io/reproof/live/LiveInstrumentation.kt"
 IOS_SOURCE = ROOT / "live-ios/Tests/LiveControlTests.swift"
 
 

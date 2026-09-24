@@ -4,13 +4,13 @@ import threading
 import time
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.live.authority import HELPER_VERSION, NATIVE_PROTOCOL_VERSION, HostAuthority, ProviderResult
-from reproloop.live.clock_sync import ClockReading
-from reproloop.live.model import Lab, LiveError
-from reproloop.live import providers
-from reproloop.live.providers import IosProvider
-from reproloop.storage import Lease
+from reproof.core import ContractError
+from reproof.live.authority import HELPER_VERSION, NATIVE_PROTOCOL_VERSION, HostAuthority, ProviderResult
+from reproof.live.clock_sync import ClockReading
+from reproof.live.model import Lab, LiveError
+from reproof.live import providers
+from reproof.live.providers import IosProvider
+from reproof.storage import Lease
 
 
 class Clock:
@@ -340,7 +340,7 @@ class LiveAuthorityIntegrationTests(unittest.TestCase):
             session_id='session_ios', sequence=1,
         )
         permit = handle.prepare_dispatch(admission, provider_incarnation='provider_ios')
-        provider = IosProvider('simulator-two', self.root, 'io.reproloop.fixture', {})
+        provider = IosProvider('simulator-two', self.root, 'io.reproof.fixture', {})
         provider.device_authority = handle
         provider.provider_incarnation = 'provider_ios'
         provider._startup_permit = permit

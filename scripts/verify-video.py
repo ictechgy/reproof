@@ -18,11 +18,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from reproloop.live.clock_sync import ClockReading, ClockSynchronizer, RecordingStamp
-from reproloop.live.disk_budget import DiskBudget
-from reproloop.live.evidence_store import EvidenceStore
-from reproloop.live.recording_session import FramePublication, RecordingStore
-from reproloop.live.video import (EncoderFrame, VideoFrameSink, VideoLimits,
+from reproof.live.clock_sync import ClockReading, ClockSynchronizer, RecordingStamp
+from reproof.live.disk_budget import DiskBudget
+from reproof.live.evidence_store import EvidenceStore
+from reproof.live.recording_session import FramePublication, RecordingStore
+from reproof.live.video import (EncoderFrame, VideoFrameSink, VideoLimits,
                                  encode_configuration, encode_frame, encode_finish)
 
 

@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 
-from reproloop.execution.guest_installation import InstallationError, package_agent, verify_package
+from reproof.execution.guest_installation import InstallationError, package_agent, verify_package
 from tests.test_execution_resources import catalog
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,7 +26,7 @@ class GuestPackageTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertEqual(result.stdout.strip(), b"guest-agent-rejected")
             self.assertNotIn(b"Traceback", result.stderr)
-            (package / "reproloop/execution/wire.py").write_bytes(b"changed source")
+            (package / "reproof/execution/wire.py").write_bytes(b"changed source")
             with self.assertRaises(InstallationError):
                 verify_package(package)
 

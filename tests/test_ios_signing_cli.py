@@ -9,7 +9,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from reproloop.execution.journal import RunDenied
+from reproof.execution.journal import RunDenied
 from tests import test_ios_signing_operation as support
 
 
@@ -28,18 +28,18 @@ class IOSSigningRecoveryCLITests(unittest.TestCase):
         return path
 
     def command(self, *arguments):
-        from reproloop.cli import main
+        from reproof.cli import main
         output = io.StringIO()
         with redirect_stdout(output): code = main(['ios-signing', *arguments])
         return code, json.loads(output.getvalue())
 
     def test_export_is_secret_free_and_recovery_never_loads_signing_material_or_tools(self):
-        from reproloop.ios_signing_configuration import load_ios_signing_configuration
+        from reproof.ios_signing_configuration import load_ios_signing_configuration
         path = self.config_file()
         serialized = path.read_text()
         for value in ('owned unverified profile', 'certificateChain', 'entitlements', 'pkcs12', 'password'):
             self.assertNotIn(value, serialized)
-        with patch('reproloop.ios_signing_inputs.IOSSigningOwnerTools.verify', side_effect=AssertionError('tools must not load')):
+        with patch('reproof.ios_signing_inputs.IOSSigningOwnerTools.verify', side_effect=AssertionError('tools must not load')):
             config = load_ios_signing_configuration(path)
             reader = config.open_existing(); self.addCleanup(reader.close)
             self.assertTrue(reader.recovery_only)
@@ -68,7 +68,7 @@ class IOSSigningRecoveryCLITests(unittest.TestCase):
             self.assertEqual(report['reservedBytes'], 0)
 
     def test_changed_reference_or_journal_never_creates_replacement_state(self):
-        from reproloop.ios_signing_configuration import load_ios_signing_configuration
+        from reproof.ios_signing_configuration import load_ios_signing_configuration
         for field, value in (('applicationId','other_app'), ('scopeDigest','0'*64),
                              ('ownerConfigurationSha256','0'*64), ('ownerRoot',str(self.root/'missing'))):
             with self.subTest(field=field):
@@ -95,8 +95,8 @@ class IOSSigningRecoveryCLITests(unittest.TestCase):
         self.assertEqual(code, 2)
 
     def test_recovery_reference_cannot_accept_boolean_journal_version(self):
-        from reproloop import contracts
-        from reproloop.ios_signing_configuration import load_ios_signing_configuration
+        from reproof import contracts
+        from reproof.ios_signing_configuration import load_ios_signing_configuration
         reference = self.operations.recovery_configuration()
         original = self.operations.root/'configuration.json'
         previous = original.read_bytes()
@@ -114,13 +114,13 @@ class IOSSigningRecoveryCLITests(unittest.TestCase):
         finally: original.write_bytes(previous)
 
     def test_recovery_only_reader_cannot_dispatch_staging_signing_or_inspection(self):
-        from reproloop.ios_signing_configuration import load_ios_signing_configuration
+        from reproof.ios_signing_configuration import load_ios_signing_configuration
         reader = load_ios_signing_configuration(self.config_file()).open_existing()
         self.addCleanup(reader.close)
         options = {'provisioning':None,'policy_document':{},'cancellation':threading.Event(),
                    'deadline_monotonic':time.monotonic()+5}
-        with patch('reproloop.ios_signing_execution.execute_sign') as sign, \
-                patch('reproloop.ios_signing_execution.execute_inspection') as inspect:
+        with patch('reproof.ios_signing_execution.execute_sign') as sign, \
+                patch('reproof.ios_signing_execution.execute_inspection') as inspect:
             with self.assertRaises(Exception): reader.stage(object(),self.fixture.blobs)
             with self.assertRaises(Exception): reader.sign(object(),self.fixture.blobs,material_resolver=None,**options)
             with self.assertRaises(Exception): reader.inspect(object(),self.fixture.context,self.fixture.blobs,**options)
@@ -128,7 +128,7 @@ class IOSSigningRecoveryCLITests(unittest.TestCase):
         self.assertGreater(self.fixture.run_store.status(self.fixture.context.operation_id)['reservedBytes'],0)
 
     def test_cli_can_retry_after_cleanup_succeeds_but_final_journal_write_fails(self):
-        from reproloop.ios_signing_configuration import load_ios_signing_configuration
+        from reproof.ios_signing_configuration import load_ios_signing_configuration
         path = self.config_file()
         reader = load_ios_signing_configuration(path).open_existing(); self.addCleanup(reader.close)
         operation = self.fixture.context.operation_id

@@ -5,9 +5,9 @@ import struct
 import tempfile
 import unittest
 
-from reproloop.live.clock_sync import RecordingStamp
-from reproloop.live.recording_session import FramePublication
-from reproloop.live.video import (
+from reproof.live.clock_sync import RecordingStamp
+from reproof.live.recording_session import FramePublication
+from reproof.live.video import (
     PROTOCOL_MAGIC,
     EncoderFrame,
     VideoLimits,
@@ -158,7 +158,7 @@ class VideoProtocolTests(unittest.TestCase):
     def test_manifest_validator_rejects_unknown_fields_and_false_completeness(self):
         base = {
             "schemaVersion": 1,
-            "kind": "reproloop-avfoundation-video",
+            "kind": "reproof-avfoundation-video",
             "recordingId": "recording_one",
             "status": "incomplete",
             "failureReason": "no-video-frames",

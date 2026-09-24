@@ -5,8 +5,8 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.scenario_runner import ObservationEvidence, StaticVariableResolver
-from reproloop.fixtures import FixtureError
+from reproof.scenario_runner import ObservationEvidence, StaticVariableResolver
+from reproof.fixtures import FixtureError
 from tests.g4_support import G4Environment, ScenarioProvider, SnapshotObservationAdapter, qualification, runtime_policy, specification
 
 

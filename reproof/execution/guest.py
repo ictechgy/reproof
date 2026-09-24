@@ -17,13 +17,13 @@ import tempfile
 import threading
 import time
 
-from reproloop.contracts.versions import digest, require
-from reproloop.core import ContractError
+from reproof.contracts.versions import digest, require
+from reproof.core import ContractError
 from .artifacts import ArtifactError, BlobSet, receive_blobs, send_blobs
 from .resources import ResourceError, validate_catalog
 from .wire import ProtocolError
 
-INSTALL_ROOT = Path("/Library/ReproLoopGuest")
+INSTALL_ROOT = Path("/Library/ReproofGuest")
 MAX_LOG_BYTES = 1024 * 1024
 
 
@@ -91,7 +91,7 @@ class GuestExecutor:
         if cancel.is_set():
             raise GuestError("Guest execution cancelled")
         self._terminate()
-        parent = Path("/private/var/reproloop-jobs")
+        parent = Path("/private/var/reproof-jobs")
         parent.mkdir(mode=0o755, exist_ok=True)
         info = parent.lstat()
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
@@ -119,7 +119,7 @@ class GuestExecutor:
                 stderr=subprocess.STDOUT, start_new_session=True, close_fds=True,
                 env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "C",
                      "HOME": str(directory / "home"), "TMPDIR": str(directory / "tmp"),
-                     "REPROLOOP_OUTPUT_DIR": str(output)})
+                     "REPROOF_OUTPUT_DIR": str(output)})
             os.set_blocking(process.stdout.fileno(), False)
             log, count, truncated, interrupted = hashlib.sha256(), 0, False, False
             readiness = bytearray()

@@ -7,7 +7,7 @@ import uuid
 from .core import require
 
 MAX_APP_LOG_BYTES = 1024 * 1024
-APP_LOG_MIME = 'application/vnd.reproloop.app-log+json'
+APP_LOG_MIME = 'application/vnd.reproof.app-log+json'
 MAX_APP_LOG_EVENTS = 2000
 MAX_APP_LOG_DURATION_MS = 1_800_000
 IDENTITY_KEYS = {'schemaVersion', 'platform', 'applicationId', 'runId', 'sessionId', 'profileDigest', 'startedAtMs'}

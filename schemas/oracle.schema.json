@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:repro-loop:oracle:1",
+  "$id": "urn:reproof:oracle:1",
   "type": "object",
   "additionalProperties": false,
   "required": ["actual", "expected", "bugCondition", "expectedCondition"],

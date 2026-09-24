@@ -4,15 +4,15 @@ import threading
 import time
 from unittest import mock
 
-from reproloop import contracts
-from reproloop.execution.artifacts import ArtifactValidationAuthority, BlobSet
-from reproloop.execution.backend import QualificationAuthority, REQUIRED_PROBES
-from reproloop.execution.journal import RunStore
-from reproloop.execution.resources import provision
-from reproloop.execution.runtime import MacOSVirtualizationBackend
-from reproloop.repair_execution import ProtectedBuildSupervisor
-from reproloop.repair_signing import TrustedSigningSupervisor, SigningObservation, SignatureObservation
-from reproloop.validation import TrustedValidationAuthority, ValidationObservation
+from reproof import contracts
+from reproof.execution.artifacts import ArtifactValidationAuthority, BlobSet
+from reproof.execution.backend import QualificationAuthority, REQUIRED_PROBES
+from reproof.execution.journal import RunStore
+from reproof.execution.resources import provision
+from reproof.execution.runtime import MacOSVirtualizationBackend
+from reproof.repair_execution import ProtectedBuildSupervisor
+from reproof.repair_signing import TrustedSigningSupervisor, SigningObservation, SignatureObservation
+from reproof.validation import TrustedValidationAuthority, ValidationObservation
 from tests.test_execution_resources import resource_inputs
 from tests.test_execution_runtime import VMDouble
 from tests.test_execution_protocol import build_route
@@ -26,7 +26,7 @@ class SyntheticRepairExecution:
         self.cancel_after_replay = None; self.fail_cleanup = False; self.forge_result = False
         self.verification_result = 'pass'; self.inspection_valid = True; self.next_value = 'success'
         self.install_wait = None; self.install_returned = threading.Event()
-        self.patch = mock.patch('reproloop.execution.runtime.NativeVM', VMDouble)
+        self.patch = mock.patch('reproof.execution.runtime.NativeVM', VMDouble)
         self.patch.start()
         VMDouble.instances = []; VMDouble.stop_confirmed = True; VMDouble.wait_for_cancel = False
         VMDouble.started_recipe = threading.Event()
@@ -104,7 +104,7 @@ class SyntheticRepairExecution:
                                      contracts.digest('synthetic independent observation'), True, True)
 
     def install(self, context, artifacts, **kwargs):
-        from reproloop.repair_mobile import MobileInstallationObservation
+        from reproof.repair_mobile import MobileInstallationObservation
         self.installs.append(context)
         self.original_identity = copy.deepcopy(self.env.lab.devices['device']['capabilities']['applicationIdentity'])
         self.env.lab.devices['device']['capabilities']['applicationIdentity']['artifactDigest'] = context.artifact_digest
@@ -129,7 +129,7 @@ class SyntheticRepairExecution:
         return replace(result, expected=True, defect=False) if self.forge_result else result
 
     def cleanup(self, context, **kwargs):
-        from reproloop.repair_mobile import MobileCleanupObservation
+        from reproof.repair_mobile import MobileCleanupObservation
         self.cleanups.append(context)
         if hasattr(self, 'original_identity'):
             self.env.lab.devices['device']['capabilities']['applicationIdentity'] = self.original_identity
@@ -138,7 +138,7 @@ class SyntheticRepairExecution:
                                          True, True, not self.fail_cleanup, True)
 
     def mobile(self, *, timeout=5, qualification=True, store=None):
-        from reproloop.repair_mobile import ProtectedMobileSupervisor, TrustedMobileAdapter
+        from reproof.repair_mobile import ProtectedMobileSupervisor, TrustedMobileAdapter
         adapter = TrustedMobileAdapter('synthetic-test-adapter', self.mobile_scope, 'device',
             self.env.registration.project_digest, self.env.approved.runtime_policy_digest,
             self.install, self.replay, self.cleanup)
@@ -153,5 +153,5 @@ class SyntheticRepairExecution:
         return self.signer.sign(built, operation_id='sign_candidate', cancellation=threading.Event())
 
     def executor(self):
-        from reproloop.repair_verification import ProtectedRepairExecutor
+        from reproof.repair_verification import ProtectedRepairExecutor
         return ProtectedRepairExecutor(self.builder, self.signer, self.mobile())

@@ -7,10 +7,10 @@ import unittest
 import time
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.live.access import AccessController,AccessStore
-from reproloop.live.issue_configuration import compose_issue_workflow
-from reproloop.repair_configuration import ProtectedServiceConfiguration
+from reproof import contracts
+from reproof.live.access import AccessController,AccessStore
+from reproof.live.issue_configuration import compose_issue_workflow
+from reproof.repair_configuration import ProtectedServiceConfiguration
 from tests import test_repair_android as support
 from tests.test_protected_service_configuration import configuration,issue_configuration
 from tests.g4_support import runtime_policy
@@ -61,7 +61,7 @@ class ProtectedMobileInputsTests(unittest.TestCase):
         return ProtectedServiceConfiguration(self.document)
 
     def load(self, definition=None):
-        from reproloop.protected_mobile_inputs import load_protected_mobile_inputs
+        from reproof.protected_mobile_inputs import load_protected_mobile_inputs
         return load_protected_mobile_inputs(self.selected(definition),self.issue,self.bundle)
 
     def assert_unstarted(self):
@@ -71,7 +71,7 @@ class ProtectedMobileInputsTests(unittest.TestCase):
         self.assertFalse(Path(row['mobile']['ownerRoot']).exists())
 
     def test_loader_uses_exact_runtime_and_files_without_starting_adb_or_resolving_variables(self):
-        from reproloop.repair_android import AndroidMobileAdapterConfig
+        from reproof.repair_android import AndroidMobileAdapterConfig
         with (patch('subprocess.Popen',side_effect=AssertionError('ADB started')),
               patch('socket.socket',side_effect=AssertionError('network contacted'))):loaded=self.load()
         profile=loaded.profile('protected-android')
@@ -84,7 +84,7 @@ class ProtectedMobileInputsTests(unittest.TestCase):
         self.assert_unstarted()
 
     def test_mismatched_serial_profile_and_fixture_payload_are_rejected(self):
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         for change in (lambda d:d.update(serial='other-device'),
                        lambda d:d['runtimeProfile'].update(sha256='0'*64),
                        lambda d:d['preparations'][0].update(payloadDigest='0'*64),
@@ -94,7 +94,7 @@ class ProtectedMobileInputsTests(unittest.TestCase):
         self.assert_unstarted()
 
     def test_changed_apk_helper_and_tools_cannot_become_prepared_inputs(self):
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         for section,field,value in (('originalApk','sha256','0'*64),('originalApk','bytes',1),
                                     ('helperApk','sha256','0'*64),('helperApk','bytes',1),
                                     ('tools','adbSha256','0'*64)):
@@ -103,7 +103,7 @@ class ProtectedMobileInputsTests(unittest.TestCase):
         self.assert_unstarted()
 
     def test_credential_commands_and_imported_qualification_are_rejected(self):
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         for name,value in (('password','OwnedCredentialCanary'),('command','OwnedCommandCanary'),('qualified',True)):
             document=dict(self.definition,**{name:value})
             with self.subTest(name=name),self.assertRaises(ProtectedMobileInputsError) as error:self.load(document)
@@ -111,7 +111,7 @@ class ProtectedMobileInputsTests(unittest.TestCase):
         self.assert_unstarted()
 
     def test_changed_loaded_payload_or_current_runtime_cannot_be_revalidated(self):
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         selected=self.selected();loaded=self.load()
         loaded.profile('protected-android').config.preparations[0].payload['unapproved']='value'
         with self.assertRaises(ProtectedMobileInputsError):loaded.verify(selected,self.issue,self.bundle)
@@ -120,9 +120,9 @@ class ProtectedMobileInputsTests(unittest.TestCase):
         self.assert_unstarted()
 
     def test_loaded_config_drives_fixed_adapter_installation_and_original_restoration(self):
-        from reproloop.execution.artifacts import BlobSet
-        from reproloop.repair_android import AndroidTrustedMobileAdapter
-        from reproloop.repair_mobile import MobileInstallationObservation
+        from reproof.execution.artifacts import BlobSet
+        from reproof.repair_android import AndroidTrustedMobileAdapter
+        from reproof.repair_mobile import MobileInstallationObservation
         import time
         loaded=self.load();adapter=AndroidTrustedMobileAdapter(loaded.profile('protected-android').config)
         self.addCleanup(lambda:adapter.close(deadline_monotonic=time.monotonic()+5))
@@ -133,10 +133,10 @@ class ProtectedMobileInputsTests(unittest.TestCase):
         self.assertEqual(json.loads(self.fixture.state_path.read_bytes())['installed'],self.fixture.original_sha)
 
     def test_validation_definitions_bind_only_registered_external_sources_and_scoped_credentials(self):
-        from reproloop.protected_validation_inputs import load_android_validation_inputs
-        from reproloop.protected_validation import ValidationSecretRegistry
-        from reproloop.repair_android import AndroidTrustedMobileAdapter
-        from reproloop.validation import ValidationError
+        from reproof.protected_validation_inputs import load_android_validation_inputs
+        from reproof.protected_validation import ValidationSecretRegistry
+        from reproof.repair_android import AndroidTrustedMobileAdapter
+        from reproof.validation import ValidationError
         loaded=self.load().profile('protected-android');row=self.document['profiles'][0]
         document={'schemaVersion':1,'kind':'unix-validation-observers-v1','observers':[{
             'sourceId':'registered-observer','providerId':'owned-observer','socketPath':str(self.root/'observer.sock'),
@@ -162,7 +162,7 @@ class ProtectedMobileInputsTests(unittest.TestCase):
         self.assert_unstarted()
 
     def test_remote_device_cannot_be_loaded_as_local_before_or_after_file_reads(self):
-        from reproloop import protected_mobile_inputs as inputs
+        from reproof import protected_mobile_inputs as inputs
         device=self.fixture.lab.devices['device']
         try:
             device['_remoteAuthority']=True
@@ -180,10 +180,10 @@ class ProtectedMobileInputsTests(unittest.TestCase):
 
     def test_explicit_adb_endpoint_is_loaded_and_bound_to_the_operation_journal(self):
         from dataclasses import replace
-        from reproloop.execution.journal import RunStore
-        from reproloop.execution.artifacts import BlobSet
-        from reproloop.repair_android_operation import AndroidOperationStore,AndroidOperationError
-        from reproloop.live.authority import canonical_device_fingerprint
+        from reproof.execution.journal import RunStore
+        from reproof.execution.artifacts import BlobSet
+        from reproof.repair_android_operation import AndroidOperationStore,AndroidOperationError
+        from reproof.live.authority import canonical_device_fingerprint
         from tests.test_adb_endpoint import OwnedAdbServer
         server=OwnedAdbServer(self.root);self.addCleanup(server.close)
         serial='owned-endpoint-'+hashlib.sha256(str(self.root).encode()).hexdigest()[:24]
@@ -209,7 +209,7 @@ class ProtectedMobileInputsTests(unittest.TestCase):
 
     def test_guardian_definition_is_pinned_without_starting_a_process(self):
         from tests.test_adb_endpoint import OwnedAdbServer
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         server=OwnedAdbServer(self.root);self.addCleanup(server.close)
         path=self.root/'owned-guardian'
         self.assertFalse(path.exists())

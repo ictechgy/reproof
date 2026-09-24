@@ -1,4 +1,4 @@
-package io.reproloop.plain;
+package io.reproof.plain;
 
 public class FinalDestroyBase extends android.app.Activity {
     @Override

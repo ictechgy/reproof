@@ -4,11 +4,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.android_profile import validate_app_profile
-from reproloop.core import ContractError, compile_capture
-from reproloop.device import AdbDevice
-from reproloop.replay import replay_suite
-from reproloop.storage import create_bundle, load_bundle
+from reproof.android_profile import validate_app_profile
+from reproof.core import ContractError, compile_capture
+from reproof.device import AdbDevice
+from reproof.replay import replay_suite
+from reproof.storage import create_bundle, load_bundle
 try:
     from tests.test_android_profile import profile_document
 except ModuleNotFoundError:

@@ -1,4 +1,4 @@
-# Repro Loop release contracts — schema version 1
+# Reproof release contracts — schema version 1
 
 These G0 contracts are the frozen data boundary for later delivery goals. They are strict JSON-compatible value validators implemented only with the Python standard library. Validation proves shape and cross-reference consistency; it does not execute a recipe, grant authority, prove an oracle, qualify reproduction, or mark a repair verified.
 
@@ -7,7 +7,7 @@ The examples in `tests/fixtures/release/` are synthetic and runnable. `project.j
 ## Public Python API
 
 ```python
-from reproloop import contracts
+from reproof import contracts
 
 project = contracts.validate_project_revision(project_wire)
 recording = contracts.validate_original_evidence(recording_wire)

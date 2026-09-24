@@ -52,7 +52,7 @@ MAX_VIDEO_LOSSES = 512
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _ID = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
 _MIME_TYPES = frozenset({"image/png", "image/jpeg"})
-VIDEO_MANIFEST_MIME = "application/vnd.reproloop.video-manifest+json"
+VIDEO_MANIFEST_MIME = "application/vnd.reproof.video-manifest+json"
 MAX_VIDEO_MANIFEST_BYTES = 8 * 1024 * 1024
 _TIMING_SOURCES = frozenset(
     {"host-acquired", "provider-mapped", "native-unmapped"}
@@ -528,7 +528,7 @@ def validate_video_manifest(value):
     _require(type(value["schemaVersion"]) is int
              and value["schemaVersion"] in {1, 2},
              "Unsupported video manifest")
-    _require(value["kind"] == "reproloop-avfoundation-video"
+    _require(value["kind"] == "reproof-avfoundation-video"
              and value["codec"] == "h264" and value["container"] == "mp4",
              "Invalid video manifest codec")
     _identifier(value["recordingId"], "video recording identity")
@@ -2348,7 +2348,7 @@ class VideoFrameSink:
     def _manifest_body(self, failure_reason):
         value = {
             "schemaVersion": 2 if self.source_mode == VIDEO_SOURCE_MODE else 1,
-            "kind": "reproloop-avfoundation-video",
+            "kind": "reproof-avfoundation-video",
             "recordingId": self._recording_id,
             "status": "incomplete" if self._losses or failure_reason else "complete",
             "failureReason": failure_reason,
@@ -3018,7 +3018,7 @@ class VideoCatalog:
                 })
             manifest = validate_video_manifest({
                 "schemaVersion": 1,
-                "kind": "reproloop-avfoundation-video",
+                "kind": "reproof-avfoundation-video",
                 "recordingId": recording_id,
                 "status": "incomplete",
                 "failureReason": "process-interruption",

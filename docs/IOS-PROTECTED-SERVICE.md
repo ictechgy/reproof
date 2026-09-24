@@ -36,7 +36,7 @@ digest를 매핑 JSON이나 검증 완화로 대체하지 않는다.
 
 ## 실기기 mobile-device qualification
 
-`reproloop.ios_device_qualification.qualify_ios_device(backend_id, authority, subject, *,
+`reproof.ios_device_qualification.qualify_ios_device(backend_id, authority, subject, *,
 environment_digest, signing_policy_id, expected_udid, ttl_ms, timeout_seconds, cancellation)`는
 선택한 paired iPhone을 같은 `QualificationAuthority` 안에서 측정하고, 5개 probe가 모두 통과할 때만
 `mobile-device` qualification을 발급한다. `PhysicalIOSProbeSubject(public_id, products)`는 고정
@@ -107,12 +107,12 @@ native 작업이 중단되면 `IOSNativeRecoveryContext`가 원래 operation/pro
 ## CLI
 
 ```text
-reproloop protected-service check-config --config /absolute/service.json --issue-config /absolute/issues.json
-reproloop live-serve --shared-config /absolute/shared.json --issue-config /absolute/issues.json \
+reproof protected-service check-config --config /absolute/service.json --issue-config /absolute/issues.json
+reproof live-serve --shared-config /absolute/shared.json --issue-config /absolute/issues.json \
   --protected-recovery-config /absolute/service.json --output /absolute/output
-reproloop protected-service ios-status --server <configured-origin> --credential-stdin \
+reproof protected-service ios-status --server <configured-origin> --credential-stdin \
   --profile <profile-id> --operation <original-operation-id>
-reproloop protected-service ios-recover --server <configured-origin> --credential-stdin \
+reproof protected-service ios-recover --server <configured-origin> --credential-stdin \
   --profile <profile-id> --operation <original-operation-id> --request-digest <sha256> --wait
 ```
 

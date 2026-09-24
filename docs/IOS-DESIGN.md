@@ -2,7 +2,7 @@
 
 이 문서는 iOS 재현/수정 어댑터의 초기 설계입니다. 지속 원격 조작과 팜 운영의 상위 방향은 [플랫폼 아키텍처](PLATFORM-ARCHITECTURE.md)를 따릅니다.
 
-작성일: 2026-09-09 · 상태: Simulator MVP 구현·검증 완료, 실기기 미검증 · 대상: Repro Loop의 다음 플랫폼
+작성일: 2026-09-09 · 상태: Simulator MVP 구현·검증 완료, 실기기 미검증 · 대상: Reproof의 다음 플랫폼
 
 구현된 범위와 실행 증거는 [iOS 실행 문서](IOS-RUNBOOK.md)에 정리했다. 아래 설계에는 아직 구현하지 않은 후속 단계도 포함한다.
 
@@ -22,13 +22,13 @@ Android 기기 재연결은 이 설계 작업의 전제 조건이 아니다. And
 
 | 현재 위치 | 재사용 또는 분리할 책임 |
 |---|---|
-| `reproloop/core.py` | 반복 판정·이벤트 순서·서로 다른 실제/기대 조건은 공유. fixture, target, 허용 입력은 플랫폼별 샘플 정책으로 분리 |
-| `reproloop/storage.py` | 안전한 JSON·hash·로컬 lease는 공유. PACKAGE와 `original.apk` 고정 구조는 v2 artifact 계약으로 분리 |
-| `reproloop/device.py` | ADB 구현은 Android 어댑터로 유지. 공통 인터페이스에 ADB shell을 노출하지 않음 |
-| `reproloop/replay.py` | 실행 결과·반복 집계·리포트는 공유. 동작마다 host가 호출하는 구조 외에 batch 실행 결과를 받을 경계 추가 |
-| `reproloop/repair.py` | 제한된 교체·보호 경로·명령 예산은 공유. 소스 파일 수집, 빌드 명령, 표현식 검사는 플랫폼별 구현 |
-| `reproloop/orchestrator.py` | baseline→patch→build→verify 흐름 공유. Kotlin 파일·Gradle task·APK 경로·JUnit parser 고정값 제거 |
-| `reproloop/agents.py` | 도구 없는 패치 제안 방식 공유. iOS의 허용 Swift 파일과 합성 기록만 전달 |
+| `reproof/core.py` | 반복 판정·이벤트 순서·서로 다른 실제/기대 조건은 공유. fixture, target, 허용 입력은 플랫폼별 샘플 정책으로 분리 |
+| `reproof/storage.py` | 안전한 JSON·hash·로컬 lease는 공유. PACKAGE와 `original.apk` 고정 구조는 v2 artifact 계약으로 분리 |
+| `reproof/device.py` | ADB 구현은 Android 어댑터로 유지. 공통 인터페이스에 ADB shell을 노출하지 않음 |
+| `reproof/replay.py` | 실행 결과·반복 집계·리포트는 공유. 동작마다 host가 호출하는 구조 외에 batch 실행 결과를 받을 경계 추가 |
+| `reproof/repair.py` | 제한된 교체·보호 경로·명령 예산은 공유. 소스 파일 수집, 빌드 명령, 표현식 검사는 플랫폼별 구현 |
+| `reproof/orchestrator.py` | baseline→patch→build→verify 흐름 공유. Kotlin 파일·Gradle task·APK 경로·JUnit parser 고정값 제거 |
+| `reproof/agents.py` | 도구 없는 패치 제안 방식 공유. iOS의 허용 Swift 파일과 합성 기록만 전달 |
 
 공통 경계는 아래 4개로 제한한다. 구현 시 Protocol 또는 명시적인 함수 계약으로 표현하며 플러그인 검색·전역 registry를 먼저 도입하지 않는다.
 
@@ -81,7 +81,7 @@ SwiftUI에서는 후속으로 명시적인 action wrapper, 입력 commit, `.acce
 - 저장 실패·미지원 입력·재생 불가능한 scene 전환은 불완전 상태다. 첫 버전은 background/resume으로 끊긴 기록을 자동으로 이어 붙이지 않는다.
 - 크래시 핸들러가 모든 Swift 오류·강제 종료·watchdog 종료를 잡거나 마지막 이벤트를 보장한다고 가정하지 않는다. 복구 JSONL은 진단에 사용할 수 있지만 final marker가 없으면 자동 수정의 근거로 승격하지 않는다.
 
-기본 저장소는 앱 컨테이너 안의 전용 `Library/Application Support/ReproLoop/<sessionId>/`다. 운영 빌드에서는 SDK 기록 기능과 fixture 진입점을 제외한다. 앱 외부 로그·OS 전체 진단·네트워크 본문·스크린샷은 첫 범위에 포함하지 않는다.
+기본 저장소는 앱 컨테이너 안의 전용 `Library/Application Support/Reproof/<sessionId>/`다. 운영 빌드에서는 SDK 기록 기능과 fixture 진입점을 제외한다. 앱 외부 로그·OS 전체 진단·네트워크 본문·스크린샷은 첫 범위에 포함하지 않는다.
 
 ## 5. XCUITest의 입력 의미와 실행 방식
 
@@ -146,7 +146,7 @@ XCTest/xcresult에 자동 수집되는 화면·로그도 별도 개인정보 경
 {
   "schemaVersion": 2,
   "platform": "ios",
-  "applicationId": "io.reproloop.sample.ios",
+  "applicationId": "io.reproof.sample.ios",
   "artifact": {
     "kind": "ios-device-app",
     "manifestDigest": "<digest>",

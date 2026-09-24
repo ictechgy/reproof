@@ -1,6 +1,6 @@
 import unittest
 
-from reproloop.live.model import LiveError
+from reproof.live.model import LiveError
 from tests import test_g6_inventory_authority as authority_tests
 
 

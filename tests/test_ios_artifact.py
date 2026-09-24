@@ -3,13 +3,13 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.core import ContractError, digest
-from reproloop.ios_storage import tree_manifest
+from reproof.core import ContractError, digest
+from reproof.ios_storage import tree_manifest
 
 
 class SimulatorArtifactSnapshotTests(unittest.TestCase):
     def test_snapshot_freezes_bytes_and_uses_fresh_install_timestamps(self):
-        from reproloop.live.ios_artifact import stage_simulator_app
+        from reproof.live.ios_artifact import stage_simulator_app
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve(); source = root / 'Source.app'; source.mkdir()
             binary = source / 'Program'; binary.write_bytes(b'EXPECTED_EXECUTABLE'); binary.chmod(0o755)
@@ -26,7 +26,7 @@ class SimulatorArtifactSnapshotTests(unittest.TestCase):
             self.assertEqual((output / 'Program').read_bytes(), b'EXPECTED_EXECUTABLE')
 
     def test_unapproved_bytes_and_linked_inputs_are_rejected(self):
-        from reproloop.live.ios_artifact import stage_simulator_app
+        from reproof.live.ios_artifact import stage_simulator_app
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve(); source = root / 'Source.app'; source.mkdir()
             binary = source / 'Program'; binary.write_bytes(b'OLD')

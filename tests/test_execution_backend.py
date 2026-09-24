@@ -4,7 +4,7 @@ from dataclasses import replace
 import json
 import unittest
 
-from reproloop.execution.backend import (
+from reproof.execution.backend import (
     DisabledExecutionBackend,
     ExecutionDenied,
     QualificationAuthority,

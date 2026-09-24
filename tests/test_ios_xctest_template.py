@@ -8,12 +8,12 @@ import shutil
 import tempfile
 import unittest
 
-from reproloop.core import ContractError, digest
-from reproloop.ios_xctest_template import IOSXCTestTemplate
+from reproof.core import ContractError, digest
+from reproof.ios_xctest_template import IOSXCTestTemplate
 
 
 FIXTURE = Path(__file__).parent / "fixtures/ios-xctest-template/ReproLive_iphoneos.xctestrun"
-FIXTURE_SHA256 = "db03d6cc84a883e69f4d44c8afe204fe2ef71772d28cdbf12b5e874debf0aac4"
+FIXTURE_SHA256 = "360b0b1587ab6752273dce4e9046abd5090cc24f2d93e7ce2b5c05f0a7b19eff"
 
 
 class IOSXCTestTemplateTests(unittest.TestCase):
@@ -35,7 +35,7 @@ class IOSXCTestTemplateTests(unittest.TestCase):
     def test_real_device_template_renders_and_preserves_generated_shape(self):
         template = self.template()
         rendered = plistlib.loads(template.render(self.paths(), {
-            "REPRO_TARGET_BUNDLE": "io.reproloop.sample.ios",
+            "REPRO_TARGET_BUNDLE": "io.reproof.sample.ios",
             "REPRO_LIVE_PROTOCOL_VERSION": "2",
         }))
         source = plistlib.loads(FIXTURE.read_bytes())
@@ -46,11 +46,11 @@ class IOSXCTestTemplateTests(unittest.TestCase):
         self.assertEqual(target["TestHostPath"], str(self.runner))
         self.assertEqual(target["TestBundlePath"], str(self.runner / "PlugIns/ReproLiveTests.xctest"))
         self.assertEqual(target["UITargetAppPath"], str(self.host))
-        self.assertEqual(template.runner_bundle_identifier, "io.reproloop.live.tests.xctrunner")
+        self.assertEqual(template.runner_bundle_identifier, "io.reproof.live.tests.xctrunner")
         self.assertEqual(set(target["DependentProductPaths"]), {
             str(self.host), str(self.runner), str(self.runner / "PlugIns/ReproLiveTests.xctest")})
         self.assertEqual(target["EnvironmentVariables"]["REPRO_TARGET_BUNDLE"],
-                         "io.reproloop.sample.ios")
+                         "io.reproof.sample.ios")
         self.assertEqual(target["EnvironmentVariables"]["OS_ACTIVITY_DT_MODE"],
                          source["ReproLiveTests"]["EnvironmentVariables"]["OS_ACTIVITY_DT_MODE"])
         self.assertEqual(template.definition_digest,

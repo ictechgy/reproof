@@ -3,11 +3,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from reproloop.android_build import create_protected_build, validate_protected_build
-from reproloop.android_profile import validate_app_profile
-from reproloop.core import ContractError, digest
-from reproloop.repair import snapshot_source
-from reproloop.storage import sha_file, read_json
+from reproof.android_build import create_protected_build, validate_protected_build
+from reproof.android_profile import validate_app_profile
+from reproof.core import ContractError, digest
+from reproof.repair import snapshot_source
+from reproof.storage import sha_file, read_json
 from tests.test_android_profile import profile_document
 
 
@@ -40,7 +40,7 @@ class ProfileBuildTests(unittest.TestCase):
                      'buildTask': kwargs['task'], 'apkSha256': sha_file(apk)}
 
     def create(self):
-        with patch('reproloop.android_build.build_android', self.build):
+        with patch('reproof.android_build.build_android', self.build):
             return create_protected_build(self.source, self.root / 'built',
                 gradle='fake', java_home='fake', sdk_home='fake', app_profile=self.profile)
 

@@ -6,14 +6,14 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop.live.issue_configuration import IssueRuntimeBundle
-from reproloop.repair_android_signing import (
+from reproof.live.issue_configuration import IssueRuntimeBundle
+from reproof.repair_android_signing import (
     AndroidApkInspector, AndroidApkSigner, AndroidSigningError,
     AndroidSigningIdentity, AndroidSigningMaterialResolver, AndroidSigningTools,
     _ProcessOwner,
 )
-from reproloop.repair_composition import ProtectedRepairComposition
-from reproloop.repair_execution import RepairExecutionError
+from reproof.repair_composition import ProtectedRepairComposition
+from reproof.repair_execution import RepairExecutionError
 from tests.test_repair_android_signing import (
     APPLICATION, CERTIFICATE, CONFIGURATION, PACKAGE, PERMISSIONS, SCHEMES,
     _aapt_script, _apksigner_script, _digest, _write_executable,
@@ -95,7 +95,7 @@ class CompositionLifecycleTests(unittest.TestCase):
 
     def test_closed_process_owner_never_dispatches_a_late_callback(self):
         owner = _ProcessOwner(); owner.close()
-        with mock.patch('reproloop.repair_android_signing.subprocess.Popen',
+        with mock.patch('reproof.repair_android_signing.subprocess.Popen',
                         side_effect=AssertionError('closed owner dispatched')) as spawn:
             with self.assertRaises(AndroidSigningError):
                 owner.run(('/usr/bin/true',), work=self.root, input_bytes=b'', pass_fds=(),
@@ -119,7 +119,7 @@ class CompositionLifecycleTests(unittest.TestCase):
                     deadline_monotonic=time.monotonic() + 4))
             except Exception as error: results.append(error)
         def close(): owner.close(); closed.set()
-        with mock.patch('reproloop.repair_android_signing.subprocess.Popen', side_effect=gated_spawn):
+        with mock.patch('reproof.repair_android_signing.subprocess.Popen', side_effect=gated_spawn):
             worker = threading.Thread(target=run); worker.start()
             self.assertTrue(entering.wait(2))
             closer = threading.Thread(target=close); closer.start()
@@ -144,7 +144,7 @@ class CompositionLifecycleTests(unittest.TestCase):
                 owner.run(('/bin/sleep', '10'), work=self.root, input_bytes=b'', pass_fds=(),
                     cancellation=threading.Event(), deadline_monotonic=time.monotonic() + 4)
             finally: finished.set()
-        with mock.patch('reproloop.repair_android_signing.subprocess.Popen', side_effect=gated_spawn):
+        with mock.patch('reproof.repair_android_signing.subprocess.Popen', side_effect=gated_spawn):
             worker = threading.Thread(target=run); worker.start()
             try:
                 self.assertTrue(entered.wait(2))
@@ -176,9 +176,9 @@ class CompositionLifecycleTests(unittest.TestCase):
         reaped.poll.return_value = 0; reaped.wait.return_value = 0
         reaped.stdin = io.BytesIO(); reaped.stdout = io.BytesIO(); reaped.stderr = io.BytesIO()
         try:
-            with mock.patch('reproloop.repair_android_signing.subprocess.Popen', return_value=reaped), \
+            with mock.patch('reproof.repair_android_signing.subprocess.Popen', return_value=reaped), \
                     mock.patch.object(_ProcessOwner, '_group_empty', return_value=False), \
-                    mock.patch('reproloop.repair_android_signing.os.killpg',
+                    mock.patch('reproof.repair_android_signing.os.killpg',
                                side_effect=AssertionError('unowned PID signal')) as signal_group:
                 result = owner.run(('/usr/bin/true',), work=self.root, input_bytes=b'', pass_fds=(),
                     cancellation=threading.Event(), deadline_monotonic=time.monotonic() + 1)

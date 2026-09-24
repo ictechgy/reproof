@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from reproloop.core import ContractError
-from reproloop.live.authority import HostAuthority
-from reproloop.live.model import Lab, LiveError
+from reproof.core import ContractError
+from reproof.live.authority import HostAuthority
+from reproof.live.model import Lab, LiveError
 from tests.test_live_authority_integration import Clock, FencedProvider, parent_grant
 from tests.test_recording_recovery import collection_policy, project_document
 
@@ -63,8 +63,8 @@ class DeviceReservationBoundaryTests(unittest.TestCase):
 
     def external_lock_state(self):
         command = """import sys
-from reproloop.storage import Lease
-from reproloop.core import ContractError
+from reproof.storage import Lease
+from reproof.core import ContractError
 try:
     with Lease('g4-synthetic-device', sys.argv[1]):
         print('available')

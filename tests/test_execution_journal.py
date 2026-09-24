@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import reproloop.execution.journal as journal
-from reproloop.execution.journal import RunStore, RunDenied
-from reproloop.execution.wire import canonical
+import reproof.execution.journal as journal
+from reproof.execution.journal import RunStore, RunDenied
+from reproof.execution.wire import canonical
 
 
 def competing_admission(root, connection):
@@ -88,7 +88,7 @@ class ExecutionJournalTests(unittest.TestCase):
             RunStore(self.root, environment_digest="c" * 64, disk_limit=100)
 
     def test_recovery_requires_a_run_bound_native_termination_record(self):
-        from reproloop.contracts import digest
+        from reproof.contracts import digest
         machine_digest = digest({'testMachine': str(self.root)})
         with self.store.machine_lease(machine_digest):
             pass

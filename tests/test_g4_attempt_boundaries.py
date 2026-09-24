@@ -9,8 +9,8 @@ import sys
 import tempfile
 import unittest
 
-from reproloop import contracts
-from reproloop.qualification import QualificationEngine, QualificationError, ScenarioRegistry
+from reproof import contracts
+from reproof.qualification import QualificationEngine, QualificationError, ScenarioRegistry
 from tests.g4_support import G4Environment
 from tests.test_recording_recovery import collection_policy, open_store, project_document
 

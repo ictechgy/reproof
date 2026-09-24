@@ -15,7 +15,7 @@
 `NEW_TOOLS`는 기존의 소유자 전용 부모 디렉터리 안에 있는 새 출력 경로여야 한다.
 
 ```sh
-reproloop ios-signing build-tools \
+reproof ios-signing build-tools \
   --output-new "$NEW_TOOLS" \
   --clang "$CLANG" --clang-sha256 "$CLANG_SHA256" \
   --sdk-root "$SDK_ROOT" --sdk-settings-sha256 "$SDK_SETTINGS_SHA256" \
@@ -77,8 +77,8 @@ digest와 용량 한도만 포함하며 키 경로·비밀번호·인증서·pro
 원래 저널이 없는 경로를 자동으로 만들거나 다른 구성으로 재생성하지 않는다.
 
 ```sh
-reproloop ios-signing status --config "$RECOVERY_REFERENCE" --operation "$OPERATION_ID"
-reproloop ios-signing recover --config "$RECOVERY_REFERENCE" \
+reproof ios-signing status --config "$RECOVERY_REFERENCE" --operation "$OPERATION_ID"
+reproof ios-signing recover --config "$RECOVERY_REFERENCE" \
   --operation "$OPERATION_ID" --request-digest "$ORIGINAL_REQUEST_DIGEST"
 ```
 

@@ -9,8 +9,8 @@ import stat
 import time
 import subprocess
 
-from reproloop.contracts.versions import digest, require, validate_id
-from reproloop.core import ContractError
+from reproof.contracts.versions import digest, require, validate_id
+from reproof.core import ContractError
 from .artifacts import ArtifactError, ArtifactValidationAuthority, BlobSet, receive_blobs, send_blobs
 from .backend import ExecutionDenied, QualificationAuthority
 from .journal import RunDenied, RunStore

@@ -8,8 +8,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from reproloop.repair import CommandError, run_command
-from reproloop.core import ContractError
+from reproof.repair import CommandError, run_command
+from reproof.core import ContractError
 
 
 def main():

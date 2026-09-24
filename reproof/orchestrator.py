@@ -10,7 +10,7 @@ from .repair import CommandError, apply_edits, build_android, copy_source, run_c
 from .replay import replay_suite, write_report
 from .storage import load_bundle, write_json, sha_file
 
-PRODUCT_FILE='sample/src/main/java/io/reproloop/sample/CounterLogic.kt'
+PRODUCT_FILE='sample/src/main/java/io/reproof/sample/CounterLogic.kt'
 APK_RELATIVE='sample/build/outputs/apk/buggy/debug/sample-buggy-debug.apk'
 BUILD_TASK=':sample:assembleBuggyDebug'
 

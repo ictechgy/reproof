@@ -23,12 +23,12 @@
 `live-serve`에 다음 옵션을 추가한다.
 
 ```sh
-python3 -m reproloop live-serve \
-  --shared-config /etc/reproloop/shared-coordinator-v2.json \
-  --issue-config /etc/reproloop/issue-runtime.json \
-  --video-helper /opt/reproloop/ReproVideo \
-  --media-validator /opt/reproloop/media-validator \
-  --output /var/lib/reproloop/live-output \
+python3 -m reproof live-serve \
+  --shared-config /etc/reproof/shared-coordinator-v2.json \
+  --issue-config /etc/reproof/issue-runtime.json \
+  --video-helper /opt/reproof/ReproVideo \
+  --media-validator /opt/reproof/media-validator \
+  --output /var/lib/reproof/live-output \
   --authority-mode shared-v2 \
   --workers-stdin
 ```
@@ -48,7 +48,7 @@ runtime schema version 1:
 
 | 필드 | 내용 |
 | --- | --- |
-| `kind` | `reproloop-issue-runtime` |
+| `kind` | `reproof-issue-runtime` |
 | `projects[].projectId`, `projectDigest` | 로컬 등록 프로젝트와 정확히 일치 |
 | `runtimePolicy` | 등록된 실행 환경 계약. imported JSON은 이 정책을 공급하지 못함 |
 | `validationRecipeIds` | 프로젝트에 등록된 regression recipe ID |
@@ -102,14 +102,14 @@ fixture 서비스는 [준비·정리 계약](PREPARED-RECORDING.md)의 `/operati
 binary import는 `Content-Type: application/zip`, `X-Repro-Content-SHA256`, 정확한 Content-Length를 요구한다. media는 single Range, `206`/`416`, Content-Range/Length와 immutable ETag를 사용한다. 프로젝트 membership과 만료를 각 요청에서 검사한다.
 
 ```sh
-python3 -m reproloop live-issues projects --server https://coordinator.example.internal:9443
-python3 -m reproloop live-issues start --project checkout --application ios_app \
+python3 -m reproof live-issues projects --server https://coordinator.example.internal:9443
+python3 -m reproof live-issues start --project checkout --application ios_app \
   --build original --device mac-worker-01--phone --preparation seed_account \
   --client-id qa_console --wait --server https://coordinator.example.internal:9443
-python3 -m reproloop live-issues stop ISSUE_ID --wait --server https://coordinator.example.internal:9443
-python3 -m reproloop live-issues export ISSUE_ID --output /new/output/issue.zip \
+python3 -m reproof live-issues stop ISSUE_ID --wait --server https://coordinator.example.internal:9443
+python3 -m reproof live-issues export ISSUE_ID --output /new/output/issue.zip \
   --server https://coordinator.example.internal:9443
-python3 -m reproloop live-issues import --project checkout --file /path/issue.zip \
+python3 -m reproof live-issues import --project checkout --file /path/issue.zip \
   --server https://coordinator.example.internal:9443
 ```
 
@@ -117,7 +117,7 @@ python3 -m reproloop live-issues import --project checkout --file /path/issue.zi
 
 ## 영상과 패키지의 의미
 
-영상은 G3의 실제 H.264 MP4와 `application/vnd.reproloop.video-manifest+json`을 사용한다. 표시 시각, source age, timestamp uncertainty, sample interval과 decoder seek 차이는 서로 다른 값이다. 원격 프레임의 native acquisition 시각이 매핑되지 않았으면 해당 시각·source age는 unknown으로 남고 원본은 incomplete로 보존된다. 이 상태에서도 실제 입력·준비·독립 관측이 조건을 충족하면 원본 결함 재현은 별도로 판정할 수 있다.
+영상은 G3의 실제 H.264 MP4와 `application/vnd.reproof.video-manifest+json`을 사용한다. 표시 시각, source age, timestamp uncertainty, sample interval과 decoder seek 차이는 서로 다른 값이다. 원격 프레임의 native acquisition 시각이 매핑되지 않았으면 해당 시각·source age는 unknown으로 남고 원본은 incomplete로 보존된다. 이 상태에서도 실제 입력·준비·독립 관측이 조건을 충족하면 원본 결함 재현은 별도로 판정할 수 있다.
 
 공백 위치로 이동하면 이전 영상을 지우고 그 위치에 프레임이 없음을 표시한다. 늦은 fetch/decode 응답은 다른 선택 화면을 복원하지 못한다. 화면을 바꾸면 기존 요청·객체 URL·listener를 정리한다. 권한 회수는 다음 요청을 거절하고 플레이어를 중지한다. 이미 다운로드한 바이트를 원격으로 회수하는 기능은 아니다.
 

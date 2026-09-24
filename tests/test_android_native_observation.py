@@ -5,14 +5,14 @@ import subprocess
 import tempfile
 import unittest
 
-from reproloop.kotlin_instrumenter import _ensure_built, _java_home, _subprocess_environment
+from reproof.kotlin_instrumenter import _ensure_built, _java_home, _subprocess_environment
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class AndroidNativeObservationTests(unittest.TestCase):
     def test_native_status_arrays_and_observation_launch_contract(self):
-        source = (ROOT / 'android/live/src/main/java/io/reproloop/live/LiveInstrumentation.kt').read_text()
+        source = (ROOT / 'android/live/src/main/java/io/reproof/live/LiveInstrumentation.kt').read_text()
         status = source[source.index('    private fun statusSnapshot()'):source.index('    private fun observeSample()')]
         launch = source[source.index('    private fun launchGeneralTarget('):source.index('    private fun terminateGeneralTarget(')]
         ready = source[source.index('        fun isReady():'):source.index('        fun isStopped():')]

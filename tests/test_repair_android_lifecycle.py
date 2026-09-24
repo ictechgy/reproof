@@ -6,12 +6,12 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.device import DeviceError
-from reproloop.execution.artifacts import BlobSet
-from reproloop.live.android_live import AndroidLiveProvider
-from reproloop.live.model import LiveError
-from reproloop.repair_composition import ProtectedRepairComposition
-from reproloop.repair_mobile import MobileFailureObservation
+from reproof.device import DeviceError
+from reproof.execution.artifacts import BlobSet
+from reproof.live.android_live import AndroidLiveProvider
+from reproof.live.model import LiveError
+from reproof.repair_composition import ProtectedRepairComposition
+from reproof.repair_mobile import MobileFailureObservation
 from tests import test_repair_android as support
 
 

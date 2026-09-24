@@ -2,7 +2,7 @@
 
 이 문서는 기존 샘플의 v0.1 계약이다. 새 명시적 앱 프로필·bundle v2 계약과 지원 한계는 [Android 앱 프로필](ANDROID-APP-PROFILES.md)에 정리했다.
 
-이 구현의 실행 대상은 `io.reproloop.sample`이다. 호스트는 이 패키지와 `io.reproloop.driver`만 설치·초기화한다. Python 표준 라이브러리만 사용하며 Android는 Kotlin·플랫폼 Views·UiAutomation으로 구현한다.
+이 구현의 실행 대상은 `io.reproof.sample`이다. 호스트는 이 패키지와 `io.reproof.driver`만 설치·초기화한다. Python 표준 라이브러리만 사용하며 Android는 Kotlin·플랫폼 Views·UiAutomation으로 구현한다.
 
 ## 기록과 시작 상태
 
@@ -24,7 +24,7 @@
 
 `repair`는 원본 APK의 빌드 영수증과 현재 소스 digest가 같아야 시작한다. Android 소스를 별도 디렉터리로 복사하고, 에이전트에게는 `CounterLogic.kt`와 합성 QA 시나리오만 전달한다. 에이전트는 파일을 직접 수정하지 않고 JSON 텍스트 교체안을 반환한다.
 
-수정 허용 파일은 `sample/src/main/java/io/reproloop/sample/CounterLogic.kt` 하나다. 현재 MVP는 그 안의 `increment` 정수 표현식만 수정할 수 있다. 구조·새 실행 코드·계측·fixture·테스트·빌드 설정을 변경하면 빌드 전에 차단한다. 임의의 AI 생성 코드를 호스트 빌드에서 실행하지 않기 위한 의도적인 첫 버전의 제한이다. 범용 코드 수정을 지원하려면 별도 OS/컨테이너 빌드 격리가 필요하다.
+수정 허용 파일은 `sample/src/main/java/io/reproof/sample/CounterLogic.kt` 하나다. 현재 MVP는 그 안의 `increment` 정수 표현식만 수정할 수 있다. 구조·새 실행 코드·계측·fixture·테스트·빌드 설정을 변경하면 빌드 전에 차단한다. 임의의 AI 생성 코드를 호스트 빌드에서 실행하지 않기 위한 의도적인 첫 버전의 제한이다. 범용 코드 수정을 지원하려면 별도 OS/컨테이너 빌드 격리가 필요하다.
 
 수정 후에도 **buggy flavor**를 다시 빌드한다. fixed flavor로 전환해 성공을 만드는 방식은 사용하지 않는다. 원래 실패하던 보호된 `CounterLogicTest`가 통과해야 하며, JUnit XML에 실제 실행된 테스트가 없거나 skip·실패가 있으면 검증이 차단된다. Python 실행기와 판정 코드는 수정 작업 공간 밖에 있다.
 
@@ -32,7 +32,7 @@
 
 ## 도구 인터페이스
 
-`python3 -m reproloop tools --bundle ... --output ...`는 stdin/stdout JSON-lines 프로토콜이다. MCP 서버 자체는 아니다.
+`python3 -m reproof tools --bundle ... --output ...`는 stdin/stdout JSON-lines 프로토콜이다. MCP 서버 자체는 아니다.
 
 ```json
 {"tool":"session.inspect"}

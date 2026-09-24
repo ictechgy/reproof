@@ -10,10 +10,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-from reproloop.live.access import AccessController, AccessStore
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.model import Lab
-from reproloop.live.server import LiveServer
+from reproof.live.access import AccessController, AccessStore
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.model import Lab
+from reproof.live.server import LiveServer
 from tests.test_clock_sync import FakeClock
 from tests.test_fixture_allocations import collection_policy, project_document
 from tests.test_project_access import BlockingControl, blocking_device, SharedHttpFixture

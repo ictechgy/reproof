@@ -2,8 +2,8 @@ import struct
 import tempfile
 from unittest import TestCase
 from unittest.mock import patch
-from reproloop.live.android import AndroidProvider,ANDROID_ACTIONS
-from reproloop.live.model import Lab,LiveError
+from reproof.live.android import AndroidProvider,ANDROID_ACTIONS
+from reproof.live.model import Lab,LiveError
 
 
 class Device:
@@ -17,7 +17,7 @@ class Device:
 
 class AndroidBatchTests(TestCase):
     def test_batch_coordinates_and_unsupported_text(self):
-        with tempfile.TemporaryDirectory() as output,patch('reproloop.live.android.AdbDevice',Device):
+        with tempfile.TemporaryDirectory() as output,patch('reproof.live.android.AdbDevice',Device):
             provider=AndroidProvider('synthetic')
             lab=Lab([{'id':'android','kind':'android-adb','capabilities':{
                 'actions':ANDROID_ACTIONS,'authorityMode':'legacy-offline-v1'},

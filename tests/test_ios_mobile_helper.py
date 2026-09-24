@@ -9,14 +9,14 @@ import unittest
 import uuid
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop import ios_mobile_helper as helper_module
-from reproloop.ios_device_tools import IOSDeviceToolError
-from reproloop.ios_mobile_helper import IOSHelperChannel, command_payload
-from reproloop.ios_mobile_identity import IOSInstalledIdentityObservation
-from reproloop.ios_mobile_runtime_identity import IOSRuntimeIdentityReadObservation
-from reproloop.live.authority import ProviderResult
-from reproloop.live.model import Lab
+from reproof import contracts
+from reproof import ios_mobile_helper as helper_module
+from reproof.ios_device_tools import IOSDeviceToolError
+from reproof.ios_mobile_helper import IOSHelperChannel, command_payload
+from reproof.ios_mobile_identity import IOSInstalledIdentityObservation
+from reproof.ios_mobile_runtime_identity import IOSRuntimeIdentityReadObservation
+from reproof.live.authority import ProviderResult
+from reproof.live.model import Lab
 from tests import test_ios_mobile_runtime_identity as runtime_fixtures
 
 
@@ -206,7 +206,7 @@ class IOSMobileHelperTests(unittest.TestCase):
         double = OwnedHTTPDouble(self.launch._endpoint, runner.tools.port, self.launch._token)
         double.launch = self.launch
         double.release = self.case.release
-        with patch("reproloop.ios_mobile_helper.TunnelClient", return_value=double):
+        with patch("reproof.ios_mobile_helper.TunnelClient", return_value=double):
             channel = IOSHelperChannel(session)
         return owner, runner, session, startup, identity, channel, double
 
@@ -425,7 +425,7 @@ class IOSMobileHelperTests(unittest.TestCase):
     def _running_egress(self):
         # egress 정책이 묶인 정의로 스토어를 교체한다 — prepare가
         # runtimeIdentity.egressPolicyDigest와 브리지 env를 주입하게 된다.
-        from reproloop.ios_mobile_operation import IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationStore
         selected = replace(self.case.operations.definition,
                            egress_policy_digest="e" * 64)
         self.case.operations = IOSMobileOperationStore(

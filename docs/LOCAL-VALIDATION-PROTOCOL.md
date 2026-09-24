@@ -37,8 +37,8 @@ newline을 추가하지 않는다.
 MAC은 HMAC-SHA-256의 소문자 hex다.
 
 ```text
-request:  HMAC(key, b"reproloop-validation-v1/request\0"  + canonical(message))
-response: HMAC(key, b"reproloop-validation-v1/response\0" + canonical(message))
+request:  HMAC(key, b"reproof-validation-v1/request\0"  + canonical(message))
+response: HMAC(key, b"reproof-validation-v1/response\0" + canonical(message))
 ```
 
 요청 message의 필드:

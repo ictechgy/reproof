@@ -5,8 +5,8 @@ import threading
 import time
 import unittest
 
-from reproloop.execution.backend import ExecutionDenied, QualificationAuthority
-from reproloop.ios_device_qualification import (
+from reproof.execution.backend import ExecutionDenied, QualificationAuthority
+from reproof.ios_device_qualification import (
     IOSDeviceQualificationError, PROBES, _probe_network_boundary, qualify_ios_device,
 )
 
@@ -86,7 +86,7 @@ class SubjectDouble:
         self.locked = False
         self.udid = UDID
         self.helper_running = False
-        self.installed = ["io.reproloop.live.host", "io.reproloop.live.tests.xctrunner"]
+        self.installed = ["io.reproof.live.host", "io.reproof.live.tests.xctrunner"]
         self.uninstalled = []
         self.sessions = []
 
@@ -140,7 +140,7 @@ class IOSDeviceQualificationTests(unittest.TestCase):
         self.assertIs(authority.require_qualification(qualification, backend_id="ios-device-backend",
             execution_class="mobile-device", environment_digest="e" * 64, signing_policy_id=POLICY,
             evaluated_at_ms=int(time.time() * 1000)), qualification)
-        self.assertEqual(subject.uninstalled, ["io.reproloop.live.host", "io.reproloop.live.tests.xctrunner"])
+        self.assertEqual(subject.uninstalled, ["io.reproof.live.host", "io.reproof.live.tests.xctrunner"])
         helper = subject.sessions[0]
         self.assertTrue(helper.retired)
         self.assertGreaterEqual(helper.closed, 1)

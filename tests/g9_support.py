@@ -1,8 +1,8 @@
 """G9 fixtures use real G4 stores/loopback preparation and explicit synthetic providers."""
 from unittest import mock
 
-from reproloop.project_repair import RepairSource
-from reproloop.qualification import QualificationEngine
+from reproof.project_repair import RepairSource
+from reproof.qualification import QualificationEngine
 from tests.g4_support import G4Environment
 from tests.test_project_repair import source_fixture
 

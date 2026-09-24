@@ -12,16 +12,16 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop import contracts
-from reproloop.execution.artifacts import BlobSet
-from reproloop.execution.journal import RunDenied, RunStore
-from reproloop.repair_android_signing import (
+from reproof import contracts
+from reproof.execution.artifacts import BlobSet
+from reproof.execution.journal import RunDenied, RunStore
+from reproof.repair_android_signing import (
     AndroidSigningIdentity, AndroidSigningMaterialResolver,
 )
-from reproloop.repair_signing import (
+from reproof.repair_signing import (
     SigningContext, SigningFailureObservation, SigningObservation,
 )
-from reproloop.repair_signing_recovery import (
+from reproof.repair_signing_recovery import (
     MIN_OPERATION_BYTES, SigningOperationStore, SigningOwnerTools,
     SigningRecoveryError, _read_blob,
 )
@@ -99,7 +99,7 @@ def _crash_recovery_boundary(boundary, run_root, private_root, scope,
                 os._exit(73)
 
             patcher = mock.patch(
-                "reproloop.repair_signing_recovery.subprocess.Popen",
+                "reproof.repair_signing_recovery.subprocess.Popen",
                 side_effect=crash_after_spawn)
         elif boundary == "start":
             def crash_after_start(*args, **kwargs):
@@ -155,7 +155,7 @@ class SigningRecoveryTests(unittest.TestCase):
         cls.java = cls.owner.java
         cls.owner_jar = cls.owner.owner_jar
         cls.jni_library = (cls.owner.native /
-                           "libreproloop_signing_owner_fd.dylib")
+                           "libreproof_signing_owner_fd.dylib")
         cls.certificate = cls.owner.certificate
         cls.keystore = cls.owner.keystore
         cls.password = cls.owner.password
@@ -339,7 +339,7 @@ class SigningRecoveryTests(unittest.TestCase):
             with mock.patch.object(
                     self.store, "_prepare_phase", side_effect=paused_prepare), \
                     mock.patch(
-                        "reproloop.repair_signing_recovery.subprocess.Popen") as spawn:
+                        "reproof.repair_signing_recovery.subprocess.Popen") as spawn:
                 worker = threading.Thread(target=invoke)
                 worker.start(); self.assertTrue(before_spawn.wait(5))
                 started = time.monotonic()
@@ -376,7 +376,7 @@ class SigningRecoveryTests(unittest.TestCase):
                 except BaseException as error:
                     failures.append(error)
             with mock.patch(
-                    "reproloop.repair_signing_recovery.subprocess.Popen",
+                    "reproof.repair_signing_recovery.subprocess.Popen",
                     side_effect=gated_spawn):
                 worker = threading.Thread(target=invoke)
                 worker.start(); self.assertTrue(entering_spawn.wait(5))
@@ -456,7 +456,7 @@ class SigningRecoveryTests(unittest.TestCase):
             with mock.patch.object(
                     self.store, "_prepare_phase",
                     side_effect=close_inside_callback), mock.patch(
-                    "reproloop.repair_signing_recovery.subprocess.Popen") as spawn:
+                    "reproof.repair_signing_recovery.subprocess.Popen") as spawn:
                 worker = threading.Thread(target=invoke)
                 worker.start(); worker.join(5)
                 self.assertFalse(worker.is_alive())
@@ -490,13 +490,13 @@ class SigningRecoveryTests(unittest.TestCase):
         with self.store.admit(
                 self.context, self.request_digest, DISK_BYTES) as operation:
             with mock.patch(
-                    "reproloop.repair_signing_recovery.os.open",
+                    "reproof.repair_signing_recovery.os.open",
                     side_effect=tracked_open), mock.patch(
-                    "reproloop.repair_signing_recovery.os.pipe",
+                    "reproof.repair_signing_recovery.os.pipe",
                     side_effect=tracked_pipe), mock.patch(
-                    "reproloop.repair_signing_recovery.tempfile.TemporaryFile",
+                    "reproof.repair_signing_recovery.tempfile.TemporaryFile",
                     side_effect=tracked_temporary), mock.patch(
-                    "reproloop.repair_signing_recovery.subprocess.Popen",
+                    "reproof.repair_signing_recovery.subprocess.Popen",
                     side_effect=OSError("injected spawn failure")):
                 with self.assertRaises(OSError):
                     self.store.execute(

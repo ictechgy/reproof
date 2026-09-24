@@ -2,7 +2,7 @@
 import threading
 import unittest
 
-from reproloop.live.worker import RemoteProvider, WorkerClient
+from reproof.live.worker import RemoteProvider, WorkerClient
 from tests import test_video_spool_recording as recording_fixture
 
 

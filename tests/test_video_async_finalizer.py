@@ -4,7 +4,7 @@ import threading
 import time
 import unittest
 
-from reproloop.live.video import VideoFrameSink
+from reproof.live.video import VideoFrameSink
 from tests.test_video_state_machine import FakeEncoder, begin_recording, limits, open_store
 
 

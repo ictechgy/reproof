@@ -9,7 +9,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.repair_android_operation import AndroidOperationError
+from reproof.repair_android_operation import AndroidOperationError
 from tests import test_android_recovery_discarded as support
 
 
@@ -34,7 +34,7 @@ class AndroidRecoveryMaterialsTests(unittest.TestCase):
             yield recovery
 
     def prepare(self):
-        from reproloop.android_recovery_materials import prepare_recovery_materials
+        from reproof.android_recovery_materials import prepare_recovery_materials
         with self.borrow() as recovery:
             return prepare_recovery_materials(self.f.operations,recovery,cancellation=threading.Event(),
                 deadline_monotonic=time.monotonic()+10)
@@ -54,7 +54,7 @@ class AndroidRecoveryMaterialsTests(unittest.TestCase):
         self.assertTrue(self.f.device.requires_reconciliation)
 
     def test_partial_owned_copy_can_resume_with_the_same_new_inode(self):
-        from reproloop import android_recovery_materials
+        from reproof import android_recovery_materials
         def interrupted(source,destination,expected,check):
             os.write(destination,os.read(source,2));os.fsync(destination)
             raise OSError('owned copy interruption')
@@ -69,7 +69,7 @@ class AndroidRecoveryMaterialsTests(unittest.TestCase):
         self.assertEqual((self.f.directory/'intent.json').read_bytes(),self.intent_bytes)
 
     def test_empty_file_before_identity_commit_is_explicitly_recovered(self):
-        from reproloop import android_recovery_materials
+        from reproof import android_recovery_materials
         write=android_recovery_materials._replace_at
         def interrupted(directory,name,value):
             if name=='recovery-materials.json' and value['state']=='preparing' and any(value['files'].values()):
@@ -82,7 +82,7 @@ class AndroidRecoveryMaterialsTests(unittest.TestCase):
         self.assertEqual(self.prepare()['state'],'prepared')
 
     def test_unregistered_nonempty_file_is_not_adopted_as_a_partial_copy(self):
-        from reproloop import android_recovery_materials
+        from reproof import android_recovery_materials
         write=android_recovery_materials._replace_at
         def interrupted(directory,name,value):
             if name=='recovery-materials.json' and value['state']=='preparing' and any(value['files'].values()):
@@ -109,7 +109,7 @@ class AndroidRecoveryMaterialsTests(unittest.TestCase):
         self.assertGreater(self.f.runs.status(self.f.f.operation.operation_id)['reservedBytes'],0)
 
     def test_recovery_descriptor_copy_cannot_prepare_materials(self):
-        from reproloop.android_recovery_materials import prepare_recovery_materials
+        from reproof.android_recovery_materials import prepare_recovery_materials
         with self.borrow() as recovery:
             with self.assertRaises(AndroidOperationError):
                 prepare_recovery_materials(self.f.operations,replace(recovery),cancellation=threading.Event(),
@@ -117,7 +117,7 @@ class AndroidRecoveryMaterialsTests(unittest.TestCase):
         self.assertEqual(list(self.f.f.operation.staging_root.iterdir()),[])
 
     def test_helper_recovery_rejects_copied_descriptor_before_reading_state(self):
-        from reproloop.android_recovery_helper import recover_android_helper
+        from reproof.android_recovery_helper import recover_android_helper
         with self.borrow() as recovery:
             with patch.object(self.f.operations,'_state') as read_state:
                 with self.assertRaises(AndroidOperationError):
@@ -126,7 +126,7 @@ class AndroidRecoveryMaterialsTests(unittest.TestCase):
                 read_state.assert_not_called()
 
     def test_recovery_apk_changed_after_inspection_cannot_be_installed(self):
-        from reproloop import android_recovery
+        from reproof import android_recovery
         self.prepare()
         original=android_recovery.run_native_adb
         changed=[]
@@ -158,7 +158,7 @@ class AndroidRecoveryMaterialsTests(unittest.TestCase):
         self.assertEqual(list(self.f.f.operation.staging_root.iterdir()),[])
 
     def missing_until_installed(self,f,targets):
-        from reproloop.live.android_live import HELPER
+        from reproof.live.android_live import HELPER
         server=f.helper.server;original=server.shell_session
         selected={'original':(f.f.config.package,f.f.config.original_profile.data['artifact']['sha256']),
                   'helper':(HELPER,f.f.config.helper_digest)}

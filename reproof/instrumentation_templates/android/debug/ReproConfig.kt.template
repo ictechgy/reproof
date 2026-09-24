@@ -1,4 +1,4 @@
-package io.reproloop.autotrace
+package io.reproof.autotrace
 
 /** Generated per protected build; replace every placeholder before compiling. */
 internal object ReproConfig {

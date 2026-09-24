@@ -19,7 +19,7 @@ class _ArgumentParser(argparse.ArgumentParser):
 
 
 def _parser():
-    parser = _ArgumentParser(prog='reproloop ios-mobile',
+    parser = _ArgumentParser(prog='reproof ios-mobile',
         description='Inspect or recover an existing iOS IPA preparation journal')
     commands = parser.add_subparsers(dest='action', required=True)
     status = commands.add_parser('status')

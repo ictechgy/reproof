@@ -13,15 +13,15 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.execution.artifacts import BlobSet
-from reproloop.execution.journal import RunStore
-from reproloop.ios_mobile_operation import IOSMobileOperationError, IOSMobileOperationStore
-from reproloop.live.authority import HostAuthority, issue_local_parent_grant
+from reproof.execution.artifacts import BlobSet
+from reproof.execution.journal import RunStore
+from reproof.ios_mobile_operation import IOSMobileOperationError, IOSMobileOperationStore
+from reproof.live.authority import HostAuthority, issue_local_parent_grant
 from tests import test_ios_mobile_operation as preparation
 
 
 def crash_native_owner(root,udid,mode):
-    from reproloop import ios_mobile_native as native
+    from reproof import ios_mobile_native as native
     root=Path(root);body=(root/'input.ipa').read_bytes()
     baselines=BlobSet((('original.ipa',body),));selected=preparation.definition(udid,baselines)
     runs=RunStore(root/'runs',environment_digest='9'*64,disk_limit=4*1024**3)
@@ -93,7 +93,7 @@ class IOSMobileNativeTests(unittest.TestCase):
 
     def test_wrong_device_and_nonissued_handle_cannot_create_native_records(self):
         foreign=self.claim('owned-foreign-phone')
-        from reproloop.live.authority import DeviceAuthority
+        from reproof.live.authority import DeviceAuthority
         forged=DeviceAuthority(authority=self.authority,lease=self.device._lease,
             device_kind='ios-physical',device_fingerprint=self.device._device_fingerprint,
             generation=self.device.generation,helper_incarnation=self.device.helper_incarnation,

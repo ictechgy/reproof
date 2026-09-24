@@ -60,7 +60,7 @@ intent가 없는 과거 quarantine, 바뀐 inode, 알 수 없는 파일, 읽을 
 
 ## CLI 사용
 
-고정 도구는 `reproloop android-signing build-tools --help`의 명시적인 JDK·java·javac·jar·
+고정 도구는 `reproof android-signing build-tools --help`의 명시적인 JDK·java·javac·jar·
 clang·apksigner JAR 경로와 각 SHA-256을 받아 새 디렉터리에 만든다. 다운로드나
 Keychain/키스토어 조회는 하지 않는다. 공개 배포 리소스의 Java/JNI 소스, 도구·헤더,
 JAR의 중첩 클래스와 출력 digest를 검사한 후 원자적으로 게시한다. 취소·시간 초과·
@@ -83,8 +83,8 @@ JAR의 중첩 클래스와 출력 digest를 검사한 후 원자적으로 게시
 64 MiB와 저널 512 KiB 이상이어야 한다. 경로나 참조 ID를 바꿔 과거 작업을 복구하지 않는다.
 
 ```sh
-reproloop android-signing status --config /absolute/signing-owner.json --operation OPERATION_ID
-reproloop android-signing recover --config /absolute/signing-owner.json --operation OPERATION_ID --request-digest REQUEST_SHA256
+reproof android-signing status --config /absolute/signing-owner.json --operation OPERATION_ID
+reproof android-signing recover --config /absolute/signing-owner.json --operation OPERATION_ID --request-digest REQUEST_SHA256
 ```
 
 `status`는 기존 디렉터리만 열고 서명 도구를 실행하지 않는다. `producer-live`,

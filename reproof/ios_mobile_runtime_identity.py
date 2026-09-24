@@ -19,7 +19,7 @@ from .repair_android_operation import _read_fd
 from .repair_android_signing import _cleanup_known_work
 
 
-_SOURCE = 'Library/Application Support/ReproLoop/runtime-identity.json'
+_SOURCE = 'Library/Application Support/Reproof/runtime-identity.json'
 _MAX_RESULT_BYTES = 256 * 1024
 _MAX_IDENTITY_BYTES = 4096
 _MAX_OUTPUT_BYTES = 64 * 1024

@@ -10,14 +10,14 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.execution.artifacts import BlobSet
-from reproloop.ios_profile import validate_ios_profile
-from reproloop.ios_storage import tree_manifest
-from reproloop.live.access import AccessController,AccessStore
-from reproloop.live.issue_configuration import compose_issue_workflow
-from reproloop.repair_configuration import ProtectedServiceConfiguration
-from reproloop.repair_mobile import MobileContext
+from reproof import contracts
+from reproof.execution.artifacts import BlobSet
+from reproof.ios_profile import validate_ios_profile
+from reproof.ios_storage import tree_manifest
+from reproof.live.access import AccessController,AccessStore
+from reproof.live.issue_configuration import compose_issue_workflow
+from reproof.repair_configuration import ProtectedServiceConfiguration
+from reproof.repair_mobile import MobileContext
 from tests import g4_support as workflow_fixture
 from tests import test_ios_artifact_transfer as artifacts
 from tests.test_protected_service_configuration import configuration,issue_configuration
@@ -87,7 +87,7 @@ class IOSMobileInputsTests(unittest.TestCase):
         return ProtectedServiceConfiguration(self.document)
 
     def load(self,definition=None):
-        from reproloop.protected_mobile_inputs import load_protected_mobile_inputs
+        from reproof.protected_mobile_inputs import load_protected_mobile_inputs
         config=self.selected(definition)
         return config,load_protected_mobile_inputs(config,self.issue,self.bundle)
 
@@ -100,7 +100,7 @@ class IOSMobileInputsTests(unittest.TestCase):
     def test_load_binds_real_registration_profile_and_ipa_without_execution_or_extraction(self):
         with (patch('subprocess.Popen',side_effect=AssertionError('Loader started a tool')),
                 patch('socket.socket',side_effect=AssertionError('Loader contacted a network')),
-                patch('reproloop.ios_artifact_transfer._opened_ipa_contents',side_effect=AssertionError('Loader extracted an app'))):
+                patch('reproof.ios_artifact_transfer._opened_ipa_contents',side_effect=AssertionError('Loader extracted an app'))):
             config,loaded=self.load()
         selected=loaded.profile('protected-ios')
         self.assertIs(selected.config.registration,self.env.registration)
@@ -123,7 +123,7 @@ class IOSMobileInputsTests(unittest.TestCase):
         template=(Path(__file__).parent/'fixtures/ios-xctest-template/ReproLive_iphoneos.xctestrun').resolve()
         value['xctest']={'xcodebuildPath':str(binary),'xcodebuildSha256':sha(binary),'developerRoot':str(developer),
             'template':reference(template)}
-        for role,bundle in (('helper-host','com.example.helper.host'),('helper-runner','io.reproloop.live.tests.xctrunner')):
+        for role,bundle in (('helper-host','com.example.helper.host'),('helper-runner','io.reproof.live.tests.xctrunner')):
             app=self.files.make_flat_app()
             info=plistlib.loads((app/'Info.plist').read_bytes())
             info.update(CFBundleIdentifier=bundle,CFBundlePackageType='APPL')
@@ -137,13 +137,13 @@ class IOSMobileInputsTests(unittest.TestCase):
         self.assertEqual(config.definition.xctest_definition_digest,config.xctest.definition_digest)
         self.assertEqual(config.definition.xctest_reserved_bytes,6*64*1024*1024)
         self.assert_unstarted()
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         for changed in (dict(value,xctest={**value['xctest'],'command':'untrusted'}),
                         dict(value,baselines=value['baselines'][:1])):
             with self.assertRaises(ProtectedMobileInputsError):self.load(changed)
 
     def test_changed_ipa_cannot_become_original_just_by_updating_its_reference(self):
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         extra=self.app/'changed.txt';extra.write_bytes(b'owned change');extra.chmod(0o600)
         self.files.make_ipa(self.app,self.ipa)
         changed=copy.deepcopy(self.definition)
@@ -152,7 +152,7 @@ class IOSMobileInputsTests(unittest.TestCase):
         self.assert_unstarted()
 
     def test_foreign_device_remote_device_and_unassigned_registration_are_rejected(self):
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         changed=copy.deepcopy(self.definition);changed['udid']='unselected-device'
         with self.assertRaises(ProtectedMobileInputsError):self.load(changed)
         self.env.lab.devices['device']['_remoteAuthority']=True
@@ -160,7 +160,7 @@ class IOSMobileInputsTests(unittest.TestCase):
         self.assert_unstarted()
 
     def test_commands_credentials_and_overlapping_query_work_are_rejected(self):
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         for alter in (lambda d:d.update(command='untrusted'),lambda d:d['query'].update(password='owned-invalid'),
                       lambda d:d['query'].update(workRoot=self.document['profiles'][0]['mobile']['ownerRoot'])):
             value=copy.deepcopy(self.definition);alter(value)
@@ -168,7 +168,7 @@ class IOSMobileInputsTests(unittest.TestCase):
         self.assert_unstarted()
 
     def test_loaded_inputs_recheck_current_source_and_assignment_before_opening_store(self):
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         config,loaded=self.load()
         self.profile_path.write_bytes(self.profile_path.read_bytes()+b' ')
         with self.assertRaises(ProtectedMobileInputsError):
@@ -176,7 +176,7 @@ class IOSMobileInputsTests(unittest.TestCase):
         self.assert_unstarted()
 
     def test_assignment_loss_before_factory_prevents_any_journal_creation(self):
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         config,loaded=self.load()
         with patch.object(self.access_store,'assignment_project_ids',return_value=()):
             with self.assertRaises(ProtectedMobileInputsError):
@@ -198,8 +198,8 @@ class IOSMobileInputsTests(unittest.TestCase):
         self.assert_unstarted()
 
     def test_source_change_after_zip_preflight_cannot_be_used(self):
-        from reproloop import ios_mobile_inputs as inputs
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof import ios_mobile_inputs as inputs
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         original=inputs._zip_preflight
         def changed(*args,**kwargs):
             result=original(*args,**kwargs);self.ipa.write_bytes(self.ipa.read_bytes()+b'owned-change');return result
@@ -225,7 +225,7 @@ class IOSMobileInputsTests(unittest.TestCase):
         self.assertEqual(self.env.control['calls'],[])
 
     def test_guardian_reference_is_inert_pinned_and_outside_the_query_workspace(self):
-        from reproloop.protected_mobile_inputs import ProtectedMobileInputsError
+        from reproof.protected_mobile_inputs import ProtectedMobileInputsError
         from tests import test_ios_device_guardian as guardian_fixtures
         directory=self.root/'owned-guardian-tools';directory.mkdir(mode=0o700)
         guardian=guardian_fixtures.build_owned_guardian(self,directory)

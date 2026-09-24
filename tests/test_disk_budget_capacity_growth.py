@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.live.disk_budget import DiskBudget, DiskBudgetError
+from reproof.live.disk_budget import DiskBudget, DiskBudgetError
 
 
 class DiskBudgetCapacityGrowthTests(unittest.TestCase):

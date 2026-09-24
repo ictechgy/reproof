@@ -13,9 +13,9 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from reproloop.execution.native import NativeError, NativeVM
-from reproloop.execution.resources import provision
-from reproloop.execution.journal import RunStore
+from reproof.execution.native import NativeError, NativeVM
+from reproof.execution.resources import provision
+from reproof.execution.journal import RunStore
 from tests.test_execution_resources import resource_inputs
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +39,7 @@ class NativeControlTests(unittest.TestCase):
             result = original_select(*args)
             owner.cancel.set()
             return result
-        with mock.patch("reproloop.execution.native.select.select", side_effect=cancelled):
+        with mock.patch("reproof.execution.native.select.select", side_effect=cancelled):
             with self.assertRaises(NativeError):
                 owner._write(b"configuration\n", time.monotonic() + 1)
         with self.assertRaises(BlockingIOError):
@@ -53,8 +53,8 @@ class NativeControlTests(unittest.TestCase):
             result = original_select(*args)
             moment[0] = 12.0
             return result
-        with mock.patch("reproloop.execution.native.time.monotonic", side_effect=lambda: moment[0]), \
-                mock.patch("reproloop.execution.native.select.select", side_effect=delayed):
+        with mock.patch("reproof.execution.native.time.monotonic", side_effect=lambda: moment[0]), \
+                mock.patch("reproof.execution.native.select.select", side_effect=delayed):
             with self.assertRaises(NativeError):
                 owner._write(b"configuration\n", 11.0)
         with self.assertRaises(BlockingIOError):
@@ -97,7 +97,7 @@ class ExecutionNativeTests(unittest.TestCase):
                 result = subprocess.run([str(self.binary / name), "--preflight"], capture_output=True, timeout=5)
                 self.assertEqual(result.returncode, 2)
                 self.assertEqual(result.stdout.strip(), b"guest-scope-required")
-        result = subprocess.run([sys.executable, "-I", str(ROOT / "guest/reproloop_agent/probe.py"),
+        result = subprocess.run([sys.executable, "-I", str(ROOT / "guest/reproof_agent/probe.py"),
                                  "containment"], capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 2)
         self.assertEqual(result.stdout.strip(), b"guest-probe-rejected")

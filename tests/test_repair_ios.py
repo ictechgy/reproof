@@ -6,16 +6,16 @@ import time
 import unittest
 from types import SimpleNamespace
 
-from reproloop import contracts
-from reproloop.execution.artifacts import ArtifactValidationAuthority, BlobSet
-from reproloop.execution.backend import REQUIRED_PROBES
-from reproloop.execution.journal import RunStore
-from reproloop.repair_mobile import ProtectedMobileSupervisor
-from reproloop.repair_signing import TrustedSigningSupervisor
-from reproloop.repair_execution import RepairExecutionError
-from reproloop.repair_ios import IOSTrustedMobileAdapter
-from reproloop.repair_mobile import MobileFailureObservation, MobileInstallationObservation
-from reproloop.repair_callbacks import invoke_fixed
+from reproof import contracts
+from reproof.execution.artifacts import ArtifactValidationAuthority, BlobSet
+from reproof.execution.backend import REQUIRED_PROBES
+from reproof.execution.journal import RunStore
+from reproof.repair_mobile import ProtectedMobileSupervisor
+from reproof.repair_signing import TrustedSigningSupervisor
+from reproof.repair_execution import RepairExecutionError
+from reproof.repair_ios import IOSTrustedMobileAdapter
+from reproof.repair_mobile import MobileFailureObservation, MobileInstallationObservation
+from reproof.repair_callbacks import invoke_fixed
 from tests.ios_service_support import IOSServiceFixture
 from tests.g9_execution_support import SyntheticRepairExecution
 from tests.test_execution_protocol import build_route

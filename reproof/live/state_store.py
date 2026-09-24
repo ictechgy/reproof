@@ -10,7 +10,7 @@ import sqlite3
 import stat
 import threading
 
-from reproloop.core import ContractError
+from reproof.core import ContractError
 
 
 FORMAT_VERSION = 3
@@ -24,7 +24,7 @@ MAX_RECEIPTS_PER_OPERATION = 16
 MAX_RECONCILIATIONS_PER_DEVICE = 1_024
 MAX_LEGACY_ADOPTIONS = 4_096
 RELEASED_RESULT_DIGEST = hashlib.sha256(
-    b"reproloop-authority-release-before-dispatch-v1"
+    b"reproof-authority-release-before-dispatch-v1"
 ).hexdigest()
 
 

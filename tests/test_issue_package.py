@@ -12,12 +12,12 @@ from unittest import mock
 import warnings
 import zipfile
 
-from reproloop import contracts
-from reproloop.issue_package import (
+from reproof import contracts
+from reproof.issue_package import (
     PackageError, PackageLimits, build_archive, inspect_archive, IssuePackageStore,
 )
-from reproloop.live.disk_budget import DiskBudget
-from reproloop.live.evidence_store import EvidenceStore
+from reproof.live.disk_budget import DiskBudget
+from reproof.live.evidence_store import EvidenceStore
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "release"

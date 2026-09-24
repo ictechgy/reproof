@@ -6,10 +6,10 @@ import unittest
 from unittest.mock import Mock, patch
 import zipfile
 
-from reproloop.android_profile import validate_app_profile
-from reproloop.core import ContractError
-from reproloop.repair import snapshot_source
-from reproloop.storage import read_json, sha_file, write_json
+from reproof.android_profile import validate_app_profile
+from reproof.core import ContractError
+from reproof.repair import snapshot_source
+from reproof.storage import read_json, sha_file, write_json
 from tests.test_android_profile import profile_document
 
 
@@ -21,7 +21,7 @@ class BuildInstrumentationPreparationTests(unittest.TestCase):
         self.activity_path = 'app/src/main/java/example/MainActivity.kt'
         self.activity = self.source / self.activity_path
         self.activity.parent.mkdir(parents=True)
-        self.activity.write_text('package io.reproloop.inventory\nclass MainActivity\n')
+        self.activity.write_text('package io.reproof.inventory\nclass MainActivity\n')
         self.product = self.source / 'app/src/main/java/example/Stock.kt'
         self.product.write_text('fun unitsPerItem() = 2\n')
         (self.source / 'app/build.gradle.kts').write_text('// existing public build input\n')
@@ -41,8 +41,8 @@ class BuildInstrumentationPreparationTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_build_mode_preserves_every_original_product_source_and_manifest(self):
-        from reproloop.build_instrumentation import prepare_build_instrumentation
-        from reproloop.instrumentation import validate_instrumented_source
+        from reproof.build_instrumentation import prepare_build_instrumentation
+        from reproof.instrumentation import validate_instrumented_source
         output = self.root / 'prepared'
         result = prepare_build_instrumentation(self.source, self.profile, output, analyzer=self.analyzer)
         self.assertEqual(snapshot_source(self.source), self.before)
@@ -50,11 +50,11 @@ class BuildInstrumentationPreparationTests(unittest.TestCase):
             if '/src/' in name:
                 self.assertEqual(sha_file(output / 'source' / name), checksum)
         staged = output / 'source'
-        self.assertFalse((staged / 'app/src/release/java/io/reproloop/autotrace').exists())
-        self.assertFalse((staged / 'app/src/debug/java/io/reproloop/autotrace').exists())
-        self.assertTrue((staged / 'app/reproloop-instrumentation/runtime/io/reproloop/autotrace/ReproHooks.kt').is_file())
+        self.assertFalse((staged / 'app/src/release/java/io/reproof/autotrace').exists())
+        self.assertFalse((staged / 'app/src/debug/java/io/reproof/autotrace').exists())
+        self.assertTrue((staged / 'app/reproof-instrumentation/runtime/io/reproof/autotrace/ReproHooks.kt').is_file())
         import xml.etree.ElementTree as ET
-        merged = ET.parse(staged / 'app/reproloop-instrumentation/AndroidManifest.xml').getroot()
+        merged = ET.parse(staged / 'app/reproof-instrumentation/AndroidManifest.xml').getroot()
         self.assertEqual(len(merged.findall('application/provider')), 1)
         self.assertEqual(len(merged.findall('application/receiver')), 1)
         profile = validate_app_profile(read_json(output / 'app-profile.json'))
@@ -67,7 +67,7 @@ class BuildInstrumentationPreparationTests(unittest.TestCase):
         self.assertNotIn('a/' + self.activity_path, (output / 'patch.diff').read_text())
 
     def test_existing_buildsrc_is_rejected_without_touching_source_or_output(self):
-        from reproloop.build_instrumentation import prepare_build_instrumentation
+        from reproof.build_instrumentation import prepare_build_instrumentation
         (self.source / 'buildSrc').mkdir()
         with self.assertRaises(ContractError):
             prepare_build_instrumentation(self.source, self.profile, self.root / 'out', analyzer=self.analyzer)
@@ -75,8 +75,8 @@ class BuildInstrumentationPreparationTests(unittest.TestCase):
         self.assertFalse((self.root / 'out').exists())
 
     def test_explicit_inputs_preserve_existing_buildsrc_and_binary_resources(self):
-        from reproloop.build_instrumentation import prepare_build_instrumentation
-        from reproloop.instrumentation import validate_instrumented_source
+        from reproof.build_instrumentation import prepare_build_instrumentation
+        from reproof.instrumentation import validate_instrumented_source
         additions = {
             'settings.gradle.kts': b'pluginManagement { includeBuild("conventions") }\ninclude(":app")\n',
             'buildSrc/build.gradle.kts': b'plugins { `java-library` }\n',
@@ -100,15 +100,15 @@ class BuildInstrumentationPreparationTests(unittest.TestCase):
         for name, checksum in before.items():
             if name not in {'settings.gradle.kts', 'app/build.gradle.kts'}:
                 self.assertEqual(sha_file(output / 'source' / name), checksum)
-        self.assertTrue((output / 'source/reproloop-build-logic/build.gradle.kts').is_file())
-        self.assertIn('io.reproloop.instrumentation', (output / 'source/app/build.gradle.kts').read_text())
+        self.assertTrue((output / 'source/reproof-build-logic/build.gradle.kts').is_file())
+        self.assertIn('io.reproof.instrumentation', (output / 'source/app/build.gradle.kts').read_text())
         self.assertEqual(snapshot_source(self.source.resolve(), source_inputs=document['sourceInputs']), before)
         (output / 'source/app/src/main/res/drawable/logo.png').write_bytes(b'changed')
         with self.assertRaises(ContractError):
             validate_instrumented_source(output / 'source', prepared)
 
     def test_ambiguous_bytecode_line_mapping_is_rejected_before_staging(self):
-        from reproloop.build_instrumentation import prepare_build_instrumentation
+        from reproof.build_instrumentation import prepare_build_instrumentation
         self.analyzer.return_value['sites'].append(dict(self.analyzer.return_value['sites'][0], id='s234abc'))
         with self.assertRaises(ContractError):
             prepare_build_instrumentation(self.source, self.profile, self.root / 'out', analyzer=self.analyzer)
@@ -126,13 +126,13 @@ class BytecodeProofTests(unittest.TestCase):
             {'id': 's123abc', 'path': 'app/src/main/java/example/MainActivity.kt',
              'line': 12, 'target': 'commit', 'kind': 'tap'}]}
         self.profile = validate_app_profile(document)
-        self.path = self.root / 'app/build/reproloop/debug'
+        self.path = self.root / 'app/build/reproof/debug'
         self.path.mkdir(parents=True)
         self.class_bytes = b'fixture transformed class'
         with zipfile.ZipFile(self.path / 'classes.jar', 'w') as jar:
-            jar.writestr('io/reproloop/inventory/MainActivity.class', self.class_bytes)
+            jar.writestr('io/reproof/inventory/MainActivity.class', self.class_bytes)
         self.report = {'schemaVersion': 1, 'kind': 'android_asm_v1', 'appProfileDigest': self.profile.digest,
-            'activityClass': 'io.reproloop.inventory.MainActivity', 'instrumentedClasses': 1,
+            'activityClass': 'io.reproof.inventory.MainActivity', 'instrumentedClasses': 1,
             'sites': [{'id': 's123abc', 'line': 12}], 'lifecycle': {'onCreate': True, 'onDestroy': True},
             'inputClassSha256': 'a' * 64, 'outputClassSha256': hashlib.sha256(self.class_bytes).hexdigest(),
             'outputJarSha256': sha_file(self.path / 'classes.jar')}
@@ -142,13 +142,13 @@ class BytecodeProofTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_proof_binds_profile_sites_and_actual_transformed_class(self):
-        from reproloop.build_instrumentation import validate_bytecode_artifacts
+        from reproof.build_instrumentation import validate_bytecode_artifacts
         proof = validate_bytecode_artifacts(self.root, self.profile)
         self.assertEqual(proof['report'], self.report)
         self.assertEqual(proof['transformedJarSha256'], self.report['outputJarSha256'])
 
     def test_rejects_missing_coverage_wrong_profile_and_false_lifecycle(self):
-        from reproloop.build_instrumentation import validate_bytecode_artifacts
+        from reproof.build_instrumentation import validate_bytecode_artifacts
         for change in [{'sites': []}, {'appProfileDigest': '0' * 64},
                        {'lifecycle': {'onCreate': True, 'onDestroy': False}},
                        {'outputClassSha256': '0' * 64}]:
@@ -159,14 +159,14 @@ class BytecodeProofTests(unittest.TestCase):
                 validate_bytecode_artifacts(self.root, self.profile)
 
     def test_changed_jar_cannot_reuse_a_passing_report(self):
-        from reproloop.build_instrumentation import validate_bytecode_artifacts
+        from reproof.build_instrumentation import validate_bytecode_artifacts
         with zipfile.ZipFile(self.path / 'classes.jar', 'a') as jar:
             jar.writestr('untracked.class', b'changed')
         with self.assertRaises(ContractError):
             validate_bytecode_artifacts(self.root, self.profile)
 
     def test_build_receipt_requires_bytecode_evidence_in_addition_to_an_apk(self):
-        from reproloop.repair import build_android
+        from reproof.repair import build_android
         product = self.root / self.profile.data['edit']['path']
         product.parent.mkdir(parents=True)
         product.write_text('fun unitsPerItem() = 2\n')
@@ -176,7 +176,7 @@ class BytecodeProofTests(unittest.TestCase):
         kwargs = dict(gradle='unused', java_home='unused', sdk_home='unused',
             task=self.profile.data['build']['task'], apk_relative=self.profile.data['build']['apk'],
             app_profile=self.profile)
-        with patch('reproloop.repair.run_command', return_value='BUILD SUCCESSFUL'):
+        with patch('reproof.repair.run_command', return_value='BUILD SUCCESSFUL'):
             _, proof = build_android(self.root, **kwargs)
             self.assertEqual(proof['bytecodeInstrumentation']['report'], self.report)
             (self.path / 'report.json').unlink()

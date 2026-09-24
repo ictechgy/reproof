@@ -1,7 +1,7 @@
 # 일반 앱 이슈 기록과 재현
 
 등록한 UIKit 또는 Android Views 앱에서 시작 조건을 준비한 뒤, 영상과 실행 가능한
-행동을 같은 원본에 남긴다. 일반 서비스의 이슈 화면과 `reproloop live-issues`가
+행동을 같은 원본에 남긴다. 일반 서비스의 이슈 화면과 `reproof live-issues`가
 같은 API를 사용한다. 앱 등록은 [설치 안내](INSTALLATION.md),
 [UIKit 관찰](IOS-APP-OBSERVATIONS.md), [Views 관찰](ANDROID-APP-OBSERVATIONS.md)을 따른다.
 

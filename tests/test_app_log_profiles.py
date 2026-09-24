@@ -3,10 +3,10 @@ from pathlib import Path
 import plistlib
 import tempfile
 import unittest
-from reproloop.android_profile import sample_app_profile, validate_app_profile
-from reproloop.core import ContractError
-from reproloop.instrumentation import render_runtime_config
-from reproloop.ios_instrumentation import prepare_ios_instrumentation
+from reproof.android_profile import sample_app_profile, validate_app_profile
+from reproof.core import ContractError
+from reproof.instrumentation import render_runtime_config
+from reproof.ios_instrumentation import prepare_ios_instrumentation
 from tests.test_ios_instrumentation import minimal_project
 
 
@@ -35,7 +35,7 @@ class AppLogProfileTests(unittest.TestCase):
             before=(source/'Sample/Info.plist').read_bytes()
             prepare_ios_instrumentation(source,root/'prepared')
             original=plistlib.loads(before)
-            generated=plistlib.loads((root/'prepared/source/ReproLoopInstrumentation/Info.plist').read_bytes())
+            generated=plistlib.loads((root/'prepared/source/ReproofInstrumentation/Info.plist').read_bytes())
             self.assertEqual(generated['ReproAppLogSchemaVersion'],1)
             self.assertNotIn('ReproAppLogSchemaVersion',original)
             self.assertEqual((source/'Sample/Info.plist').read_bytes(),before)

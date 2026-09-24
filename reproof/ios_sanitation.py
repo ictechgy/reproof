@@ -118,9 +118,9 @@ def validate_ios_sanitation_policy(document):
         require(
             not (
                 item["root"] == "application-support"
-                and components[0] == "reproloop"
+                and components[0] == "reproof"
             ),
-            "The ReproLoop runtime tree is reserved",
+            "The Reproof runtime tree is reserved",
         )
         selected_paths.append((item["root"], components))
     for index, (root, components) in enumerate(selected_paths):

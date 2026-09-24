@@ -38,7 +38,7 @@ final class Recorder {
     }
 
     private let stateLock = NSLock()
-    private let writerQueue = DispatchQueue(label: "io.reproloop.recorder.writer", qos: .utility)
+    private let writerQueue = DispatchQueue(label: "io.reproof.recorder.writer", qos: .utility)
     private var started = false
     private var completed = false
     private var finishing = false
@@ -275,7 +275,7 @@ final class Recorder {
             let capture = Capture(
                 schemaVersion: 2,
                 platform: "ios",
-                applicationId: "io.reproloop.sample.ios",
+                applicationId: "io.reproof.sample.ios",
                 sessionId: sessionID,
                 fixture: Fixture(id: ReproCase.current.fixtureID, version: 1, inputs: [:]),
                 startState: StartState(screen: "main", nodes: ["counter.count": "0", "counter.name": ""]),
@@ -340,7 +340,7 @@ final class Recorder {
         var metadata: [String: Any] = [
             "schemaVersion": 2,
             "platform": "ios",
-            "applicationId": "io.reproloop.sample.ios",
+            "applicationId": "io.reproof.sample.ios",
             "sessionId": sessionID,
             "fixture": ["id": ReproCase.current.fixtureID, "version": 1, "inputs": [:]],
             "startState": ["screen": "main", "nodes": ["counter.count": "0", "counter.name": ""]],
@@ -403,6 +403,6 @@ final class Recorder {
 
     private func applicationSupportDirectory() -> URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ReproLoop", isDirectory: true)
+            .appendingPathComponent("Reproof", isDirectory: true)
     }
 }

@@ -5,20 +5,20 @@ import os
 from pathlib import Path
 import stat
 
-from reproloop.contracts.versions import bounded_int, digest, exact, require
-from reproloop.core import ContractError
+from reproof.contracts.versions import bounded_int, digest, exact, require
+from reproof.core import ContractError
 from .artifacts import ArtifactError, BlobSet, read_regular
 from .resources import ResourceError, validate_catalog
 from .wire import ProtocolError, canonical, decode_json
 
 AGENT_FILES = (
-    "reproloop/__init__.py", "reproloop/core.py", "reproloop/contracts/__init__.py",
-    "reproloop/contracts/versions.py", "reproloop/contracts/project.py", "reproloop/contracts/evidence.py",
-    "reproloop/contracts/scenario.py", "reproloop/contracts/observation.py", "reproloop/contracts/execution.py",
-    "reproloop/execution/__init__.py", "reproloop/execution/backend.py", "reproloop/execution/protocol.py",
-    "reproloop/execution/wire.py", "reproloop/execution/artifacts.py", "reproloop/execution/resources.py",
-    "reproloop/execution/guest.py", "reproloop/execution/guest_probe.py",
-    "reproloop/execution/guest_installation.py",
+    "reproof/__init__.py", "reproof/core.py", "reproof/contracts/__init__.py",
+    "reproof/contracts/versions.py", "reproof/contracts/project.py", "reproof/contracts/evidence.py",
+    "reproof/contracts/scenario.py", "reproof/contracts/observation.py", "reproof/contracts/execution.py",
+    "reproof/execution/__init__.py", "reproof/execution/backend.py", "reproof/execution/protocol.py",
+    "reproof/execution/wire.py", "reproof/execution/artifacts.py", "reproof/execution/resources.py",
+    "reproof/execution/guest.py", "reproof/execution/guest_probe.py",
+    "reproof/execution/guest_installation.py",
 )
 
 
@@ -33,7 +33,7 @@ def _policy(value):
     bounded_int(value["gid"], "guest GID", 1, 60000)
     validate_catalog(value["catalog"])
     require(type(value["files"]) is list, "Guest files required")
-    expected = {*AGENT_FILES, "main.py", "probe.py", "guest-connect", "guest-run", "io.reproloop.guest.plist"}
+    expected = {*AGENT_FILES, "main.py", "probe.py", "guest-connect", "guest-run", "io.reproof.guest.plist"}
     require({item["path"] for item in value["files"]} == expected
             and len(value["files"]) == len(expected), "Guest file set mismatch")
     require(value["agentDigest"] == digest({key: item for key, item in value.items() if key != "agentDigest"}),
@@ -45,8 +45,8 @@ def package_agent(output, *, source_root, native_root, catalog, uid, gid):
     try:
         catalog = validate_catalog(catalog)
         entries = [(name, read_regular(source_root, name, maximum=2 * 1024 ** 2)) for name in AGENT_FILES]
-        for name in ("main.py", "probe.py", "io.reproloop.guest.plist"):
-            entries.append((name, read_regular(source_root, "guest/reproloop_agent/" + name, maximum=2 * 1024 ** 2)))
+        for name in ("main.py", "probe.py", "io.reproof.guest.plist"):
+            entries.append((name, read_regular(source_root, "guest/reproof_agent/" + name, maximum=2 * 1024 ** 2)))
         for name in ("guest-connect", "guest-run"):
             entries.append((name, read_regular(native_root, name, maximum=8 * 1024 ** 2)))
         blobs = BlobSet(tuple(entries))

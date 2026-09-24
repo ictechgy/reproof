@@ -1,4 +1,4 @@
-package io.reproloop.live
+package io.reproof.live
 
 import android.accessibilityservice.AccessibilityService
 import android.app.Instrumentation
@@ -15,7 +15,7 @@ import android.text.InputType
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import io.reproloop.nativecommon.NativeAppProfile
+import io.reproof.nativecommon.NativeAppProfile
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
@@ -811,7 +811,7 @@ class LiveInstrumentation : Instrumentation() {
                     val idPattern = Regex("[a-z][a-z0-9_-]{0,63}")
                     if (token.isEmpty() || token.length > 512 || port !in 1..65535 ||
                         targetPackage != profile.packageName ||
-                        (!hasProfile && targetPackage != "io.reproloop.sample") ||
+                        (!hasProfile && targetPackage != "io.reproof.sample") ||
                         !targetPackage.matches(Regex("[A-Za-z0-9_.]+")) || maxFps !in 1..60 || maxWidth !in 1..960 ||
                         (hasAuthority && (protocolVersion != NATIVE_PROTOCOL_VERSION || helperVersion != HELPER_VERSION ||
                             helperIncarnation?.matches(idPattern) != true || hostIncarnation?.matches(idPattern) != true ||

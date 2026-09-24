@@ -13,8 +13,8 @@ from pathlib import Path
 import platform
 import stat
 
-from reproloop.core import ContractError
-from reproloop.contracts.versions import (
+from reproof.core import ContractError
+from reproof.contracts.versions import (
     bounded_int, bounded_list, bounded_text, digest, exact, require,
     validate_digest, validate_id,
 )

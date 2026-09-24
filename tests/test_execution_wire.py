@@ -7,7 +7,7 @@ import threading
 import time
 import unittest
 
-from reproloop.execution import wire
+from reproof.execution import wire
 
 
 class ExecutionWireTests(unittest.TestCase):

@@ -3,9 +3,9 @@ import threading
 import unittest
 from unittest.mock import Mock
 
-from reproloop.core import ContractError
-from reproloop.ios_profile import validate_ios_profile
-from reproloop.live.iphone import PhysicalIosProvider
+from reproof.core import ContractError
+from reproof.ios_profile import validate_ios_profile
+from reproof.live.iphone import PhysicalIosProvider
 from tests.test_worker_profiles import ios_document, physical_ios_document
 
 

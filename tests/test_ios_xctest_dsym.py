@@ -4,8 +4,8 @@ from pathlib import Path
 import plistlib
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.ios_artifact_transfer import parse_ios_artifact
+from reproof.core import ContractError
+from reproof.ios_artifact_transfer import parse_ios_artifact
 from tests import test_ios_artifact_transfer as support
 
 

@@ -1,16 +1,16 @@
 # Android debug instrumentation templates
 
-The host copies the existing `android/sdk/src/main/java/io/reproloop/sdk/ReproRecorder.kt`
-into the target module's `src/debug/java/io/reproloop/sdk/`, then copies the files under
+The host copies the existing `android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt`
+into the target module's `src/debug/java/io/reproof/sdk/`, then copies the files under
 `android/debug/java/` into `src/debug/java/`. The release source set receives only
-`android/release/java/io/reproloop/autotrace/ReproAuto.kt`; the debug manifest overlay
+`android/release/java/io/reproof/autotrace/ReproAuto.kt`; the debug manifest overlay
 receives `android/debug/AndroidManifest.xml`. The release manifest is intentionally empty.
 Before copying, the host must reject a target that already defines any of
-`io.reproloop.sdk.ReproRecorder`, `io.reproloop.autotrace.ReproAuto`,
-`io.reproloop.autotrace.AutoExportReceiver`, or `io.reproloop.autotrace.ReproConfig`;
+`io.reproof.sdk.ReproRecorder`, `io.reproof.autotrace.ReproAuto`,
+`io.reproof.autotrace.AutoExportReceiver`, or `io.reproof.autotrace.ReproConfig`;
 overwriting prior instrumentation would make the source proof ambiguous.
 
-The host must generate `io.reproloop.autotrace.ReproConfig` in the target debug source
+The host must generate `io.reproof.autotrace.ReproConfig` in the target debug source
 set. `ReproConfig.kt.template` shows the package and fields. Values are compact JSON
 strings with no source interpolation beyond a Kotlin triple-quoted literal:
 
@@ -49,7 +49,7 @@ activates when the application is debuggable and the activity intent has
 `repro_mode=record`. All hooks are no-throw and use a weak activity reference.
 
 `AutoExportReceiver` is a debug-only exported receiver protected by
-`android.permission.DUMP`. The explicit action is `io.reproloop.EXPORT_CAPTURE`.
+`android.permission.DUMP`. The explicit action is `io.reproof.EXPORT_CAPTURE`.
 Result code `0` means the asynchronous SDK freeze was accepted; result code `1` means
 no active valid recording or a rejected request. Once the SDK callback has published
 the finalized capture, the runtime atomically writes `files/repro/diagnostics.json`:

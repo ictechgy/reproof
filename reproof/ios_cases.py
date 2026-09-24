@@ -32,7 +32,7 @@ class IosCase:
         if self.name in {'duplicate-submit','reset'}:
             events.append({'id':'e3','seq':3,'action':'tap',
                            'target':'counter.reset' if self.name=='reset' else 'counter.add','parameters':{}})
-        return {'schemaVersion':2,'platform':'ios','applicationId':'io.reproloop.sample.ios','sessionId':'scripted-ios-session',
+        return {'schemaVersion':2,'platform':'ios','applicationId':'io.reproof.sample.ios','sessionId':'scripted-ios-session',
                 'fixture':self.fixture,'startState':{'screen':'main','nodes':{'counter.name':'','counter.count':'0'}},
                 'events':events,'truncated':False,'lostEvents':False,'endSequence':len(events)}
 

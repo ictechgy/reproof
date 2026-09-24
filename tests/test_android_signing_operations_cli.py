@@ -12,12 +12,12 @@ import threading
 import time
 import unittest
 
-from reproloop import contracts
-from reproloop.android_signing_tools import build_android_signing_owner
-from reproloop.execution.journal import RunStore
-from reproloop.repair_android_signing import AndroidSigningIdentity
-from reproloop.repair_signing import SigningContext
-from reproloop.repair_signing_recovery import MIN_OPERATION_BYTES, SigningOperationStore
+from reproof import contracts
+from reproof.android_signing_tools import build_android_signing_owner
+from reproof.execution.journal import RunStore
+from reproof.repair_android_signing import AndroidSigningIdentity
+from reproof.repair_signing import SigningContext
+from reproof.repair_signing_recovery import MIN_OPERATION_BYTES, SigningOperationStore
 from tests.test_android_signing_tools import _actual_tools, JDK_HOME, APKSIGNER_JAR, CLANG
 
 
@@ -74,7 +74,7 @@ class AndroidSigningOperationsCliTests(unittest.TestCase):
 
     def command(self, action, *arguments, path=None):
         selected = self.config_path if path is None else path
-        result = subprocess.run([sys.executable, "-m", "reproloop", "android-signing",
+        result = subprocess.run([sys.executable, "-m", "reproof", "android-signing",
             action, "--config", str(selected), "--operation", self.context.operation_id,
             *map(str, arguments)], cwd=ROOT, capture_output=True, timeout=15)
         self.assertEqual(result.stderr, b"")
@@ -125,17 +125,17 @@ class AndroidSigningOperationsCliTests(unittest.TestCase):
         self.assertEqual(report["reservedBytes"], 0)
 
     def test_invalid_cli_arguments_do_not_echo_potential_material(self):
-        result = subprocess.run([sys.executable, "-m", "reproloop", "android-signing",
+        result = subprocess.run([sys.executable, "-m", "reproof", "android-signing",
             "status", "--config", str(self.config_path), "--operation", self.context.operation_id,
             "--password", "OwnedSecretMarker"], cwd=ROOT, capture_output=True, timeout=15)
         self.assertEqual(result.returncode, 2)
         self.assertNotIn(b"OwnedSecretMarker", result.stdout + result.stderr)
 
     def test_public_command_builds_pinned_tools_without_a_checkout_script(self):
-        from reproloop.android_signing_tools import load_android_signing_owner
+        from reproof.android_signing_tools import load_android_signing_owner
         tools = _actual_tools()
         output = self.root / "public-tools"
-        arguments = [sys.executable, "-m", "reproloop", "android-signing", "build-tools",
+        arguments = [sys.executable, "-m", "reproof", "android-signing", "build-tools",
                      "--output-new", str(output), "--jdk-home", str(tools.jdk_home)]
         for name in ("java", "javac", "jar", "clang", "apksigner_jar"):
             flag = name.replace("_", "-")

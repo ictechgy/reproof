@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "reproloop-instrumentation-build-logic"
+rootProject.name = "reproof-instrumentation-build-logic"

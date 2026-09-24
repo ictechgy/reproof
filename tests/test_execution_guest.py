@@ -7,15 +7,15 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop.execution import guest, wire
-from reproloop.execution.artifacts import BlobSet, receive_blobs, send_blobs
+from reproof.execution import guest, wire
+from reproof.execution.artifacts import BlobSet, receive_blobs, send_blobs
 from tests.test_execution_resources import catalog
 
 
 class ExecutionGuestTests(unittest.TestCase):
     def test_host_cannot_run_a_guest_recipe_by_setting_an_environment_flag(self):
         executor = guest.GuestExecutor(uid=501, gid=20)
-        with mock.patch.dict(os.environ, {"REPROLOOP_GUEST": "1"}):
+        with mock.patch.dict(os.environ, {"REPROOF_GUEST": "1"}):
             with self.assertRaises(guest.GuestError):
                 executor.execute(BlobSet((("input", b"data"),)), catalog()[0], threading.Event())
 

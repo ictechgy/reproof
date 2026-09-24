@@ -25,9 +25,9 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from reproloop import contracts
-from reproloop.live.access import AccessStore
-from reproloop.live.client import IssueClient
+from reproof import contracts
+from reproof.live.access import AccessStore
+from reproof.live.client import IssueClient
 from tests.fixtures.g7_qa_runtime import call_backend, collection_policy, project_document
 
 
@@ -45,7 +45,7 @@ def save(path, value):
 
 
 def sources():
-    paths = [*ROOT.glob("reproloop/**/*.py"), *ROOT.glob("live-web/*.js"),
+    paths = [*ROOT.glob("reproof/**/*.py"), *ROOT.glob("live-web/*.js"),
              *ROOT.glob("live-web/*.html"), *ROOT.glob("live-web/*.css"),
              *ROOT.glob("native/macos-video/**/*.swift"), ROOT / "native/macos-media-validator/main.swift",
              Path(__file__), ROOT / "scripts/verify-video.py", *ROOT.glob("tests/**/*.py"),
@@ -109,7 +109,7 @@ def wait_for(read, predicate, *, seconds=30, code="expected_state_timeout"):
 
 
 def runtime_configuration(project, backend):
-    return {"schemaVersion": 1, "kind": "reproloop-issue-runtime", "projects": [{
+    return {"schemaVersion": 1, "kind": "reproof-issue-runtime", "projects": [{
         "projectId": project["id"], "projectDigest": contracts.digest(project),
         "runtimePolicy": {"schemaVersion": 1, "class": "mobile-device", "network": "loopback",
             "candidateCanEdit": False, "enforcedControls": ["host_authority"], "attestations": []},

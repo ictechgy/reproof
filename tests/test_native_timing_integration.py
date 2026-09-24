@@ -7,13 +7,13 @@ import struct
 import threading
 import unittest
 
-from reproloop.live.android_live import AndroidLiveProvider
-from reproloop.live.authority import HELPER_VERSION, NATIVE_PROTOCOL_VERSION, NativeHandshake
-from reproloop.live.iphone import PhysicalIosProvider
-from reproloop.live.model import LiveError
-from reproloop.live.native_frame_clock import NativeFrameClock
-from reproloop.live.providers import IosProvider
-from reproloop.live.server import LiveServer
+from reproof.live.android_live import AndroidLiveProvider
+from reproof.live.authority import HELPER_VERSION, NATIVE_PROTOCOL_VERSION, NativeHandshake
+from reproof.live.iphone import PhysicalIosProvider
+from reproof.live.model import LiveError
+from reproof.live.native_frame_clock import NativeFrameClock
+from reproof.live.providers import IosProvider
+from reproof.live.server import LiveServer
 from tests import test_g2_lab_integration as lab_fixture
 
 

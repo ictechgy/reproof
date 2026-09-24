@@ -1,8 +1,8 @@
 import copy
 import unittest
 
-from reproloop import contracts
-from reproloop.qualification import QualificationEngine, QualificationError
+from reproof import contracts
+from reproof.qualification import QualificationEngine, QualificationError
 from tests.g4_support import G4Environment
 
 

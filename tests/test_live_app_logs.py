@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.providers import DemoProvider, demo_device
+from reproof.live.model import Lab, LiveError
+from reproof.live.providers import DemoProvider, demo_device
 from tests.test_app_logs import snapshot
 
 

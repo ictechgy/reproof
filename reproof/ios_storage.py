@@ -71,7 +71,7 @@ def automatic_profile_for_receipt(app, receipt):
     files = receipt.get('sourceFiles')
     require(isinstance(files, dict) and bool(files) and receipt.get('sourceDigest') == digest(files)
             and automatic.get('sourceFiles') == {name: value for name, value in files.items()
-                                                 if name.startswith('ReproLoopInstrumentation/')}
+                                                 if name.startswith('ReproofInstrumentation/')}
             and bool(automatic['sourceFiles']), 'Automatic iOS runtime is absent from its source proof')
     return profile
 

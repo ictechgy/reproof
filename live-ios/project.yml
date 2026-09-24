@@ -23,7 +23,7 @@ targets:
       - path: HostApp
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.reproloop.live.host
+        PRODUCT_BUNDLE_IDENTIFIER: io.reproof.live.host
         PRODUCT_NAME: ReproLiveHost
         INFOPLIST_FILE: HostApp/Info.plist
         DEFINES_MODULE: true
@@ -39,7 +39,7 @@ targets:
       - target: ReproLiveHost
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.reproloop.live.tests
+        PRODUCT_BUNDLE_IDENTIFIER: io.reproof.live.tests
         PRODUCT_NAME: ReproLiveTests
         INFOPLIST_FILE: Tests/Info.plist
         TEST_TARGET_NAME: ReproLiveHost

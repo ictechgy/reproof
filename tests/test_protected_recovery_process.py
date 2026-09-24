@@ -14,8 +14,8 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.live.access import AccessStore
-from reproloop.live.client import IssueClient
+from reproof.live.access import AccessStore
+from reproof.live.client import IssueClient
 from tests import test_android_recovery as recovery_fixture
 from tests import test_repair_android as device_fixture
 from tests import test_protected_recovery_service as support
@@ -51,7 +51,7 @@ class ProtectedRecoveryProcessTests(unittest.TestCase):
             path=self.root/name;path.write_text(json.dumps(value));path.chmod(0o600);return path
         project=write('process-project.json',self.config.registration.project)
         policy=write('process-collection.json',self.config.registration.collection_policy)
-        self.shared=write('process-shared.json',{'schemaVersion':2,'kind':'reproloop-shared-coordinator',
+        self.shared=write('process-shared.json',{'schemaVersion':2,'kind':'reproof-shared-coordinator',
             'stateRoot':str(store.root),'listen':{'host':'127.0.0.1','port':port,'origin':self.origin,
                 'tlsCertificateFile':None,'tlsPrivateKeyFile':None},
             'projects':[{'projectFile':str(project),'collectionPolicyFile':str(policy)}],'browserSessionSeconds':600})
@@ -78,7 +78,7 @@ class ProtectedRecoveryProcessTests(unittest.TestCase):
         stdout=(self.root/f'process-server-{number}.out').open('x')
         stderr=(self.root/f'process-server-{number}.err').open('x')
         self.streams.extend((stdout,stderr))
-        process=subprocess.Popen([sys.executable,'-m','reproloop','live-serve',
+        process=subprocess.Popen([sys.executable,'-m','reproof','live-serve',
             '--shared-config',str(self.shared),'--issue-config',str(self.issue),
             '--protected-recovery-config',str(self.protected),'--output',str(self.output)],
             stdin=subprocess.DEVNULL,stdout=stdout,stderr=stderr,env=self.environment,

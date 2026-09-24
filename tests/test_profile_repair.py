@@ -3,17 +3,17 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from reproloop.android_profile import validate_app_profile
-from reproloop.core import ContractError, digest
-from reproloop.orchestrator import repair_job
-from reproloop.repair import snapshot_source
-from reproloop.storage import create_bundle, sha_file
+from reproof.android_profile import validate_app_profile
+from reproof.core import ContractError, digest
+from reproof.orchestrator import repair_job
+from reproof.repair import snapshot_source
+from reproof.storage import create_bundle, sha_file
 from tests.test_android_profile import profile_document
 
 
 class NumericEditTests(unittest.TestCase):
     def test_configured_function_changes_only_numeric_expression(self):
-        from reproloop.repair import validate_numeric_expression
+        from reproof.repair import validate_numeric_expression
         before = 'object Stock {\n    fun unitsPerItem(): Int = 2\n}\n'
         after = before.replace('= 2', '= 1')
         validate_numeric_expression(before, after, 'unitsPerItem')
@@ -83,9 +83,9 @@ class ProfileRepairTests(unittest.TestCase):
                 from tests.test_core import run
                 return {'status': 'reproduced' if phase == 'original' else 'verified',
                         'runs': [run('bug' if phase == 'original' else 'expected') for _ in range(repeats)]}
-            with patch('reproloop.orchestrator.build_android', build), \
-                 patch('reproloop.orchestrator.run_command', regression), \
-                 patch('reproloop.orchestrator.replay_suite', replay):
+            with patch('reproof.orchestrator.build_android', build), \
+                 patch('reproof.orchestrator.run_command', regression), \
+                 patch('reproof.orchestrator.replay_suite', replay):
                 result = repair_job(object(), bundle, source, root / 'repair', agent,
                     {'gradle': 'fake', 'java_home': 'fake', 'sdk_home': 'fake'}, app_profile=profile)
             self.assertEqual(result['status'], 'verification_failed' if mutate else 'verified')

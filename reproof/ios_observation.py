@@ -22,7 +22,7 @@ from .repair import run_command
 from .storage import _unique_object, read_json, write_json
 
 KIND = 'uikit-observation-v2'
-SUPPORT = 'ReproLoopInstrumentation'
+SUPPORT = 'ReproofInstrumentation'
 MARKER = 'ios-instrumentation-receipt.json'
 RUNTIME = ('RLAutomaticRecorder.swift', 'ReproRuntimeIdentity.swift', 'RLSanitationRuntime.swift',
     'RLAutoBootstrap.m', 'RLAutoConfig.swift', 'RLSanitationConfig.swift')
@@ -42,7 +42,7 @@ def _input_name(value):
     parts = value.split('/')
     require(not any(part.startswith('.') or part.casefold() in {
         'artifacts', 'build', 'build-device', 'deriveddata', 'xcuserdata', 'node_modules',
-        'local.properties', 'reproloopinstrumentation', MARKER} for part in parts)
+        'local.properties', 'reproofinstrumentation', MARKER} for part in parts)
         and Path(value).suffix.lower() in _SUFFIXES, 'Unsupported public iOS input path')
     return value
 
@@ -55,7 +55,7 @@ def validate_observation_document(document):
     bundle = document['applicationId']
     require(type(bundle) is str and len(bundle) <= 180
         and re.fullmatch(r'[A-Za-z][A-Za-z0-9-]*(?:\.[A-Za-z][A-Za-z0-9-]*)+', bundle)
-        and bundle not in {'io.reproloop.live', 'io.reproloop.driver'}, 'Invalid UIKit application identity')
+        and bundle not in {'io.reproof.live', 'io.reproof.driver'}, 'Invalid UIKit application identity')
     require(type(document['project']) is str and document['project'].endswith('.xcodeproj'),
             'Select a relative Xcode project')
     project_file = _input_name(document['project'] + '/project.pbxproj')
@@ -165,7 +165,7 @@ def prepare_observation(source, output, profile, *, sanitation_policy=None):
     entries[project] = plistlib.dumps(document, sort_keys=True)
     for name in RUNTIME:
         if name in {'RLAutoConfig.swift', 'RLSanitationConfig.swift'}:continue
-        entries[f'{SUPPORT}/Runtime/{name}'] = read_resource('reproloop/ios_instrumentation_templates/' + name)
+        entries[f'{SUPPORT}/Runtime/{name}'] = read_resource('reproof/ios_instrumentation_templates/' + name)
     encoded = base64.b64encode(json.dumps(profile.data, sort_keys=True, separators=(',', ':')).encode()).decode()
     entries[f'{SUPPORT}/Runtime/RLAutoConfig.swift'] = ('#if REPRO_OBSERVATIONS\nimport Foundation\nenum RLAutoConfig {\n'
         f'    static let profileJSON = String(data: Data(base64Encoded: "{encoded}")!, encoding: .utf8)!\n'

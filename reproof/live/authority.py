@@ -13,8 +13,8 @@ import tempfile
 import threading
 import uuid
 
-from reproloop.core import ContractError
-from reproloop.storage import Lease
+from reproof.core import ContractError
+from reproof.storage import Lease
 from .clock_sync import ClockMapping, ClockSynchronizer
 from .state_store import FORMAT_VERSION, StateStore
 
@@ -332,7 +332,7 @@ class HostAuthority:
         if state_path is None:
             state_path = (
                 Path(tempfile.gettempdir())
-                / f"reproloop-authority-{os.getuid()}"
+                / f"reproof-authority-{os.getuid()}"
                 / "authority.sqlite3"
             )
         self.clock_sync = ClockSynchronizer(
@@ -352,7 +352,7 @@ class HostAuthority:
         self._closed = False
         self.store = StateStore(state_path)
         self.authority_root_digest = hashlib.sha256(
-            b"reproloop-authority-root\0" + str(self.store.path).encode("utf-8")
+            b"reproof-authority-root\0" + str(self.store.path).encode("utf-8")
         ).hexdigest()
 
     def _require_open(self):

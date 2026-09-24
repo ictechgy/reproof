@@ -6,10 +6,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from reproloop.android_profile import sample_app_profile, validate_app_profile
-from reproloop.core import require
-from reproloop.repair import copy_source
-from reproloop.storage import write_json
+from reproof.android_profile import sample_app_profile, validate_app_profile
+from reproof.core import require
+from reproof.repair import copy_source
+from reproof.storage import write_json
 
 
 def prepare(output):
@@ -22,7 +22,7 @@ def prepare(output):
         if not path.is_file():
             continue
         text = path.read_text()
-        text = text.replace('io.reproloop.sample', 'io.reproloop.inventory')
+        text = text.replace('io.reproof.sample', 'io.reproof.inventory')
         for old, new in [('name', 'label'), ('count', 'quantity'), ('add', 'commit'), ('report', 'export_capture')]:
             text = text.replace('"' + old + '"', '"' + new + '"')
             text = text.replace('R.id.' + old, 'R.id.' + new)
@@ -37,10 +37,10 @@ def prepare(output):
                 '                reportTarget = "export_capture",\n' +
                 '                tapTargets = setOf("commit", "next", "back", "bottom"),\n')
         if path.name == 'strings.xml':
-            text = text.replace('Repro Loop Sample', 'Inventory Profile Fixture')
+            text = text.replace('Reproof Sample', 'Inventory Profile Fixture')
         path.write_text(text)
     document = sample_app_profile().data
-    document.update(id='inventory', package='io.reproloop.inventory')
+    document.update(id='inventory', package='io.reproof.inventory')
     document['fixture']['id'] = 'inventory_empty'
     document['startState']['nodes'] = {'quantity': '0', 'label': ''}
     document['targets'].update(tap=['commit', 'next', 'back', 'bottom'], text=['label'], numeric=['quantity'],

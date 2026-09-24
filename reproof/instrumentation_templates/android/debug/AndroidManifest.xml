@@ -1,11 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
         <receiver
-            android:name="io.reproloop.autotrace.AutoExportReceiver"
+            android:name="io.reproof.autotrace.AutoExportReceiver"
             android:exported="true"
             android:permission="android.permission.DUMP">
             <intent-filter>
-                <action android:name="io.reproloop.EXPORT_CAPTURE" />
+                <action android:name="io.reproof.EXPORT_CAPTURE" />
             </intent-filter>
         </receiver>
     </application>

@@ -1,6 +1,6 @@
 import copy
 import unittest
-from reproloop.core import ContractError, compile_capture, classify_runs
+from reproof.core import ContractError, compile_capture, classify_runs
 
 
 def capture():

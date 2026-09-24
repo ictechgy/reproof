@@ -6,8 +6,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.storage import Lease
+from reproof.core import ContractError
+from reproof.storage import Lease
 
 
 class LeasePathBoundaries(unittest.TestCase):

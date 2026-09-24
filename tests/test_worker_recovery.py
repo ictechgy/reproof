@@ -10,14 +10,14 @@ import time
 import unittest
 import uuid
 
-from reproloop.live.access import AccessError
-from reproloop.live.enrollment import EnrollmentClient
-from reproloop.live.inventory import INVENTORY_VERSION, canonical_device_digest
-from reproloop.live.authority import HostAuthority
-from reproloop.live.clock_sync import ClockReading
-from reproloop.live.configuration import issue_bounded_project_grant
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.worker import WorkerClient, WorkerServer, remote_devices
+from reproof.live.access import AccessError
+from reproof.live.enrollment import EnrollmentClient
+from reproof.live.inventory import INVENTORY_VERSION, canonical_device_digest
+from reproof.live.authority import HostAuthority
+from reproof.live.clock_sync import ClockReading
+from reproof.live.configuration import issue_bounded_project_grant
+from reproof.live.model import Lab, LiveError
+from reproof.live.worker import WorkerClient, WorkerServer, remote_devices
 from tests.test_fixture_allocations import collection_policy, project_document
 from tests.test_project_access import SharedHttpFixture
 

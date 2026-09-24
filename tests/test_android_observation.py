@@ -6,8 +6,8 @@ import unittest
 from unittest.mock import Mock, patch
 import zipfile
 
-from reproloop.core import ContractError
-from reproloop.storage import read_json, sha_file
+from reproof.core import ContractError
+from reproof.storage import read_json, sha_file
 
 
 def ordinary_views_project(root):
@@ -46,15 +46,15 @@ class AndroidObservationTests(unittest.TestCase):
             'files': {self.site['path']: 'must not be used'}, 'sites': [self.site]})
 
     def prepare(self):
-        from reproloop.android_observation import validate_observation_profile
-        from reproloop.build_instrumentation import prepare_build_instrumentation
+        from reproof.android_observation import validate_observation_profile
+        from reproof.build_instrumentation import prepare_build_instrumentation
         profile = validate_observation_profile(self.document)
         result = prepare_build_instrumentation(self.source, profile, self.root / 'prepared', analyzer=self.analyzer)
         return result, validate_observation_profile(read_json(result['appProfile']))
 
     def test_observation_contract_has_no_fixture_or_repair_policy(self):
-        from reproloop.android_observation import validate_observation_profile
-        from reproloop.android_profile import validate_app_profile
+        from reproof.android_observation import validate_observation_profile
+        from reproof.android_profile import validate_app_profile
         profile = validate_observation_profile(self.document)
         self.assertEqual(profile.component_name, 'com.example.inventory/.MainActivity')
         with self.assertRaises(ContractError):
@@ -67,7 +67,7 @@ class AndroidObservationTests(unittest.TestCase):
         self.assertNotEqual(profile.digest, validate_observation_profile(changed).digest)
 
     def test_invalid_inputs_and_unbound_sites_fail_closed(self):
-        from reproloop.android_observation import validate_observation_profile
+        from reproof.android_observation import validate_observation_profile
         for change in (
             {'build': {'task': ':app:assembleRelease', 'apk': self.document['build']['apk']}},
             {'sourceInputs': self.document['sourceInputs'] + ['auth.json']},
@@ -81,7 +81,7 @@ class AndroidObservationTests(unittest.TestCase):
                 validate_observation_profile(dict(self.document, **change))
 
     def test_preparation_preserves_product_inputs_and_embeds_only_observations(self):
-        from reproloop.instrumentation import validate_instrumented_source
+        from reproof.instrumentation import validate_instrumented_source
         original = {name: sha_file(self.source / name) for name in self.document['sourceInputs']}
         result, profile = self.prepare()
         prepared = result['source']
@@ -91,12 +91,12 @@ class AndroidObservationTests(unittest.TestCase):
             self.assertEqual(sha_file(self.source / name), checksum)
             if name not in {'settings.gradle.kts', 'app/build.gradle.kts'}:
                 self.assertEqual(sha_file(prepared / name), checksum)
-        support = prepared / 'app/reproloop-instrumentation'
-        embedded = read_json(support / 'assets/reproloop-observation.json')
+        support = prepared / 'app/reproof-instrumentation'
+        embedded = read_json(support / 'assets/reproof-observation.json')
         self.assertEqual(embedded, profile.data)
-        runtime = support / 'runtime/io/reproloop/autotrace'
+        runtime = support / 'runtime/io/reproof/autotrace'
         self.assertFalse((runtime / 'AutoExportReceiver.kt').exists())
-        self.assertFalse((support / 'runtime/io/reproloop/sdk').exists())
+        self.assertFalse((support / 'runtime/io/reproof/sdk').exists())
         self.assertNotIn('fixture', (runtime / 'ReproAuto.kt').read_text())
         self.assertNotIn('receiver', (support / 'AndroidManifest.xml').read_text())
         self.assertIn('RECORD_MODE = "observe"', (runtime / 'ReproConfig.kt').read_text())
@@ -105,15 +105,15 @@ class AndroidObservationTests(unittest.TestCase):
             validate_instrumented_source(prepared, profile)
 
     def test_apk_metadata_requires_a_single_bounded_prepared_profile(self):
-        from reproloop.android_observation import profile_from_apk
+        from reproof.android_observation import profile_from_apk
         _, profile = self.prepare()
         apk = self.root / 'app.apk'
         with zipfile.ZipFile(apk, 'w') as archive:
-            archive.writestr('assets/reproloop-observation.json', json.dumps(profile.data))
+            archive.writestr('assets/reproof-observation.json', json.dumps(profile.data))
         self.assertEqual(profile_from_apk(apk).data, profile.data)
         for raw in (json.dumps(self.document), '{"kind":1,"kind":2}', 'x' * (256 * 1024 + 1)):
             with zipfile.ZipFile(apk, 'w') as archive:
-                archive.writestr('assets/reproloop-observation.json', raw)
+                archive.writestr('assets/reproof-observation.json', raw)
             with self.assertRaises(ContractError):
                 profile_from_apk(apk)
         with zipfile.ZipFile(apk, 'w') as archive:
@@ -121,9 +121,9 @@ class AndroidObservationTests(unittest.TestCase):
         self.assertIsNone(profile_from_apk(apk))
 
     def test_build_uses_frozen_inputs_and_rejects_missing_embedded_adapter(self):
-        from reproloop.android_observation import build_observation_app
-        from reproloop.core import digest
-        from reproloop.repair import snapshot_source
+        from reproof.android_observation import build_observation_app
+        from reproof.core import digest
+        from reproof.repair import snapshot_source
         result, profile = self.prepare()
 
         def builder(source, **kwargs):
@@ -132,11 +132,11 @@ class AndroidObservationTests(unittest.TestCase):
             apk = Path(source) / profile.data['build']['apk']
             apk.parent.mkdir(parents=True)
             with zipfile.ZipFile(apk, 'w') as archive:
-                archive.writestr('assets/reproloop-observation.json', json.dumps(profile.data))
+                archive.writestr('assets/reproof-observation.json', json.dumps(profile.data))
             return apk, {'sourceFiles': current, 'sourceDigest': digest(current), 'buildCompleted': True,
                          'apkSha256': sha_file(apk), 'bytecodeInstrumentation': {'synthetic': True}}
 
-        with patch('reproloop.repair.build_android', side_effect=builder):
+        with patch('reproof.repair.build_android', side_effect=builder):
             built = build_observation_app(result['source'], self.root / 'built', profile=profile,
                 gradle='unused', java_home='unused', sdk_home='unused')
         self.assertTrue(built['receipt']['automaticObservations'])
@@ -151,7 +151,7 @@ class AndroidObservationTests(unittest.TestCase):
             proof['apkSha256'] = sha_file(apk)
             return apk, proof
 
-        with patch('reproloop.repair.build_android', side_effect=invalid_builder), self.assertRaises(ContractError):
+        with patch('reproof.repair.build_android', side_effect=invalid_builder), self.assertRaises(ContractError):
             build_observation_app(result['source'], self.root / 'invalid-build', profile=profile,
                 gradle='unused', java_home='unused', sdk_home='unused')
         self.assertFalse((self.root / 'invalid-build').exists())

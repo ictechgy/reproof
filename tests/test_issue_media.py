@@ -10,10 +10,10 @@ import time
 import unittest
 import zlib
 
-from reproloop import contracts
-from reproloop.issue_package import IssuePackageStore, PackageError, NativeMediaValidator, build_archive, inspect_archive
-from reproloop.live.disk_budget import DiskBudget
-from reproloop.live.evidence_store import EvidenceStore
+from reproof import contracts
+from reproof.issue_package import IssuePackageStore, PackageError, NativeMediaValidator, build_archive, inspect_archive
+from reproof.live.disk_budget import DiskBudget
+from reproof.live.evidence_store import EvidenceStore
 from tests.test_issue_package import example
 
 

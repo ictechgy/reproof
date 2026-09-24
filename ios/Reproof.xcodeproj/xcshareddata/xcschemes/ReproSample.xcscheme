@@ -18,7 +18,7 @@
                BlueprintIdentifier = "BBEC502C5F240786F7326CFB"
                BuildableName = "ReproSample.app"
                BlueprintName = "ReproSample"
-               ReferencedContainer = "container:ReproLoop.xcodeproj">
+               ReferencedContainer = "container:Reproof.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -35,7 +35,7 @@
             BlueprintIdentifier = "BBEC502C5F240786F7326CFB"
             BuildableName = "ReproSample.app"
             BlueprintName = "ReproSample"
-            ReferencedContainer = "container:ReproLoop.xcodeproj">
+            ReferencedContainer = "container:Reproof.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
@@ -58,7 +58,7 @@
             BlueprintIdentifier = "BBEC502C5F240786F7326CFB"
             BuildableName = "ReproSample.app"
             BlueprintName = "ReproSample"
-            ReferencedContainer = "container:ReproLoop.xcodeproj">
+            ReferencedContainer = "container:Reproof.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <CommandLineArguments>
@@ -77,7 +77,7 @@
             BlueprintIdentifier = "BBEC502C5F240786F7326CFB"
             BuildableName = "ReproSample.app"
             BlueprintName = "ReproSample"
-            ReferencedContainer = "container:ReproLoop.xcodeproj">
+            ReferencedContainer = "container:Reproof.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

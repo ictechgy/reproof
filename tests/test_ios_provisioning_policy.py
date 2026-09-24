@@ -4,7 +4,7 @@ import hashlib
 import json
 import unittest
 
-from reproloop.core import digest
+from reproof.core import digest
 
 
 TEAM = "TEAM123456"
@@ -45,7 +45,7 @@ def decoded_profile():
 
 class IOSProvisioningPolicyTests(unittest.TestCase):
     def setUp(self):
-        from reproloop.ios_provisioning_policy import decoded_profile_digest
+        from reproof.ios_provisioning_policy import decoded_profile_digest
 
         self.profile = decoded_profile()
         self.profile_digest = decoded_profile_digest(self.profile)
@@ -54,7 +54,7 @@ class IOSProvisioningPolicyTests(unittest.TestCase):
         self.certificate_digest = hashlib.sha256(CERTIFICATE).hexdigest()
 
     def assess(self, profile=None, **overrides):
-        from reproloop.ios_provisioning_policy import assess_decoded_profile
+        from reproof.ios_provisioning_policy import assess_decoded_profile
 
         args = dict(
             expected_profile_digest=self.profile_digest,
@@ -71,7 +71,7 @@ class IOSProvisioningPolicyTests(unittest.TestCase):
         return assess_decoded_profile(self.profile if profile is None else profile, **args)
 
     def test_valid_profile_returns_static_safe_assessment(self):
-        from reproloop.ios_provisioning_policy import ProvisioningPolicyAssessment
+        from reproof.ios_provisioning_policy import ProvisioningPolicyAssessment
 
         assessment = self.assess()
         self.assertIs(type(assessment), ProvisioningPolicyAssessment)
@@ -95,7 +95,7 @@ class IOSProvisioningPolicyTests(unittest.TestCase):
         self.assertEqual(assessment.reason_code, "certificate_mismatch")
 
     def test_time_team_prefix_and_device_constraints_fail_closed(self):
-        from reproloop.ios_provisioning_policy import ProvisioningPolicyError
+        from reproof.ios_provisioning_policy import ProvisioningPolicyError
 
         cases = [
             ("expired", {"ExpirationDate": EVALUATED}, "profile_expired"),
@@ -124,7 +124,7 @@ class IOSProvisioningPolicyTests(unittest.TestCase):
                 self.assertEqual(assessment.reason_code, reason)
 
     def test_apple_system_keychain_group_grants_are_enumerated_not_scoped(self):
-        from reproloop.ios_provisioning_policy import (ProvisioningPolicyError,
+        from reproof.ios_provisioning_policy import (ProvisioningPolicyError,
             decoded_profile_digest)
 
         profile = deepcopy(self.profile)
@@ -188,7 +188,7 @@ class IOSProvisioningPolicyTests(unittest.TestCase):
         self.assertEqual(assessment.reason_code, "entitlement_not_allowed")
 
     def test_application_prefix_is_independent_from_team_identifier(self):
-        from reproloop.ios_provisioning_policy import decoded_profile_digest
+        from reproof.ios_provisioning_policy import decoded_profile_digest
 
         prefix = "PREFIX123"
         profile = deepcopy(self.profile)
@@ -219,7 +219,7 @@ class IOSProvisioningPolicyTests(unittest.TestCase):
         self.assertEqual(assessment.reason_code, "entitlement_not_allowed")
 
     def test_unsupported_nested_entitlement_values_are_rejected(self):
-        from reproloop.ios_provisioning_policy import ProvisioningPolicyError
+        from reproof.ios_provisioning_policy import ProvisioningPolicyError
 
         profile = deepcopy(self.profile)
         profile["Entitlements"]["nested"] = {"private": "value"}
@@ -232,7 +232,7 @@ class IOSProvisioningPolicyTests(unittest.TestCase):
             self.assess(profile)
 
     def test_single_team_prefix_and_certificate_shape_are_required(self):
-        from reproloop.ios_provisioning_policy import ProvisioningPolicyError
+        from reproof.ios_provisioning_policy import ProvisioningPolicyError
 
         for field in ("TeamIdentifier", "ApplicationIdentifierPrefix"):
             profile = deepcopy(self.profile)
@@ -247,7 +247,7 @@ class IOSProvisioningPolicyTests(unittest.TestCase):
             self.assess(profile)
 
     def test_top_level_profile_fields_are_bounded_before_projection(self):
-        from reproloop.ios_provisioning_policy import ProvisioningPolicyError
+        from reproof.ios_provisioning_policy import ProvisioningPolicyError
 
         profile = deepcopy(self.profile)
         profile.update({f"extra-{index}": index for index in range(58)})
@@ -255,7 +255,7 @@ class IOSProvisioningPolicyTests(unittest.TestCase):
             self.assess(profile)
 
     def test_raw_profile_identity_values_never_appear_in_public_results_or_errors(self):
-        from reproloop.ios_provisioning_policy import ProvisioningPolicyError
+        from reproof.ios_provisioning_policy import ProvisioningPolicyError
 
         assessment = self.assess()
         encoded = json.dumps(assessment.public(), sort_keys=True)

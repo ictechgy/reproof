@@ -5,7 +5,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.fixtures import FixtureError
+from reproof.fixtures import FixtureError
 from tests.g4_support import G4Environment, ScenarioProvider
 
 

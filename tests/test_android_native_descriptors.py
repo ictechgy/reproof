@@ -9,8 +9,8 @@ import time
 import unittest
 from dataclasses import replace
 
-from reproloop.core import ContractError
-from reproloop.storage import Lease
+from reproof.core import ContractError
+from reproof.storage import Lease
 
 
 class NativeLeaseRetentionTests(unittest.TestCase):
@@ -54,7 +54,7 @@ class AndroidNativeDescriptorTests(unittest.TestCase):
         self.operations=self.fixture.operations;self.f=self.fixture.fixture
 
     def test_export_requires_exact_phase_and_original_device_generation(self):
-        from reproloop.repair_android_operation import AndroidOperationError
+        from reproof.repair_android_operation import AndroidOperationError
         context=self.f.context
         with self.operations.admit(context,self.fixture.blobs) as operation:
             scope=self.f.lab.begin_retained_device_scope('device',self.f.config.owner,'owned-native-descriptors',

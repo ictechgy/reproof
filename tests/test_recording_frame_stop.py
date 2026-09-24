@@ -4,7 +4,7 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop.live.model import LiveError
+from reproof.live.model import LiveError
 from tests import test_g2_lab_integration as fixture
 
 

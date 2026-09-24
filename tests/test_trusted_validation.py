@@ -16,13 +16,13 @@ def plan_document():
 
 class TrustedValidationTests(unittest.TestCase):
     def binding(self, **changes):
-        from reproloop.validation import ValidationBinding
+        from reproof.validation import ValidationBinding
         value = ValidationBinding(operation_id='repair_attempt_1', repair_plan_digest='2' * 64,
             project_digest='1' * 64, source_digest='3' * 64, artifact_digest='4' * 64)
         return replace(value, **changes)
 
     def authority(self, callback=None):
-        from reproloop.validation import TrustedValidationAuthority, ValidationObservation
+        from reproof.validation import TrustedValidationAuthority, ValidationObservation
         authority = TrustedValidationAuthority(plan_document())
         callback = callback or (lambda context, **_: ValidationObservation(
             context.digest, 'pass', '5' * 64, True, True))
@@ -31,7 +31,7 @@ class TrustedValidationTests(unittest.TestCase):
         return authority
 
     def test_complete_independent_receipt_is_bound_to_exact_candidate(self):
-        from reproloop.validation import ValidationError
+        from reproof.validation import ValidationError
         authority = self.authority(); binding = self.binding()
         result = authority.run(binding, cancellation=threading.Event(), timeout_seconds=1)
         self.assertEqual(result.public()['status'], 'pass')
@@ -43,7 +43,7 @@ class TrustedValidationTests(unittest.TestCase):
             with self.assertRaises(ValidationError): authority.require_pass(result, changed)
 
     def test_candidate_json_and_foreign_authority_never_issue_a_pass(self):
-        from reproloop.validation import ValidationError
+        from reproof.validation import ValidationError
         authority = self.authority(lambda context, **_: {'contextDigest': context.digest, 'passed': True})
         receipt = authority.run(self.binding(), cancellation=threading.Event(), timeout_seconds=1)
         self.assertEqual(receipt.public()['status'], 'quarantined')
@@ -53,7 +53,7 @@ class TrustedValidationTests(unittest.TestCase):
         with self.assertRaises(ValidationError): good.require_pass(result.public(), self.binding())
 
     def test_stale_observation_and_unconfirmed_cleanup_do_not_pass(self):
-        from reproloop.validation import ValidationObservation
+        from reproof.validation import ValidationObservation
         cases = [lambda context, **_: ValidationObservation('f' * 64, 'pass', '5' * 64, True, True),
                  lambda context, **_: ValidationObservation(context.digest, 'pass', '5' * 64, False, True),
                  lambda context, **_: ValidationObservation(context.digest, 'pass', '5' * 64, True, False),
@@ -64,7 +64,7 @@ class TrustedValidationTests(unittest.TestCase):
                 self.assertNotEqual(result.public()['status'], 'pass')
 
     def test_missing_or_wrong_kind_source_blocks_before_dispatch(self):
-        from reproloop.validation import TrustedValidationAuthority, ValidationError
+        from reproof.validation import TrustedValidationAuthority, ValidationError
         authority = TrustedValidationAuthority(plan_document()); called = []
         authority.register('approved-observer', lambda *_args, **_kw: called.append(True), kind='trusted-runner')
         with self.assertRaises(ValidationError):
@@ -72,7 +72,7 @@ class TrustedValidationTests(unittest.TestCase):
         self.assertEqual(called, [])
 
     def test_cancellation_and_late_result_are_terminal(self):
-        from reproloop.validation import ValidationError, ValidationObservation
+        from reproof.validation import ValidationError, ValidationObservation
         started = threading.Event(); release = threading.Event()
         def wait(context, **_):
             started.set(); release.wait(1)
@@ -89,7 +89,7 @@ class TrustedValidationTests(unittest.TestCase):
         self.assertEqual(self.authority().run(self.binding(), cancellation=cancel, timeout_seconds=1).public()['status'], 'cancelled')
 
     def test_reused_run_id_and_adapter_replacement_are_rejected(self):
-        from reproloop.validation import ValidationError
+        from reproof.validation import ValidationError
         authority = self.authority(); binding = self.binding()
         authority.run(binding, cancellation=threading.Event(), timeout_seconds=1)
         with self.assertRaises(ValidationError):
@@ -98,7 +98,7 @@ class TrustedValidationTests(unittest.TestCase):
             authority.register('approved-observer', lambda *_: None, kind='external-observation')
 
     def test_missing_or_malformed_termination_evidence_quarantines_the_authority(self):
-        from reproloop.validation import ValidationError, ValidationObservation
+        from reproof.validation import ValidationError, ValidationObservation
         def failed(*_, **__): raise RuntimeError('private observer details')
         for callback in (failed, lambda context, **_: ValidationObservation(context.digest, {}, '5' * 64, True, True)):
             with self.subTest(callback=callback):
@@ -108,7 +108,7 @@ class TrustedValidationTests(unittest.TestCase):
                 with self.assertRaises(ValidationError): authority.ready()
 
     def test_cancelled_return_still_requires_bound_termination_and_cleanup(self):
-        from reproloop.validation import ValidationObservation
+        from reproof.validation import ValidationObservation
         cancel = threading.Event()
         def callback(context, **_):
             cancel.set()

@@ -510,7 +510,7 @@ class ScenarioRunner:
                 holder["error"] = error
             finally:
                 completed.set()
-        threading.Thread(target=invoke, name="reproloop-scenario-read", daemon=True).start()
+        threading.Thread(target=invoke, name="reproof-scenario-read", daemon=True).start()
         while not completed.wait(min(.05, max(0, deadline - self.monotonic()))):
             self._active(cancel, deadline)
         self._active(cancel, deadline)

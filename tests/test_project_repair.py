@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.execution.artifacts import BlobSet
+from reproof.execution.artifacts import BlobSet
 from tests.test_fixture_allocations import project_document
 
 
@@ -39,7 +39,7 @@ class RepairSourceTests(unittest.TestCase):
         self.artifacts.write_new(self.root / 'original')
 
     def source(self, project=None, paths=None, protected=None):
-        from reproloop.project_repair import RepairSource
+        from reproof.project_repair import RepairSource
         return RepairSource(project or self.project, self.root / 'source',
             source_paths=paths or tuple(path for path, _ in self.sources.entries),
             protected_paths=protected or ('tests/CheckoutTests.swift',),
@@ -58,7 +58,7 @@ class RepairSourceTests(unittest.TestCase):
         source.require_original(frozen, 'original')
 
     def test_noop_ambiguous_overlapping_and_undeclared_edits_are_denied(self):
-        from reproloop.project_repair import RepairError
+        from reproof.project_repair import RepairError
         source = self.source(); frozen = source.freeze('original')
         bad = [[], [dict(EDIT, new=EDIT['old'])], [dict(EDIT, old='return')],
                [EDIT, dict(EDIT, old='if !ready {', new='if ready {')],
@@ -72,7 +72,7 @@ class RepairSourceTests(unittest.TestCase):
             tuple(path for path, _ in frozen.entries)), frozen)
 
     def test_source_build_digest_mismatch_and_changed_original_are_denied(self):
-        from reproloop.project_repair import RepairError
+        from reproof.project_repair import RepairError
         project = copy.deepcopy(self.project); project['builds'][0]['sourceDigest'] = 'f' * 64
         with self.assertRaises(RepairError): self.source(project).freeze('original')
         source = self.source(); frozen = source.freeze('original')
@@ -80,7 +80,7 @@ class RepairSourceTests(unittest.TestCase):
         with self.assertRaises(RepairError): source.require_original(frozen, 'original')
 
     def test_protected_recipes_cannot_be_omitted_from_the_sealed_source(self):
-        from reproloop.project_repair import RepairError
+        from reproof.project_repair import RepairError
         paths = tuple(path for path, _ in self.sources.entries if path != 'checks/ui.json')
         with self.assertRaises(RepairError): self.source(paths=paths)
         project = copy.deepcopy(self.project)
@@ -88,7 +88,7 @@ class RepairSourceTests(unittest.TestCase):
         with self.assertRaises(RepairError): self.source(project)
 
     def test_symlink_secret_file_and_noncanonical_paths_are_rejected(self):
-        from reproloop.project_repair import RepairError
+        from reproof.project_repair import RepairError
         (self.root / 'source' / PRODUCT).unlink()
         (self.root / 'source' / PRODUCT).symlink_to(self.root / 'original' / 'original.bin')
         with self.assertRaises(RepairError): self.source().freeze('original')
@@ -97,7 +97,7 @@ class RepairSourceTests(unittest.TestCase):
                 self.source(paths=tuple(p for p, _ in self.sources.entries) + (path,))
 
     def test_original_source_mutation_is_detected_before_accepting_a_patch(self):
-        from reproloop.project_repair import RepairError
+        from reproof.project_repair import RepairError
         source = self.source(); frozen = source.freeze('original')
         (self.root / 'source' / 'checks/ui.json').write_bytes(b'changed assertion')
         with self.assertRaises(RepairError): source.apply(frozen, [EDIT])

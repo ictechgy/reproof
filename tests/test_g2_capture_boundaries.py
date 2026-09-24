@@ -3,9 +3,9 @@ import base64
 from pathlib import Path
 import unittest
 
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.providers import IosProvider
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.model import Lab, LiveError
+from reproof.live.providers import IosProvider
 from tests import test_g2_lab_integration as fixture
 from tests.test_recording_recovery import project_document
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:repro-loop:capture:1",
-  "title": "Repro Loop sample capture v1",
+  "$id": "urn:reproof:capture:1",
+  "title": "Reproof sample capture v1",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "sessionId", "fixture", "startState", "events", "truncated", "lostEvents", "endSequence"],
@@ -30,5 +30,5 @@
       }
     }
   },
-  "$comment": "Transport schema. Executable compilation additionally requires nonempty, complete streams; exact sequential IDs; supported action parameters and values. See reproloop/core.py."
+  "$comment": "Transport schema. Executable compilation additionally requires nonempty, complete streams; exact sequential IDs; supported action parameters and values. See reproof/core.py."
 }

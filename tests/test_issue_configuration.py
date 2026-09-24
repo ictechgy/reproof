@@ -7,17 +7,17 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop import contracts
-from reproloop.live.access import AccessController, AccessStore
-from reproloop.live.issue_configuration import (
+from reproof import contracts
+from reproof.live.access import AccessController, AccessStore
+from reproof.live.issue_configuration import (
     EnvironmentVariableResolver, LoopbackObservationAdapter, compose_issue_workflow, load_issue_configuration,
 )
-from reproloop.scenario_runner import ObservationRequest
+from reproof.scenario_runner import ObservationRequest
 from tests.g4_support import G4Environment, runtime_policy
 
 
 def configuration(env):
-    return {"schemaVersion": 1, "kind": "reproloop-issue-runtime", "projects": [{
+    return {"schemaVersion": 1, "kind": "reproof-issue-runtime", "projects": [{
         "projectId": "checkout", "projectDigest": env.registration.project_digest,
         "runtimePolicy": runtime_policy(), "validationRecipeIds": ["regression_ui"],
         "fixtures": [{"applicationId": "ios_app", "fixtureId": "seed_account", "endpointId": "fixture_service",

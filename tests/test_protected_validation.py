@@ -11,13 +11,13 @@ import threading
 import time
 import unittest
 
-from reproloop import contracts
-from reproloop.validation import ValidationBinding,ValidationContext,TrustedValidationAuthority,ValidationError
+from reproof import contracts
+from reproof.validation import ValidationBinding,ValidationContext,TrustedValidationAuthority,ValidationError
 from tests import test_repair_android as support
 
 
 def canonical(value):return json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=False,allow_nan=False).encode()
-def mac(key,kind,message):return hmac.new(key,b'reproloop-validation-v1/'+kind.encode()+b'\0'+canonical(message),hashlib.sha256).hexdigest()
+def mac(key,kind,message):return hmac.new(key,b'reproof-validation-v1/'+kind.encode()+b'\0'+canonical(message),hashlib.sha256).hexdigest()
 
 
 class OwnedObserverServer:
@@ -76,7 +76,7 @@ class OwnedObserverServer:
 
 class ProtectedUnixValidationTests(unittest.TestCase):
     def setUp(self):
-        from reproloop.protected_validation import ValidationSecretRegistry,UnixAndroidValidationObserver
+        from reproof.protected_validation import ValidationSecretRegistry,UnixAndroidValidationObserver
         self.fixture=support.AndroidAdapterTests(methodName='runTest');self.fixture.setUp()
         self.addCleanup(self.fixture.tearDown);self.fixture.install()
         self.key=secrets.token_bytes(32);self.registry=ValidationSecretRegistry();self.addCleanup(self.registry.close)
@@ -166,17 +166,17 @@ class ProtectedUnixValidationTests(unittest.TestCase):
 
     def test_foreign_peer_identity_receives_no_observation_request(self):
         from unittest.mock import patch
-        with patch('reproloop.protected_validation._peer_uid',return_value=os.getuid()+1):
+        with patch('reproof.protected_validation._peer_uid',return_value=os.getuid()+1):
             with self.assertRaises(ValidationError):self.observe()
         self.assertEqual(self.server.requests,[])
 
 
 class ProtectedObserverCompositionTests(unittest.TestCase):
     def test_fixed_observer_is_bound_inside_mobile_factory_and_closed_with_its_owner(self):
-        from reproloop.execution.artifacts import BlobSet
-        from reproloop.protected_mobile_inputs import LoadedAndroidMobileInputs,_snapshot
-        from reproloop.protected_validation import ValidationSecretRegistry
-        from reproloop.protected_validation_inputs import load_android_validation_inputs
+        from reproof.execution.artifacts import BlobSet
+        from reproof.protected_mobile_inputs import LoadedAndroidMobileInputs,_snapshot
+        from reproof.protected_validation import ValidationSecretRegistry
+        from reproof.protected_validation_inputs import load_android_validation_inputs
         from tests import test_android_mobile_operation_integration as integration
         fixture=integration.PersistentAndroidAdapterTests(methodName='runTest');fixture.setUp()
         self.addCleanup(fixture.doCleanups)
@@ -192,7 +192,7 @@ class ProtectedObserverCompositionTests(unittest.TestCase):
         inputs=load_android_validation_inputs({'path':str(path),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()},
             plan=runtime.validators.plan,mobile_inputs=mobile)
         args.pop('validators')
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_execution import RepairExecutionError
         foreign=ValidationSecretRegistry();self.addCleanup(foreign.close);foreign.claim(object())
         with self.assertRaises(RepairExecutionError):
             owner.configure_android_mobile(**args,validation_inputs=inputs,validation_secrets=foreign)

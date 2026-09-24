@@ -47,7 +47,7 @@ python3 scripts/device_smoke.py \
 
 소스·receipt를 바꾸면 원본 APK와 현재 소스의 연결을 다시 확인해야 한다. receipt가 없는 임의 APK를 AI 수정 성공으로 처리하지 않는다.
 
-Python wheel 패키징은 로컬 setuptools 빌드 의존성이 없어 확인하지 못했다. 소스에서 `python3 -m reproloop`로 실행하는 경로는 확인했으며 런타임 외부 패키지는 필요 없다.
+Python wheel 패키징은 로컬 setuptools 빌드 의존성이 없어 확인하지 못했다. 소스에서 `python3 -m reproof`로 실행하는 경로는 확인했으며 런타임 외부 패키지는 필요 없다.
 
 ## iOS Simulator 구현
 

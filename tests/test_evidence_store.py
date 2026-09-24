@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from reproloop.live.disk_budget import DiskBudget, DiskBudgetError
-from reproloop.live.evidence_store import EvidenceStore, EvidenceStoreError
+from reproof.live.disk_budget import DiskBudget, DiskBudgetError
+from reproof.live.evidence_store import EvidenceStore, EvidenceStoreError
 
 
 def _reserve_once(root, ready, start, finish, results):

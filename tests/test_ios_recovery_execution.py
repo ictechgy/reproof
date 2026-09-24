@@ -9,16 +9,16 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.ios_mobile_native import IOSMobileNativeOwner
-from reproloop.ios_mobile_operation import IOSMobileOperationStore
-from reproloop.ios_native_recovery import IOSNativeRecoveryError, native_recovery
-from reproloop.ios_recovery_execution import (
+from reproof import contracts
+from reproof.ios_mobile_native import IOSMobileNativeOwner
+from reproof.ios_mobile_operation import IOSMobileOperationStore
+from reproof.ios_native_recovery import IOSNativeRecoveryError, native_recovery
+from reproof.ios_recovery_execution import (
     IOSRecoveryDispatch,
     IOSRecoveryExecution,
     IOSRecoveryExecutionObservation,
 )
-from reproloop.live.authority import HostAuthority
+from reproof.live.authority import HostAuthority
 from tests.ios_service_support import IOSServiceFixture, SanitationHTTPDouble
 
 
@@ -157,7 +157,7 @@ class IOSRecoveryExecutionTests(unittest.TestCase):
         pid = os.fork()
         if pid == 0:
             try:
-                from reproloop import ios_recovery_execution as module
+                from reproof import ios_recovery_execution as module
 
                 def die():
                     os._exit(_CRASH_EXIT)
@@ -269,7 +269,7 @@ class IOSRecoveryExecutionTests(unittest.TestCase):
                             with patch.object(module.os, "rmdir", removed):
                                 execution.__exit__(None, None, None)
                         elif point == "mid-app-unlink":
-                            from reproloop import ios_mobile_recovery as cleanup_module
+                            from reproof import ios_mobile_recovery as cleanup_module
                             original = cleanup_module._unlink_file
                             calls = [0]
                             def unlinked(parent, name, info, session):

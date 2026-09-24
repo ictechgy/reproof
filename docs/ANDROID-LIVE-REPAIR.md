@@ -9,11 +9,11 @@ Android 샘플의 같은 앱 실행에서 Raw Live 입력과 SDK 의미 이벤�
 
 ## 실행
 
-먼저 `python3 -m reproloop live-device-doctor`로 연결을 확인한다.
+먼저 `python3 -m reproof live-device-doctor`로 연결을 확인한다.
 각 output에는 새 디렉터리를 사용한다.
 
 ```bash
-python3 -m reproloop build --source android --variant buggy \
+python3 -m reproof build --source android --variant buggy \
   --output artifacts/android-live-repair-build
 
 # 기존 설치된 Android 도구와 Gradle 캐시를 사용한다.
@@ -23,7 +23,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" \
 ./gradlew --offline --no-daemon :live:assembleDebug
 cd ..
 
-python3 -m reproloop live-serve --android auto \
+python3 -m reproof live-serve --android auto \
   --android-helper android/live/build/outputs/apk/debug/live-debug.apk \
   --android-app artifacts/android-live-repair-build/original.apk \
   --repair-source android --repair-build artifacts/android-live-repair-build \

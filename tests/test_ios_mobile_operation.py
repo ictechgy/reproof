@@ -15,16 +15,16 @@ import unittest
 import zipfile
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.execution.artifacts import BlobSet
-from reproloop.execution.journal import RunDenied, RunStore
-from reproloop.execution.wire import canonical
-from reproloop.repair_mobile import MobileContext
+from reproof import contracts
+from reproof.execution.artifacts import BlobSet
+from reproof.execution.journal import RunDenied, RunStore
+from reproof.execution.wire import canonical
+from reproof.repair_mobile import MobileContext
 from tests import test_ios_artifact_transfer as fixtures
 
 
 def definition(udid, baselines):
-    from reproloop.ios_mobile_operation import IOSMobileDefinition
+    from reproof.ios_mobile_operation import IOSMobileDefinition
     return IOSMobileDefinition('a'*64,'ios_app','b'*64,'selected-phone',udid,
         'com.example.flat','c'*64,'d'*64,baselines.digest)
 
@@ -36,7 +36,7 @@ def context(selected, body, identifier='mobile-one'):
 
 
 def crash_during_prepare(root, udid):
-    from reproloop import ios_mobile_operation as mobile
+    from reproof import ios_mobile_operation as mobile
     root=Path(root);body=(root/'input.ipa').read_bytes()
     baselines=BlobSet((('original.ipa',body),));selected=definition(udid,baselines)
     store=RunStore(root/'runs',environment_digest='9'*64,disk_limit=4*1024**3)
@@ -59,7 +59,7 @@ class IOSMobileOperationTests(unittest.TestCase):
         self.context=context(self.selected,self.body)
         self.artifacts=BlobSet((('candidate.ipa',self.body),))
         self.runs=RunStore(self.root/'runs',environment_digest='9'*64,disk_limit=4*1024**3)
-        from reproloop.ios_mobile_operation import IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationStore
         self.operations=IOSMobileOperationStore(self.runs,self.selected,self.root/'operations')
         self.addCleanup(self.operations.close)
 
@@ -84,7 +84,7 @@ class IOSMobileOperationTests(unittest.TestCase):
         self.assertTrue(prepared._source.is_dir())
 
     def test_wrong_context_or_original_never_stages_payload(self):
-        from reproloop.ios_mobile_operation import IOSMobileOperationError
+        from reproof.ios_mobile_operation import IOSMobileOperationError
         for changed in (replace(self.context,artifact_digest='0'*64),
                         replace(self.context,scope_digest='0'*64),
                         replace(self.context,project_digest='0'*64)):
@@ -102,7 +102,7 @@ class IOSMobileOperationTests(unittest.TestCase):
         self.assertFalse(any(self.operations.root.rglob('input.ipa')))
 
     def test_baseline_set_cannot_shadow_the_candidate_role(self):
-        from reproloop.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
         baselines=BlobSet((('candidate.ipa',self.body),('original.ipa',self.body)))
         selected=replace(self.selected,baseline_digest=baselines.digest)
         other=IOSMobileOperationStore(self.runs,selected,self.root/'overlapping-owner')
@@ -112,21 +112,21 @@ class IOSMobileOperationTests(unittest.TestCase):
         self.assertFalse(any(other.root.rglob('input.ipa')))
 
     def test_changed_archive_or_foreign_bundle_does_not_publish_preparation(self):
-        from reproloop.ios_mobile_operation import IOSMobileOperationError
+        from reproof.ios_mobile_operation import IOSMobileOperationError
         with self.operations.admit(self.context,self.artifacts,self.baselines) as operation:
             operation.archive_path('candidate').write_bytes(b'changed')
             with self.assertRaises(IOSMobileOperationError):self.prepare(operation)
             self.assertNotEqual(self.operations.status(self.context.operation_id)['roles']['candidate']['state'],'prepared')
 
     def test_cancelled_or_closed_operation_cannot_prepare(self):
-        from reproloop.ios_mobile_operation import IOSMobileOperationError
+        from reproof.ios_mobile_operation import IOSMobileOperationError
         cancel=threading.Event();cancel.set()
         with self.operations.admit(self.context,self.artifacts,self.baselines) as operation:
             with self.assertRaises(IOSMobileOperationError):self.prepare(operation,cancellation=cancel)
         with self.assertRaises(IOSMobileOperationError):self.prepare(operation)
 
     def test_a_new_journal_or_work_root_cannot_bypass_uncertain_original_work(self):
-        from reproloop.ios_mobile_operation import IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationStore
         with self.operations.admit(self.context,self.artifacts,self.baselines):pass
         for runs in (self.runs,RunStore(self.root/'other-runs',environment_digest='9'*64,disk_limit=4*1024**3)):
             other=IOSMobileOperationStore(runs,self.selected,self.root/('other-'+secrets.token_hex(4)))
@@ -142,7 +142,7 @@ class IOSMobileOperationTests(unittest.TestCase):
         self.assertGreater(status['reservedBytes'],0)
 
     def test_rewritten_archive_and_intent_cannot_replace_the_live_operation_input(self):
-        from reproloop.ios_mobile_operation import IOSMobileOperationError
+        from reproof.ios_mobile_operation import IOSMobileOperationError
         with self.operations.admit(self.context,self.artifacts,self.baselines) as operation:
             root=operation.archive_path('candidate').parent.parent
             intent=json.loads((root/'intent.json').read_bytes())
@@ -163,7 +163,7 @@ class IOSMobileOperationTests(unittest.TestCase):
             with self.assertRaises(IOSMobileOperationError):self.prepare(operation)
 
     def test_forged_status_payload_is_rejected_instead_of_being_published(self):
-        from reproloop.ios_mobile_operation import IOSMobileOperationError
+        from reproof.ios_mobile_operation import IOSMobileOperationError
         with self.operations.admit(self.context,self.artifacts,self.baselines) as operation:
             path=operation.archive_path('candidate').parent.parent/'state.json'
             state=json.loads(path.read_bytes());state['roles']['candidate']['private']='owned-private-value'
@@ -171,7 +171,7 @@ class IOSMobileOperationTests(unittest.TestCase):
             with self.assertRaises(IOSMobileOperationError):self.operations.status(self.context.operation_id)
 
     def test_wrong_bundle_cannot_publish_a_prepared_app(self):
-        from reproloop.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
         selected=replace(self.selected,bundle_id='com.example.foreign')
         other=IOSMobileOperationStore(self.runs,selected,self.root/'foreign-owner')
         self.addCleanup(other.close)
@@ -181,7 +181,7 @@ class IOSMobileOperationTests(unittest.TestCase):
             self.assertEqual(other.status(self.context.operation_id)['roles']['candidate']['state'],'preparing')
 
     def test_close_keeps_running_preparation_and_budget_until_callback_returns(self):
-        from reproloop import ios_mobile_operation as mobile
+        from reproof import ios_mobile_operation as mobile
         entered=threading.Event();release=threading.Event();errors=[]
         original=mobile._move_new_app
         def paused(*args):
@@ -206,12 +206,12 @@ class IOSMobileOperationTests(unittest.TestCase):
         self.assertEqual(self.operations.status(self.context.operation_id)['roles']['candidate']['state'],'preparing')
 
     def test_invalid_status_identifier_is_rejected_before_directory_access(self):
-        from reproloop import ios_mobile_operation as mobile
+        from reproof import ios_mobile_operation as mobile
         with patch.object(mobile,'_walk_directory',side_effect=AssertionError('Invalid identifier reached storage')):
             with self.assertRaises(mobile.IOSMobileOperationError):self.operations.status('../outside')
 
     def test_callback_keeps_producer_lock_after_admission_context_exits(self):
-        from reproloop import ios_mobile_operation as mobile
+        from reproof import ios_mobile_operation as mobile
         entered=threading.Event();release=threading.Event();errors=[]
         original=mobile._move_new_app
         def paused(*args):
@@ -251,7 +251,7 @@ class IOSMobileOperationTests(unittest.TestCase):
             process.terminate();process.join(5)
             self.fail('Owned preparation child did not stop')
         self.assertEqual(process.exitcode,73);process.close()
-        from reproloop.ios_mobile_operation import IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationStore
         fresh=IOSMobileOperationStore(self.runs,self.selected,self.operations.root,create=False)
         self.addCleanup(fresh.close)
         status=fresh.status(self.context.operation_id)
@@ -266,7 +266,7 @@ class IOSMobileOperationTests(unittest.TestCase):
         self.assertNotIn('device',stored['operationsIdentity'])
         stored['operationsIdentity']['device']=16777234
         path.write_bytes(canonical(stored))
-        from reproloop.ios_mobile_operation import IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationStore
         fresh=IOSMobileOperationStore(self.runs,self.selected,self.operations.root)
         self.addCleanup(fresh.close)
         normalized=json.loads(path.read_bytes())
@@ -282,7 +282,7 @@ class IOSMobileOperationTests(unittest.TestCase):
         stored['operationsIdentity']['device']=16777234
         stored['operationsIdentity']['inode']=stored['operationsIdentity']['inode']+1
         path.write_bytes(canonical(stored))
-        from reproloop.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
         with self.assertRaises(IOSMobileOperationError):
             IOSMobileOperationStore(self.runs,self.selected,self.operations.root,create=False)
 
@@ -292,7 +292,7 @@ class IOSMobileOperationTests(unittest.TestCase):
         stored['operationsIdentity']['device']=16777234
         stored['environmentDigest']='0'*64
         path.write_bytes(canonical(stored))
-        from reproloop.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
         with self.assertRaises(IOSMobileOperationError):
             IOSMobileOperationStore(self.runs,self.selected,self.operations.root,create=False)
 
@@ -300,7 +300,7 @@ class IOSMobileOperationTests(unittest.TestCase):
         operations=self.operations.root/'operations'
         moved=self.operations.root/'operations-moved'
         os.rename(operations,moved);os.mkdir(operations,0o700)
-        from reproloop.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationError,IOSMobileOperationStore
         try:
             with self.assertRaises(IOSMobileOperationError):
                 IOSMobileOperationStore(self.runs,self.selected,self.operations.root,create=False)

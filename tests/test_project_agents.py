@@ -9,25 +9,25 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop.agents import AgentUnavailable
-from reproloop.project_repair import RepairError
+from reproof.agents import AgentUnavailable
+from reproof.project_repair import RepairError
 from tests.test_project_repair import BEFORE, EDIT, PRODUCT, source_fixture
 
 
 class ProjectAgentTests(unittest.TestCase):
     def test_external_source_and_specification_need_exact_transfer_policy(self):
-        from reproloop.project_repair import proposal_packet
+        from reproof.project_repair import proposal_packet
         project, source, _ = source_fixture()
         specification = {'actions': [{'action': 'tap'}], 'assertions': [{'expected': 'success'}],
                          'waits': [], 'provenance': {'author': 'not-for-provider'}}
-        policy = {'schemaVersion': 1, 'projectDigest': __import__('reproloop.contracts', fromlist=['digest']).digest(project),
+        policy = {'schemaVersion': 1, 'projectDigest': __import__('reproof.contracts', fromlist=['digest']).digest(project),
             'providerId': 'claude', 'approvedTransfer': True, 'sourcePaths': [PRODUCT],
             'specificationFields': ['actions', 'assertions', 'waits']}
         for bad in (None, policy):
             with self.assertRaises(RepairError):
                 proposal_packet(project, source, specification, provider_id='claude', external=True, policy=bad)
         project['evidencePolicy']['aiEligible'] = True
-        from reproloop.contracts import digest
+        from reproof.contracts import digest
         policy['projectDigest'] = digest(project)
         packet = proposal_packet(project, source, specification, provider_id='claude', external=True, policy=policy)
         self.assertEqual(packet['sourceFiles'], {PRODUCT: BEFORE.decode()})
@@ -41,7 +41,7 @@ class ProjectAgentTests(unittest.TestCase):
                                 policy=dict(policy, **change))
 
     def test_patch_adapter_is_bounded_strict_local_input_and_not_ai(self):
-        from reproloop.agents import ProjectPatchAgent
+        from reproof.agents import ProjectPatchAgent
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp).resolve() / 'proposal.json'
             path.write_text(json.dumps({'edits': [EDIT]}))
@@ -54,13 +54,13 @@ class ProjectAgentTests(unittest.TestCase):
                 agent.propose_project({}, cancellation=threading.Event())
 
     def test_claude_project_adapter_uses_prompt_only_and_does_not_expose_outputs(self):
-        from reproloop.agents import ClaudeProjectAgent
+        from reproof.agents import ClaudeProjectAgent
         observed = {}
         def run(command, work, **kwargs):
             observed.update(command=command, work=work, **kwargs)
             return json.dumps({'edits': [EDIT]})
         agent = ClaudeProjectAgent(executable='/owned/tools/claude')
-        with mock.patch('reproloop.agents.run_command', side_effect=run):
+        with mock.patch('reproof.agents.run_command', side_effect=run):
             self.assertEqual(agent.propose_project({'sourceFiles': {PRODUCT: BEFORE.decode()}},
                 cancellation=threading.Event()), [EDIT])
         self.assertEqual(observed['command'][observed['command'].index('--tools') + 1], '')
@@ -69,7 +69,7 @@ class ProjectAgentTests(unittest.TestCase):
         self.assertFalse(Path(observed['work']).exists())
 
     def test_cancelled_command_never_starts_and_running_command_is_stopped(self):
-        from reproloop.repair import run_command, CommandError
+        from reproof.repair import run_command, CommandError
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve(); marker = root / 'started'
             cancel = threading.Event(); cancel.set()

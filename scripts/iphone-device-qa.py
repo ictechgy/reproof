@@ -8,9 +8,9 @@ import sys
 import time
 import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from reproloop.live.client import Client
-from reproloop.live.iphone import select_iphone
-from reproloop.storage import read_json, write_json
+from reproof.live.client import Client
+from reproof.live.iphone import select_iphone
+from reproof.storage import read_json, write_json
 
 p = argparse.ArgumentParser()
 p.add_argument('--server', default='http://127.0.0.1:8765')

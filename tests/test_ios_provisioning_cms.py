@@ -15,8 +15,8 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.ios_provisioning_policy import decoded_profile_digest
+from reproof import contracts
+from reproof.ios_provisioning_policy import decoded_profile_digest
 from tests import test_ios_provisioning_policy as policy
 
 
@@ -78,7 +78,7 @@ class IOSCmsVerificationTests(unittest.TestCase):
             raise RuntimeError('owned test certificate setup failed')
 
     def setUp(self):
-        from reproloop.ios_provisioning_cms import IOSCmsTools, IOSCmsTrust, IOSCmsVerifier
+        from reproof.ios_provisioning_cms import IOSCmsTools, IOSCmsTrust, IOSCmsVerifier
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         self.tools = IOSCmsTools(self.openssl, sha(self.openssl.read_bytes()),
@@ -94,7 +94,7 @@ class IOSCmsVerificationTests(unittest.TestCase):
         return self.verifier.verify(body, **{**values, **overrides})
 
     def test_actual_signature_and_explicit_chain_issue_only_an_exact_private_capability(self):
-        from reproloop.ios_provisioning_cms import IOSCmsError
+        from reproof.ios_provisioning_cms import IOSCmsError
         result = self.verify()
         profile = self.verifier.require_profile(result, trust=self.trust, expected_cms_digest=sha(self.cms))
         self.assertEqual(profile, self.profile)
@@ -112,7 +112,7 @@ class IOSCmsVerificationTests(unittest.TestCase):
             expected_cms_digest=sha(self.cms)), self.profile)
 
     def test_native_signature_anchor_signer_and_expiry_failures_never_issue_content(self):
-        from reproloop.ios_provisioning_cms import IOSCmsError
+        from reproof.ios_provisioning_cms import IOSCmsError
         tampered = self.cms.replace(b'private dummy profile name', b'changed dummy profile name')
         self.assertNotEqual(tampered, self.cms)
         for body, overrides in (
@@ -131,7 +131,7 @@ class IOSCmsVerificationTests(unittest.TestCase):
                 self.assertEqual(list(self.verifier.work_root.iterdir()), [])
 
     def test_wrong_input_digest_invalid_bounds_and_cancellation_have_no_native_work(self):
-        from reproloop.ios_provisioning_cms import IOSCmsError
+        from reproof.ios_provisioning_cms import IOSCmsError
         cancelled = threading.Event(); cancelled.set()
         for values in ({'expected_cms_digest': '0' * 64}, {'cancellation': cancelled},
                        {'deadline_monotonic': float('inf')},
@@ -163,10 +163,10 @@ class IOSCmsVerificationTests(unittest.TestCase):
                 os.kill(process.pid, signal.SIGSTOP)
                 started.set()
             return process
-        return patch('reproloop.repair_android_signing.subprocess.Popen', side_effect=popen)
+        return patch('reproof.repair_android_signing.subprocess.Popen', side_effect=popen)
 
     def test_actual_stopped_native_process_times_out_and_is_collected(self):
-        from reproloop.ios_provisioning_cms import IOSCmsError
+        from reproof.ios_provisioning_cms import IOSCmsError
         started = threading.Event()
         with self.stopped_native(started):
             with self.assertRaises(IOSCmsError) as caught:
@@ -192,7 +192,7 @@ class IOSCmsVerificationTests(unittest.TestCase):
         self.assertEqual(list(self.verifier.work_root.iterdir()), [])
 
     def test_close_waits_for_admitted_dispatch_and_rejects_late_capability(self):
-        from reproloop.ios_provisioning_cms import IOSCmsError
+        from reproof.ios_provisioning_cms import IOSCmsError
         entered = threading.Event(); release = threading.Event()
         failures = []
         actual = self.verifier._owner.run
@@ -217,7 +217,7 @@ class IOSCmsVerificationTests(unittest.TestCase):
         self.assertEqual(list(self.verifier.work_root.iterdir()), [])
 
     def test_trust_and_tool_definitions_reject_extra_bytes_empty_anchors_and_changed_digest(self):
-        from reproloop.ios_provisioning_cms import IOSCmsError
+        from reproof.ios_provisioning_cms import IOSCmsError
         for fields in ({'anchors_der': ()}, {'anchors_der': (self.certs['root-a'],) * 2},
                        {'signer_der': self.certs['signer'] + b'ignored'}):
             with self.assertRaises(IOSCmsError):
@@ -226,7 +226,7 @@ class IOSCmsVerificationTests(unittest.TestCase):
             replace(self.tools, openssl_sha256='0' * 64)
 
     def test_work_parent_link_is_rejected_before_creating_another_directory(self):
-        from reproloop.ios_provisioning_cms import IOSCmsVerifier
+        from reproof.ios_provisioning_cms import IOSCmsVerifier
         actual = self.root / 'actual-parent'; actual.mkdir()
         alias = self.root / 'alias-parent'; alias.symlink_to(actual, target_is_directory=True)
         with self.assertRaises(Exception):
@@ -234,7 +234,7 @@ class IOSCmsVerificationTests(unittest.TestCase):
         self.assertFalse((actual / 'must-not-be-created').exists())
 
     def test_private_content_retention_is_bounded_and_release_revokes_the_capability(self):
-        from reproloop import ios_provisioning_cms as module
+        from reproof import ios_provisioning_cms as module
         budget = len(self.cms) + len(self.content) - 1
         with patch.object(module, 'MAX_RETAINED_PROFILE_BYTES', budget, create=True):
             first = self.verify()

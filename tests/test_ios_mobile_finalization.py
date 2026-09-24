@@ -6,13 +6,13 @@ import threading
 import time
 import unittest
 
-from reproloop.ios_mobile_callbacks import IOSNativeCallbackCoordinator
-from reproloop.ios_mobile_finalization import (
+from reproof.ios_mobile_callbacks import IOSNativeCallbackCoordinator
+from reproof.ios_mobile_finalization import (
     FINALIZATION_DIRECTORY,
     IOSNativeFinalizationError,
     discard_native_staged,
 )
-from reproloop.live.authority import HostAuthority, issue_local_parent_grant
+from reproof.live.authority import HostAuthority, issue_local_parent_grant
 from tests import test_ios_mobile_operation as preparation
 
 

@@ -8,10 +8,10 @@
 개발자가 각 파일에 SDK 호출·로그·내보내기 버튼을 작성할 필요가 없다.
 
 ```bash
-python3 -m reproloop instrument --source PATH_TO_PUBLIC_APP_SOURCE \
+python3 -m reproof instrument --source PATH_TO_PUBLIC_APP_SOURCE \
   --app-profile PATH_TO_APP_PROFILE.json --output artifacts/new-build-instrumentation
 
-python3 -m reproloop build --source artifacts/new-build-instrumentation/source \
+python3 -m reproof build --source artifacts/new-build-instrumentation/source \
   --app-profile artifacts/new-build-instrumentation/app-profile.json \
   --output artifacts/new-instrumented-build
 ```
@@ -72,7 +72,7 @@ Kotlin Views의 단일 Activity와 지원하는 `setOnClickListener` 형태를 �
 고정 의존성은 별도로 준비해야 한다.
 
 이미 `buildSrc`가 있는 프로젝트는 [공개 입력 목록](ANDROID-APP-PROFILES.md#빌드-입력과-검증-경계)의
-`sourceInputs`를 사용한다. 기존 빌드 로직을 복사하고 별도 `reproloop-build-logic`을 포함한다.
+`sourceInputs`를 사용한다. 기존 빌드 로직을 복사하고 별도 `reproof-build-logic`을 포함한다.
 목록을 생략한 기존 준비 경로는 계속 새 `buildSrc`를 요구한다.
 사용자 정의 debug manifest 경로, 모호한 클릭 대상·동일 줄의 여러 계측 위치도 별도 처리가 필요하다.
 `onDestroy`가 없는 Activity의 종료 hook은 직접 상속한 `android.app.Activity`에서만 합성한다.
@@ -88,7 +88,7 @@ fixture·프로필과 원본/계측본의 동작을 확인한다.
 
 ## 실행 검증
 
-2026-09-11, SDK 호출과 Report 버튼이 없는 합성 앱 `io.reproloop.plain`에서 검증했다.
+2026-09-11, SDK 호출과 Report 버튼이 없는 합성 앱 `io.reproof.plain`에서 검증했다.
 설치된 API 36 이미지로 별도 에뮬레이터를 만들었으며 실제 사용자 앱이나 물리 휴대폰 검증으로 해석하지 않는다.
 
 | 항목 | 결과 |

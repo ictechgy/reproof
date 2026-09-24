@@ -11,17 +11,17 @@ import copy
 from dataclasses import replace
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.execution.artifacts import BlobSet
-from reproloop.ios_mobile_g4 import (
+from reproof import contracts
+from reproof.execution.artifacts import BlobSet
+from reproof.ios_mobile_g4 import (
     IOSG4Error, IOSG4Provider, IOSOwnerCommandPump, _RequestKind,
 )
-from reproloop.ios_mobile_helper import IOSHelperChannel
-from reproloop.ios_device_tools import IOSDeviceToolError
-from reproloop.ios_mobile_identity import IOSInstalledIdentityObservation
-from reproloop.ios_mobile_inputs import IOSBaselineReference
-from reproloop.ios_profile import validate_ios_profile
-from reproloop.live.authority import ProviderResult
+from reproof.ios_mobile_helper import IOSHelperChannel
+from reproof.ios_device_tools import IOSDeviceToolError
+from reproof.ios_mobile_identity import IOSInstalledIdentityObservation
+from reproof.ios_mobile_inputs import IOSBaselineReference
+from reproof.ios_profile import validate_ios_profile
+from reproof.live.authority import ProviderResult
 from tests import test_ios_mobile_helper as helper_fixture
 from tests import test_ios_mobile_runtime_identity as runtime_fixture
 from tests.g4_support import G4Environment
@@ -250,7 +250,7 @@ class IOSMobileG4ProviderContractTests(unittest.TestCase):
                 except Exception as error:
                     errors.append(error)
 
-            with patch("reproloop.ios_mobile_helper.TunnelClient",
+            with patch("reproof.ios_mobile_helper.TunnelClient",
                        return_value=native_double):
                 permit = case.permit(launch)
                 stale = replace(permit, provider_incarnation="ios-xctest-stale")
@@ -291,7 +291,7 @@ class IOSMobileG4ProviderContractTests(unittest.TestCase):
                 except Exception as error:
                     cleanup_errors.append(error)
 
-            with patch("reproloop.ios_mobile_helper.TunnelClient",
+            with patch("reproof.ios_mobile_helper.TunnelClient",
                        return_value=native_double):
                 closing = threading.Thread(target=close)
                 closing.start()

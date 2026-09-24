@@ -10,7 +10,7 @@
 ## 수집과 출처
 
 등록된 공유 세션의 `app-logs` 조회는 관측 스냅샷을 원본 EvidenceStore에 저장한다.
-참조 MIME은 `application/vnd.reproloop.app-log+json`이다. 일반 텍스트·접근성·영상
+참조 MIME은 `application/vnd.reproof.app-log+json`이다. 일반 텍스트·접근성·영상
 객체는 진단 추출을 위해 열지 않는다. 이전의 `application/json` 관측을 자동으로
 앱 로그라고 추정하거나 원본 참조를 수정하지 않는다. 이 MIME이 들어 있는 패키지는
 발신·수신 서비스 모두 이 형식을 지원하는 버전을 사용해야 한다.
@@ -94,7 +94,7 @@ AI에 보내려면 v2의 `diagnostics`에 진단 정책 전체의 digest와 전�
 덮어쓰지 않는다.
 
 ```sh
-python3 -m reproloop live-issues repair-diagnostics REPAIR_ID \
+python3 -m reproof live-issues repair-diagnostics REPAIR_ID \
   --server COORDINATOR_URL --credential-stdin --output NEW_DIRECTORY
 ```
 

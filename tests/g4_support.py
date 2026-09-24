@@ -4,14 +4,14 @@ import tempfile
 import threading
 import time
 
-from reproloop import contracts
-from reproloop.fixtures import (AdapterCapabilities, FixtureCoordinator,
+from reproof import contracts
+from reproof.fixtures import (AdapterCapabilities, FixtureCoordinator,
                                 LoopbackFixtureAdapter)
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.issue_sessions import FixturePreparation
-from reproloop.live.model import Lab
-from reproloop.qualification import ScenarioRegistry
-from reproloop.scenario_runner import (ObservationEvidence, ObservationRegistry,
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.issue_sessions import FixturePreparation
+from reproof.live.model import Lab
+from reproof.qualification import ScenarioRegistry
+from reproof.scenario_runner import (ObservationEvidence, ObservationRegistry,
                                        ScenarioRunner, StaticVariableResolver,
                                        VariableResolverRegistry)
 from tests.test_clock_sync import FakeClock

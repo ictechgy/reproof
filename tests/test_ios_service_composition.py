@@ -9,17 +9,17 @@ import tempfile
 import time
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.execution.backend import REQUIRED_PROBES
-from reproloop.execution.journal import RunStore
-from reproloop.ios_signing_inputs import IOSSigningIdentity, IOSSigningMaterialResolver
-from reproloop.protected_service import _structural_ipa
-from reproloop.protected_service import ProtectedServiceAssemblyError, compose_ios_protected_service
-from reproloop.protected_signing_inputs import IOSSigningDefinitionInputs
-from reproloop.protected_validation import ValidationSecretRegistry
-from reproloop.repair_composition import ProtectedRepairComposition
-from reproloop.repair_execution import RepairExecutionError
-from reproloop.repair_ios import IOSTrustedMobileAdapter
+from reproof import contracts
+from reproof.execution.backend import REQUIRED_PROBES
+from reproof.execution.journal import RunStore
+from reproof.ios_signing_inputs import IOSSigningIdentity, IOSSigningMaterialResolver
+from reproof.protected_service import _structural_ipa
+from reproof.protected_service import ProtectedServiceAssemblyError, compose_ios_protected_service
+from reproof.protected_signing_inputs import IOSSigningDefinitionInputs
+from reproof.protected_validation import ValidationSecretRegistry
+from reproof.repair_composition import ProtectedRepairComposition
+from reproof.repair_execution import RepairExecutionError
+from reproof.repair_ios import IOSTrustedMobileAdapter
 from tests.ios_service_support import IOSServiceFixture
 
 
@@ -147,7 +147,7 @@ class IOSServiceCompositionTests(unittest.TestCase):
         resolver, secrets, signing = self._materials(owner)
         prepared = self._prepared(signing)
         configuration = self._configuration()
-        with patch("reproloop.protected_service.load_protected_service_inputs", return_value=prepared), \
+        with patch("reproof.protected_service.load_protected_service_inputs", return_value=prepared), \
              patch.object(owner, "qualify_build", side_effect=AssertionError("build started")), \
              patch.object(owner.authority, "require_qualification", side_effect=RuntimeError("stale")):
             with self.assertRaises(ProtectedServiceAssemblyError):
@@ -170,17 +170,17 @@ class IOSServiceCompositionTests(unittest.TestCase):
         supervisor = object()
         executor = SimpleNamespace(ready=lambda **_: events.append("ready"))
         runtime = SimpleNamespace(protected_repairs=None, workflow=SimpleNamespace(repairs=None))
-        with patch("reproloop.protected_service.load_protected_service_inputs", return_value=prepared), \
+        with patch("reproof.protected_service.load_protected_service_inputs", return_value=prepared), \
              patch.object(owner, "qualify_build", side_effect=lambda **_: events.append("build") or builder), \
              patch.object(owner, "configure_ios_signing_owner", side_effect=lambda *a, **k: events.append("sign") or signer), \
              patch.object(owner, "configure_ios_mobile", side_effect=lambda **k: events.append("mobile") or supervisor), \
              patch.object(owner.authority, "require_qualification", side_effect=lambda *a, **k: events.append("qualification")), \
-             patch("reproloop.protected_service._journal", return_value=object()), \
-             patch("reproloop.protected_service.load_ios_validation_inputs",
+             patch("reproof.protected_service._journal", return_value=object()), \
+             patch("reproof.protected_service.load_ios_validation_inputs",
                    return_value=prepared.validation[0][1]), \
-             patch("reproloop.protected_service.ProtectedRepairExecutor", return_value=executor), \
+             patch("reproof.protected_service.ProtectedRepairExecutor", return_value=executor), \
              patch.object(owner, "register", side_effect=lambda *a: events.append("register")), \
-             patch("reproloop.live.issue_configuration.compose_issue_repairs",
+             patch("reproof.live.issue_configuration.compose_issue_repairs",
                    side_effect=lambda *a, **k: (setattr(runtime, "protected_repairs", owner),
                                                  setattr(runtime.workflow, "repairs", object()))):
             try:

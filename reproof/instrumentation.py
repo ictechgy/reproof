@@ -15,15 +15,15 @@ from .storage import read_json, write_json, sha_file
 from .resources import resource_root
 
 ROOT = resource_root()
-TEMPLATES = ROOT / 'reproloop/instrumentation_templates/android'
+TEMPLATES = ROOT / 'reproof/instrumentation_templates/android'
 MARKER = 'instrumentation-receipt.json'
-RECEIVER = 'io.reproloop.autotrace.AutoExportReceiver'
+RECEIVER = 'io.reproof.autotrace.AutoExportReceiver'
 ANDROID = 'http://schemas.android.com/apk/res/android'
 
 
 def render_runtime_config(profile, sites):
     def literal(value):return json.dumps(value, ensure_ascii=False).replace('$', '\\$')
-    return ('package io.reproloop.autotrace\n\ninternal object ReproConfig {\n'
+    return ('package io.reproof.autotrace\n\ninternal object ReproConfig {\n'
         '    const val RECORD_MODE = "record"\n'
         f'    const val PROFILE_JSON = {literal(json.dumps(profile.native(), separators=(",", ":")))}\n'
         f'    const val PROFILE_DIGEST = "{profile.digest}"\n'
@@ -74,7 +74,7 @@ def merge_debug_manifest(text):
     require(len(root_range) == 2, 'Incomplete debug manifest')
     fragment = (f'\n        <receiver xmlns:android="{ANDROID}" android:name="{RECEIVER}" '
                 'android:exported="true" android:permission="android.permission.DUMP">\n'
-                '            <intent-filter><action android:name="io.reproloop.EXPORT_CAPTURE" /></intent-filter>\n'
+                '            <intent-filter><action android:name="io.reproof.EXPORT_CAPTURE" /></intent-filter>\n'
                 '        </receiver>\n').encode()
     if app_range:
         begin, close = app_range
@@ -106,9 +106,9 @@ def instrument_project(source, app_profile, output, *, analyzer=None):
     module_path = Path(*module.parts)
     for variant in ('main', 'debug', 'release'):
         for language in ('java', 'kotlin'):
-            require(not (source / module_path / f'src/{variant}/{language}/io/reproloop/autotrace').exists(),
+            require(not (source / module_path / f'src/{variant}/{language}/io/reproof/autotrace').exists(),
                     'Automatic instrumentation runtime already exists')
-    require(not (source / module_path / 'src/debug/java/io/reproloop/sdk/ReproRecorder.kt').exists(),
+    require(not (source / module_path / 'src/debug/java/io/reproof/sdk/ReproRecorder.kt').exists(),
             'A vendored recorder already exists')
     before = snapshot_source(source)
     main_prefix = (module_path / 'src/main').as_posix() + '/'
@@ -144,11 +144,11 @@ def instrument_project(source, app_profile, output, *, analyzer=None):
                 require(not target.exists(), 'Instrumentation would overwrite an existing runtime file')
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(template, target)
-        sdk = workspace / module_path / 'src/debug/java/io/reproloop/sdk/ReproRecorder.kt'
+        sdk = workspace / module_path / 'src/debug/java/io/reproof/sdk/ReproRecorder.kt'
         sdk.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(ROOT / 'android/sdk/src/main/java/io/reproloop/sdk/ReproRecorder.kt', sdk)
+        shutil.copyfile(ROOT / 'android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt', sdk)
         generated = render_runtime_config(instrumented_profile, plan['sites'])
-        (workspace / module_path / 'src/debug/java/io/reproloop/autotrace/ReproConfig.kt').write_text(generated)
+        (workspace / module_path / 'src/debug/java/io/reproof/autotrace/ReproConfig.kt').write_text(generated)
         manifest = workspace / module_path / 'src/debug/AndroidManifest.xml'
         manifest.parent.mkdir(parents=True, exist_ok=True)
         manifest.write_text(merge_debug_manifest(manifest.read_text() if manifest.exists() else '<manifest/>\n'))

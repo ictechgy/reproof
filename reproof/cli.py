@@ -78,7 +78,7 @@ def main(argv=None):
     if effective and effective[0] == 'android-signing':
         from .repair_signing_cli import main as signing_main
         return signing_main(effective[1:])
-    parser=argparse.ArgumentParser(prog='reproloop',description='Record, replay and verify the Android sample with immutable evidence.')
+    parser=argparse.ArgumentParser(prog='reproof',description='Record, replay and verify the Android sample with immutable evidence.')
     sub=parser.add_subparsers(dest='command',required=True)
     sub.add_parser('doctor',help='Check local tools and authorized device count')
     sub.add_parser('installation-check',help='Check public installed resources without accessing devices or credentials')

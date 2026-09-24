@@ -12,7 +12,7 @@ import tempfile
 from setuptools import setup
 from setuptools.command.build_py import build_py
 
-resources = runpy.run_path('reproloop/resources.py')
+resources = runpy.run_path('reproof/resources.py')
 checked_resource_files = resources['checked_resource_files']
 freeze_resource_files = resources['freeze_resource_files']
 read_public_source = resources['_read']
@@ -57,15 +57,15 @@ class RuntimeAssetBuild(build_py):
             return
         source = Path.cwd()
         build_root = Path(self.build_lib)
-        target = build_root / 'reproloop' / '_assets'
+        target = build_root / 'reproof' / '_assets'
         frozen = freeze_resource_files(source); names = list(frozen)
         modules = {}
         for package, module, filename in self.find_all_modules():
             selected = Path(filename).absolute().relative_to(source).as_posix()
             relative = '/'.join([*package.split('.'), module + '.py'])
             modules[relative] = read_public_source(source, selected)
-        allowed = [*modules, 'reproloop/_assets/manifest.json',
-                   *('reproloop/_assets/' + name for name in names)]
+        allowed = [*modules, 'reproof/_assets/manifest.json',
+                   *('reproof/_assets/' + name for name in names)]
         check_asset_cache(build_root, allowed, manifest=False)
         self.compile = False
         self.optimize = 0
@@ -87,7 +87,7 @@ class RuntimeAssetBuild(build_py):
 
     def get_outputs(self, include_bytecode=True):
         names = checked_resource_files(Path.cwd())
-        target = Path(self.build_lib) / 'reproloop' / '_assets'
+        target = Path(self.build_lib) / 'reproof' / '_assets'
         return [*super().get_outputs(include_bytecode), str(target / 'manifest.json'),
                 *(str(target / name) for name in names)]
 

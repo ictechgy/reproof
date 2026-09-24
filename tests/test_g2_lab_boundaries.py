@@ -3,8 +3,8 @@ import threading
 import unittest
 from unittest import mock
 
-from reproloop.live.model import LiveError
-from reproloop.live.recording_session import RecordingStore, RecordingStoreError
+from reproof.live.model import LiveError
+from reproof.live.recording_session import RecordingStore, RecordingStoreError
 from tests import test_g2_lab_integration as fixture
 from tests.test_recording_recovery import project_document
 

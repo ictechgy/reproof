@@ -10,13 +10,13 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from reproloop.agents import ProjectPatchAgent
-from reproloop.execution.artifacts import BlobSet
-from reproloop.execution.wire import canonical
+from reproof.agents import ProjectPatchAgent
+from reproof.execution.artifacts import BlobSet
+from reproof.execution.wire import canonical
 
 
 def run_synthetic(output, *, browser=False, protected=False):
-    from reproloop.live.server import LiveServer
+    from reproof.live.server import LiveServer
     from tests.test_live_project_repair import LiveProjectRepairTests
     from tests.test_project_repair import EDIT
     fixture = LiveProjectRepairTests('runTest')

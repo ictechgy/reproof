@@ -7,7 +7,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "reproloop" / "build_instrumentation_templates" / "buildSrc"
+TEMPLATE = ROOT / "reproof" / "build_instrumentation_templates" / "buildSrc"
 FIXTURE = ROOT / "tests" / "fixtures" / "bytecode"
 GRADLE = shutil.which("gradle") or "/opt/homebrew/bin/gradle"
 JAVA_HOME = Path(os.environ.get(
@@ -42,15 +42,15 @@ class BuildBytecodeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
             shutil.copytree(TEMPLATE, project / "buildSrc")
-            plan = project / "buildSrc/src/main/java/io/reproloop/instrumentation/gradle/ReproPlan.java"
+            plan = project / "buildSrc/src/main/java/io/reproof/instrumentation/gradle/ReproPlan.java"
             plan.parent.mkdir(parents=True, exist_ok=True)
             plan.write_text(
-                "package io.reproloop.instrumentation.gradle;\n"
+                "package io.reproof.instrumentation.gradle;\n"
                 "import java.util.Map;\n"
                 "public final class ReproPlan {\n"
                 '  public static final String MODULE = ":sample";\n'
                 '  public static final String VARIANT = "debug";\n'
-                '  public static final String ACTIVITY = "io.reproloop.plain.MainActivity";\n'
+                '  public static final String ACTIVITY = "io.reproof.plain.MainActivity";\n'
                 '  public static final String PROFILE_DIGEST = "' + "0" * 64 + '";\n'
                 "  public static final Map<Integer, String> SITES = Map.ofEntries();\n"
                 "}\n"
@@ -79,7 +79,7 @@ class BuildBytecodeTests(unittest.TestCase):
             classes = root / "classes"
             classes.mkdir()
             java_files = [
-                TEMPLATE / "src/main/java/io/reproloop/instrumentation/gradle/ReproBytecodeTransformer.java"
+                TEMPLATE / "src/main/java/io/reproof/instrumentation/gradle/ReproBytecodeTransformer.java"
             ]
             java_files += [path for path in FIXTURE.rglob("*.java")]
             classpath = os.pathsep.join((str(ASM), str(ASM_TREE)))

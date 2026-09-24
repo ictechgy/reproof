@@ -8,8 +8,8 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from reproloop.execution.journal import RunStore
-from reproloop.ios_mobile_configuration import (
+from reproof.execution.journal import RunStore
+from reproof.ios_mobile_configuration import (
     export_ios_mobile_configuration, load_ios_mobile_configuration,
 )
 from tests import test_ios_mobile_operation as support
@@ -28,7 +28,7 @@ class IOSMobilePreparationCLITests(unittest.TestCase):
         self.path.chmod(0o600)
 
     def command(self, *arguments):
-        from reproloop.cli import main
+        from reproof.cli import main
         output = io.StringIO()
         with redirect_stdout(output):
             code = main(['ios-mobile', *arguments])
@@ -38,7 +38,7 @@ class IOSMobilePreparationCLITests(unittest.TestCase):
         reference = load_ios_mobile_configuration(self.path)
         self.assertNotIn(self.fixture.selected.udid, repr(reference))
         self.assertNotIn(self.fixture.selected.udid, json.dumps(reference.public()))
-        with patch('reproloop.ios_mobile_configuration.open_regular',
+        with patch('reproof.ios_mobile_configuration.open_regular',
                    side_effect=AssertionError('configuration loader must be the only file read')):
             # The patch applies only after construction; opening an existing
             # owner must use the journal APIs, not the input references.
@@ -72,14 +72,14 @@ class IOSMobilePreparationCLITests(unittest.TestCase):
 
     def test_subprocess_registration_and_errors_are_redacted(self):
         self.fixture.operations.close()
-        command = [sys.executable, '-m', 'reproloop.cli', 'ios-mobile', 'status',
+        command = [sys.executable, '-m', 'reproof.cli', 'ios-mobile', 'status',
                    '--config', str(self.path), '--operation', self.fixture.context.operation_id]
         completed = subprocess.run(command, cwd=Path(__file__).parents[1], text=True,
                                    capture_output=True, check=False)
         self.assertEqual(completed.returncode, 0)
         report = json.loads(completed.stdout)
         self.assertEqual(report['status'], 'observed')
-        bad = [sys.executable, '-m', 'reproloop.cli', 'ios-mobile', 'status',
+        bad = [sys.executable, '-m', 'reproof.cli', 'ios-mobile', 'status',
                '--config', str(self.fixture.root / 'missing.json'), '--operation',
                self.fixture.context.operation_id]
         completed = subprocess.run(bad, cwd=Path(__file__).parents[1], text=True,
@@ -100,7 +100,7 @@ class IOSMobilePreparationCLITests(unittest.TestCase):
         self.assertFalse((self.fixture.root / 'missing-owner').exists())
 
     def test_native_bound_operation_is_reserved_for_native_recovery(self):
-        from reproloop.ios_mobile_operation import IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationStore
         observed = {'schemaVersion': 1, 'operationId': self.fixture.context.operation_id,
                     'requestDigest': self.fixture.context.request_digest,
                     'configurationDigest': '0' * 64, 'scopeDigest': '1' * 64,
@@ -129,7 +129,7 @@ class IOSMobilePreparationCLITests(unittest.TestCase):
         self.assertEqual(report['status'], 'rejected')
 
     def test_unsuccessful_owner_close_is_not_reported_as_success(self):
-        from reproloop.ios_mobile_operation import IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationStore
         with patch.object(IOSMobileOperationStore, 'close', return_value=False):
             code, report = self.command('status', '--config', str(self.path), '--operation',
                                         self.fixture.context.operation_id)
@@ -137,7 +137,7 @@ class IOSMobilePreparationCLITests(unittest.TestCase):
         self.assertEqual(report['status'], 'rejected')
 
     def test_cancellation_before_recovery_does_not_consume_reservation(self):
-        from reproloop import ios_mobile_cli
+        from reproof import ios_mobile_cli
         with patch.object(ios_mobile_cli, '_handlers', side_effect=lambda event: event.set() or {}):
             code, report = self.command('recover', '--config', str(self.path), '--operation',
                                         self.fixture.context.operation_id, '--request-digest',
@@ -163,7 +163,7 @@ class IOSMobilePreparationCLITests(unittest.TestCase):
         self.assertEqual((code, report['status']), (0, 'already-terminal'))
 
     def test_close_run_attests_device_cleanup_for_native_bound_runs(self):
-        from reproloop.execution.wire import canonical
+        from reproof.execution.wire import canonical
         operation = self.fixture.context.operation_id
         digest = self.fixture.context.request_digest
         root = self.fixture.operations.root / 'operations' / operation
@@ -220,7 +220,7 @@ class IOSMobilePreparationCLITests(unittest.TestCase):
         scope = self.fixture.operations.definition.scope_digest
         key = hashlib.sha256(
             ('protected-repair-mobile-device-' + scope).encode()).hexdigest()
-        directory = Path(tempfile.gettempdir()) / f'reproloop-leases-{os.getuid()}'
+        directory = Path(tempfile.gettempdir()) / f'reproof-leases-{os.getuid()}'
         directory.mkdir(mode=0o700, exist_ok=True)
         marker = directory / (key + '.authority.json')
         marker.write_text(json.dumps(

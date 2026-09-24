@@ -18,10 +18,10 @@ SDK 호출과 녹화 내보내기 버튼을 앱 개발자가 직접 추가하지
 현재 일반 wheel 설치에는 Java 도구와 템플릿을 패키징하지 않으므로 checkout에서 실행한다.
 
 ```bash
-python3 -m reproloop instrument --mode source --source PATH_TO_PUBLIC_APP_SOURCE \
+python3 -m reproof instrument --mode source --source PATH_TO_PUBLIC_APP_SOURCE \
   --app-profile PATH_TO_APP_PROFILE.json --output artifacts/new-instrumented-app
 
-python3 -m reproloop build --source artifacts/new-instrumented-app/source \
+python3 -m reproof build --source artifacts/new-instrumented-app/source \
   --app-profile artifacts/new-instrumented-app/app-profile.json \
   --output artifacts/new-instrumented-build
 ```
@@ -87,7 +87,7 @@ Live의 Reset & record → QA 입력 → Stop → Analyze & repair recording 흐
 
 ## 실제 실행 검증
 
-2026-09-11, SDK 호출이나 Report 버튼이 없는 합성 앱 `io.reproloop.plain`에 Add·예외 테스트 버튼
+2026-09-11, SDK 호출이나 Report 버튼이 없는 합성 앱 `io.reproof.plain`에 Add·예외 테스트 버튼
 두 곳을 자동 계측했다. 설치된 API 36 이미지로 만든 전용 Android 에뮬레이터에서 검증했다.
 
 | 검사 | 확인한 결과 |

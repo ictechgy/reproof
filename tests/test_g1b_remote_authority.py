@@ -5,10 +5,10 @@ import threading
 import time
 import unittest
 
-from reproloop.live.authority import HostAuthority, issue_local_parent_grant
-from reproloop.live.clock_sync import ClockReading
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.worker import WorkerClient, WorkerServer, remote_devices
+from reproof.live.authority import HostAuthority, issue_local_parent_grant
+from reproof.live.clock_sync import ClockReading
+from reproof.live.model import Lab, LiveError
+from reproof.live.worker import WorkerClient, WorkerServer, remote_devices
 
 
 class Clock:

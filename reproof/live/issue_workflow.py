@@ -159,10 +159,10 @@ class IssueWorkflow:
                 if document["state"] in {"preparing", "recording", "finalizing", "replaying", "cancelling"}:
                     document.update(state="quarantined", reason="process_restarted")
                     self._put("issue", document["id"], document)
-            self._monitor_thread=threading.Thread(target=self._monitor,name='reproloop-issue-monitor',daemon=False)
+            self._monitor_thread=threading.Thread(target=self._monitor,name='reproof-issue-monitor',daemon=False)
             self._monitor_thread.start()
             self._maintenance_thread = threading.Thread(target=self._maintain,
-                name='reproloop-issue-retention', daemon=False)
+                name='reproof-issue-retention', daemon=False)
             self._maintenance_thread.start()
         except Exception:
             for engine in self.engines.values():
@@ -288,7 +288,7 @@ class IssueWorkflow:
                         with self._lock:
                             self._threads.discard(threading.current_thread())
                         self._slots.release()
-                thread = threading.Thread(target=run, name="reproloop-issue-work", daemon=False)
+                thread = threading.Thread(target=run, name="reproof-issue-work", daemon=False)
                 self._threads.add(thread)
                 thread.start()
             except Exception:

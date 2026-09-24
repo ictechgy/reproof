@@ -127,7 +127,7 @@ const selectedChecks = (element) => Array.from(element.querySelectorAll("input:c
 
 const TEMPLATE = `
   <header class="topbar">
-    <a class="brand" href="./"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span><span><strong>Repro Loop</strong><small>QA WORKBENCH</small></span></a>
+    <a class="brand" href="./"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span><span><strong>Reproof</strong><small>QA WORKBENCH</small></span></a>
     <div class="topbar-meta"><span id="qa-identity">Shared coordinator</span><button class="button button-secondary" id="qa-logout" hidden>Sign out</button></div>
   </header>
   <div class="qa-notice" id="qa-notice" role="alert" hidden></div>

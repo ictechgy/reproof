@@ -4,11 +4,11 @@ import subprocess
 import tempfile
 import unittest
 
-from reproloop.kotlin_instrumenter import _ensure_built, _java_home, _subprocess_environment
+from reproof.kotlin_instrumenter import _ensure_built, _java_home, _subprocess_environment
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME = ROOT / "reproloop" / "instrumentation_templates" / "android" / "debug" / "java" / "io" / "reproloop" / "autotrace" / "ReproAppLogs.kt"
+RUNTIME = ROOT / "reproof" / "instrumentation_templates" / "android" / "debug" / "java" / "io" / "reproof" / "autotrace" / "ReproAppLogs.kt"
 FIXTURES = ROOT / "tests" / "fixtures" / "android-app-logs"
 
 
@@ -23,7 +23,7 @@ class AndroidAppLogsRuntimeTests(unittest.TestCase):
         compiler_cp = classpath.read_text().strip()
         stdlib = next(value for value in compiler_cp.split(os.pathsep) if value.endswith("kotlin-stdlib-2.2.10.jar"))
 
-        with tempfile.TemporaryDirectory(prefix="reproloop-android-app-logs-") as directory:
+        with tempfile.TemporaryDirectory(prefix="reproof-android-app-logs-") as directory:
             classes = Path(directory) / "classes"
             classes.mkdir()
             java_sources = sorted(FIXTURES.rglob("*.java"))

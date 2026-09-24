@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:repro-loop:ios-capture:2",
-  "title": "Repro Loop iOS sample capture v2",
+  "$id": "urn:reproof:ios-capture:2",
+  "title": "Reproof iOS sample capture v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -122,8 +122,8 @@
       "const": "ios"
     },
     "applicationId": {
-      "const": "io.reproloop.sample.ios"
+      "const": "io.reproof.sample.ios"
     }
   },
-  "$comment": "Transport schema. reproloop/ios_core.py additionally enforces exact sample action parameters, ordered coverage, completed sessions, and platform-specific semantics."
+  "$comment": "Transport schema. reproof/ios_core.py additionally enforces exact sample action parameters, ordered coverage, completed sessions, and platform-specific semantics."
 }

@@ -1,11 +1,11 @@
 import copy
 import unittest
-from reproloop.core import ContractError
-from reproloop.ios_core import compile_ios_capture,validate_swift_expression,validate_test_summary
+from reproof.core import ContractError
+from reproof.ios_core import compile_ios_capture,validate_swift_expression,validate_test_summary
 
 
 def ios_capture():
-    return {'schemaVersion':2,'platform':'ios','applicationId':'io.reproloop.sample.ios','sessionId':'ios-qa',
+    return {'schemaVersion':2,'platform':'ios','applicationId':'io.reproof.sample.ios','sessionId':'ios-qa',
             'fixture':{'id':'ios-counter','version':1,'inputs':{}},
             'startState':{'screen':'main','nodes':{'counter.name':'','counter.count':'0'}},
             'events':[{'id':'e1','seq':1,'action':'replace','target':'counter.name','parameters':{'value':'QA'}},
@@ -55,16 +55,16 @@ class FinalizationTests(unittest.TestCase):
         m={k:c[k] for k in ['sessionId','endSequence','fixture','startState','startedAtMs']};m['finalized']=True
         return c,m,{'finalized':True,'endSequence':2}
     def test_complete_matching_session(self):
-        from reproloop.ios_core import validate_finalization
+        from reproof.ios_core import validate_finalization
         self.assertTrue(validate_finalization(*self.evidence(),min_started_at=99))
     def test_stale_or_incomplete_capture_rejected(self):
-        from reproloop.ios_core import validate_finalization
+        from reproof.ios_core import validate_finalization
         c,m,marker=self.evidence()
         with self.assertRaises(ContractError):validate_finalization(c,m,marker,min_started_at=101)
         m['finalized']=False
         with self.assertRaises(ContractError):validate_finalization(c,m,marker)
     def test_wrong_freeze_boundary_rejected(self):
-        from reproloop.ios_core import validate_finalization
+        from reproof.ios_core import validate_finalization
         c,m,marker=self.evidence();marker['endSequence']=1
         with self.assertRaises(ContractError):validate_finalization(c,m,marker)
 

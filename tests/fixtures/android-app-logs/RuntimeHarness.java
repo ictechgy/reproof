@@ -5,7 +5,7 @@ import android.view.View;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
-import io.reproloop.autotrace.ReproAppLogs;
+import io.reproof.autotrace.ReproAppLogs;
 
 public final class RuntimeHarness {
     private static final String RUN_ID = "11111111-1111-4111-8111-111111111111";

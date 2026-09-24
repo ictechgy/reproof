@@ -9,9 +9,9 @@ import threading
 import time
 import unittest
 
-from reproloop.live.issue_http import single_range
-from reproloop.live.server import LiveServer
-from reproloop.issue_package import NativeMediaValidator
+from reproof.live.issue_http import single_range
+from reproof.live.server import LiveServer
+from reproof.issue_package import NativeMediaValidator
 from tests.g4_support import ScenarioProvider, specification
 from tests.test_issue_media import png
 from tests import test_issue_workflow as workflow_support
@@ -30,7 +30,7 @@ class RangeContractTests(unittest.TestCase):
         self.assertEqual(single_range('bytes=8-100',10),(8,9,206))
 
     def test_malformed_and_out_of_bounds_ranges_are_416(self):
-        from reproloop.live.model import LiveError
+        from reproof.live.model import LiveError
         for value in ('bytes=10-','bytes=2-1','bytes=-0','bytes=-','bytes=0-1,3-4',
                       'Bytes=0-1','bytes= 0-1','bytes=1e3-','bytes='+('9'*100)+'-'):
             with self.subTest(value=value),self.assertRaises(LiveError) as caught:

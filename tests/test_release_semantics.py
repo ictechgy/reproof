@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import unittest
 
-from reproloop import contracts
+from reproof import contracts
 
 FIXTURES = Path(__file__).parent / "fixtures" / "release"
 
@@ -28,7 +28,7 @@ class ReleaseSemanticsTests(unittest.TestCase):
                     contracts.observation_result(observation, request)
 
     def test_frozen_relative_windows_bind_to_each_replay_without_mutating_spec(self):
-        from reproloop.contracts.observation import bind_coverage_requirement
+        from reproof.contracts.observation import bind_coverage_requirement
         relative = {"class": "continuous", "windowMs": {"start": 100, "end": 500},
                     "maxUncertaintyMs": 0, "maxAgeMs": 500, "scope": "root",
                     "properties": ["text"]}
@@ -90,13 +90,13 @@ class ReleaseSemanticsTests(unittest.TestCase):
             contracts.check_candidate_substitution(candidate, approval)
 
     def test_locator_and_coordinate_targets_cannot_conflict(self):
-        from reproloop.contracts.evidence import validate_input
+        from reproof.contracts.evidence import validate_input
         with self.assertRaises(contracts.ContractError):
             validate_input({"action": "tap", "parameters": {"x": 0.5, "y": 0.5},
                             "target": {"kind": "accessibility-id", "value": "submit"}})
 
     def test_coordinate_and_pointer_inputs_require_current_geometry(self):
-        from reproloop.contracts.evidence import validate_input
+        from reproof.contracts.evidence import validate_input
         geometry = {"width": 390, "height": 844, "rotation": 0, "version": 1}
         for action, parameters in (("tap", {"x": 0.25, "y": 0.75}),
                                    ("pointer", {"phase": "down", "pointerId": 0, "x": 0.25, "y": 0.75})):
@@ -108,7 +108,7 @@ class ReleaseSemanticsTests(unittest.TestCase):
                     validate_input(value)
 
     def test_launch_and_terminate_are_typed_application_operations(self):
-        from reproloop.contracts.evidence import validate_input
+        from reproof.contracts.evidence import validate_input
         for action in ("launch", "terminate"):
             validate_input({"action": action, "parameters": {"applicationId": "ios_app"}})
             with self.assertRaises(contracts.ContractError):

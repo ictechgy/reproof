@@ -214,7 +214,7 @@ def replay_suite(device,bundle,apk,output,phase='original',repeats=3,source_proo
 
 
 def write_report(path,report):
-    title='Repro Loop — '+str(report.get('status','unknown'))
+    title='Reproof — '+str(report.get('status','unknown'))
     rows=[]
     for run in report.get('runs',[]):
         values=[run.get('runId'),run.get('runValid'),run.get('bugCondition'),run.get('expectedCondition'),

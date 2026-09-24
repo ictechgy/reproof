@@ -1,8 +1,8 @@
-# Repro Loop
+# Reproof
 
 [한국어](README.ko.md)
 
-Repro Loop is a self-hosted mobile QA platform with no STF dependency. It
+Reproof is a self-hosted mobile QA platform with no STF dependency. It
 records QA issues as video, user actions, and initial conditions; replays them
 deterministically on Android and iOS; applies AI-generated repairs; and
 re-verifies a repaired candidate against the same approved original recording.
@@ -93,9 +93,9 @@ cache; a fresh environment needs the Android plugin, Kotlin, and JUnit
 dependencies fetched once.
 
 ```bash
-cd <repro-loop clone path>
-python3 -m reproloop doctor
-python3 -m reproloop build --receipt artifacts/build.json
+cd <reproof clone path>
+python3 -m reproof doctor
+python3 -m reproof build --receipt artifacts/build.json
 ```
 
 `build` builds the sample app and the ID-based input driver together and stores
@@ -107,14 +107,14 @@ Running `record` with `--scripted` performs synthetic QA actions and produces
 the first bundle automatically:
 
 ```bash
-python3 -m reproloop record \
+python3 -m reproof record \
   --apk android/sample/build/outputs/apk/buggy/debug/sample-buggy-debug.apk \
   --driver-apk android/driver/build/outputs/apk/debug/driver-debug.apk \
   --receipt artifacts/build.json \
   --scripted --output artifacts/qa-bundle
 
-python3 -m reproloop validate artifacts/qa-bundle
-python3 -m reproloop replay artifacts/qa-bundle --output artifacts/original-runs
+python3 -m reproof validate artifacts/qa-bundle
+python3 -m reproof replay artifacts/qa-bundle --output artifacts/original-runs
 ```
 
 For manual QA, drop `--scripted`. In the sample app, type `QA`, tap `Add` once,
@@ -122,7 +122,7 @@ then press Enter in the terminal — the session freezes on the `Report` action.
 Record-only buttons never enter replay events. With several devices attached,
 pick one with `--serial`.
 
-The dedicated sample package `io.reproloop.sample` is reset before each run.
+The dedicated sample package `io.reproof.sample` is reset before each run.
 Run with the device screen on and unlocked.
 
 ## Repair loop
@@ -131,7 +131,7 @@ Run the full pipeline offline with the prepared reference patch; this run is
 not recorded as an AI execution in the results:
 
 ```bash
-python3 -m reproloop repair artifacts/qa-bundle \
+python3 -m reproof repair artifacts/qa-bundle \
   --patch-file scripts/sample-fix.json \
   --output artifacts/offline-repair
 ```
@@ -140,7 +140,7 @@ With a signed-in Claude CLI, send the sample source and synthetic QA recording
 to generate a real patch:
 
 ```bash
-python3 -m reproloop repair artifacts/qa-bundle \
+python3 -m reproof repair artifacts/qa-bundle \
   --agent claude --output artifacts/claude-repair
 ```
 
@@ -195,10 +195,10 @@ sensitive-input refusal on a physical device, see `scripts/device_smoke.py
 - `android/sample`: buggy and fixed builds plus protected regression tests
 - `android/driver`: observe, tap, input, scroll, and back through UiAutomation
   resource IDs
-- `reproloop`: bundle validation, compilation, ADB execution, repeat verdicts,
+- `reproof`: bundle validation, compilation, ADB execution, repeat verdicts,
   repair orchestrator, HTML reports
 - `ios`: Swift Recorder, UIKit sample, protected XCUITest and logic regression
-- `reproloop/ios_*`: Simulator builds, v2 bundles, batch runs, Swift repair
+- `reproof/ios_*`: Simulator builds, v2 bundles, batch runs, Swift repair
   verification
 - `schemas`: public formats for recording and verdict data
 - `tests`: failure, tampering, repeat-result, and patch-boundary checks
@@ -213,13 +213,13 @@ Check support scope separately for the sample path and the shared QA path.
 
 ## Live console
 
-`python3 -m reproloop live-serve --demo` starts the local console. Real iOS
+`python3 -m reproof live-serve --demo` starts the local console. Real iOS
 Simulator connection, record/replay, and Python-script export are covered in
 the [live runbook](docs/LIVE-RUNBOOK.md); results are in
 [Live QA](docs/LIVE-QA.md).
 
 To inspect the work queue and recording library without a device, run
-`python3 -m reproloop live-serve --demo --demo-count 2`. See the
+`python3 -m reproof live-serve --demo --demo-count 2`. See the
 [operations, CLI, and agent tools documentation](docs/LIVE-OPERATIONS.md).
 
 For continuous touch, streaming, and worker execution on real Android — and

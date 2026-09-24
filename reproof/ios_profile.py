@@ -15,7 +15,7 @@ from .core import ContractError, digest, identifier, require
 
 
 PROFILE_SCHEMA_VERSION = 2
-PROFILE_KIND = "reproloop-runtime-application"
+PROFILE_KIND = "reproof-runtime-application"
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _BUNDLE = re.compile(
     r"[A-Za-z][A-Za-z0-9-]*(?:\.[A-Za-z][A-Za-z0-9-]*)+\Z")
@@ -97,7 +97,7 @@ def _validate_runtime_document(document: object, platform: str) -> dict[str, Any
             and len(application_identifier) <= 180
             and pattern.fullmatch(application_identifier) is not None
             and application_identifier not in {
-                "io.reproloop.live", "io.reproloop.driver"},
+                "io.reproof.live", "io.reproof.driver"},
             "Invalid runtime application identifier")
     launch = _exact(document["launchTarget"], {"kind", "value"},
                     "Invalid runtime launch target")

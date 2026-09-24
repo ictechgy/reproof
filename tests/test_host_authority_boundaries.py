@@ -5,9 +5,9 @@ import sqlite3
 import threading
 from unittest.mock import patch
 
-from reproloop.core import ContractError
-from reproloop.live.authority import ProviderResult
-from reproloop.storage import Lease
+from reproof.core import ContractError
+from reproof.live.authority import ProviderResult
+from reproof.storage import Lease
 from tests.test_live_authority import AuthorityTestCase, DIGEST_A, DIGEST_B
 
 

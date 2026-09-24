@@ -1,7 +1,7 @@
 """Behavioral tests for the frozen G0 release contracts."""
 import copy, json, subprocess, sys, tempfile, unittest
 from pathlib import Path
-from reproloop import contracts
+from reproof import contracts
 
 ROOT=Path(__file__).parents[1]; FIXTURES=ROOT/"tests/fixtures/release"
 def specimen(name): return json.loads((FIXTURES/f"{name}.json").read_text())

@@ -14,11 +14,11 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
 
-from reproloop.core import ContractError
-from reproloop.live.disk_budget import DiskBudget, DiskBudgetError
-from reproloop.live.evidence_store import EvidenceStore, EvidenceStoreError
-from reproloop.live.recording_session import FramePublication
-from reproloop.live.video import EncodedSegment, VideoFrameSink, VideoLimits, VideoProtocolError
+from reproof.core import ContractError
+from reproof.live.disk_budget import DiskBudget, DiskBudgetError
+from reproof.live.evidence_store import EvidenceStore, EvidenceStoreError
+from reproof.live.recording_session import FramePublication
+from reproof.live.video import EncodedSegment, VideoFrameSink, VideoLimits, VideoProtocolError
 from tests.test_recording_recovery import begin_recording, open_store, tap_input
 
 
@@ -285,7 +285,7 @@ class ParentVideoStateBoundaries(unittest.TestCase):
     def test_encoder_inherits_ownership_lock_after_parent_descriptor_closes(self):
         import fcntl
         import os
-        from reproloop.live.video import AVFoundationSegmentEncoder, EncoderFrame
+        from reproof.live.video import AVFoundationSegmentEncoder, EncoderFrame
 
         _, session = self.make()
         publication = session.record_frame(
@@ -336,7 +336,7 @@ class ParentVideoStateBoundaries(unittest.TestCase):
         self.assertTrue(errors, "The protocol helper deliberately exits without a video")
 
     def test_recovery_cleanup_failure_keeps_charge_and_can_be_retried(self):
-        from reproloop.live.video import VideoCatalog
+        from reproof.live.video import VideoCatalog
         from tests.test_video_state_machine import crash_after_one_durable_segment
 
         root = self.root / "crash"
@@ -380,7 +380,7 @@ class ParentVideoStateBoundaries(unittest.TestCase):
             budget.close()
 
     def test_restart_after_manifest_publication_releases_finished_pins(self):
-        from reproloop.live.video import VideoCatalog
+        from reproof.live.video import VideoCatalog
         root = self.root / "sealed-crash"
         process = multiprocessing.get_context("fork").Process(
             target=crash_after_video_manifest, args=(root,))

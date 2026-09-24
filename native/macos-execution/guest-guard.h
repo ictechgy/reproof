@@ -11,7 +11,7 @@ static int repro_guest_scope(void) {
     return geteuid() == 0 && getuid() == 0
         && sysctlbyname("kern.hv_vmm_present", &present, &length, NULL, 0) == 0
         && present == 1
-        && lstat("/Library/ReproLoopGuest", &info) == 0
+        && lstat("/Library/ReproofGuest", &info) == 0
         && S_ISDIR(info.st_mode) && info.st_uid == 0 && (info.st_mode & 0022) == 0;
 }
 #endif

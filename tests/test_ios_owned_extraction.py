@@ -6,8 +6,8 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from reproloop.core import ContractError
-from reproloop.ios_artifact_transfer import _opened_ipa_contents, MAX_APP_ENTRIES, MAX_EXPANDED_APP_BYTES
+from reproof.core import ContractError
+from reproof.ios_artifact_transfer import _opened_ipa_contents, MAX_APP_ENTRIES, MAX_EXPANDED_APP_BYTES
 from tests import test_ios_artifact_transfer as fixtures
 
 
@@ -49,7 +49,7 @@ class IOSOwnedExtractionTests(unittest.TestCase):
         script = '''
 import os,sys
 from pathlib import Path
-from reproloop.ios_artifact_transfer import _opened_ipa_contents,MAX_APP_ENTRIES,MAX_EXPANDED_APP_BYTES
+from reproof.ios_artifact_transfer import _opened_ipa_contents,MAX_APP_ENTRIES,MAX_EXPANDED_APP_BYTES
 with _opened_ipa_contents(Path(sys.argv[1]),max_bytes=MAX_EXPANDED_APP_BYTES,
                          max_entries=MAX_APP_ENTRIES,_workspace=Path(sys.argv[2])):
     os._exit(73)
@@ -62,7 +62,7 @@ with _opened_ipa_contents(Path(sys.argv[1]),max_bytes=MAX_EXPANDED_APP_BYTES,
         self.assertTrue((self.workspace/'app/Info.plist').is_file())
 
     def test_workspace_replacement_does_not_receive_snapshot_or_app_writes(self):
-        from reproloop import ios_artifact_transfer as module
+        from reproof import ios_artifact_transfer as module
         original = module._snapshot_ipa
         moved = self.root/'original-transfer'
         replacement = self.root/'replacement'; replacement.mkdir(mode=0o700)

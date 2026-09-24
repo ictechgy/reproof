@@ -17,17 +17,17 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from reproloop.ios_profile import validate_ios_profile
-from reproloop.core import digest
-from reproloop.live.artifact_transfer import ArtifactTransferStore
-from reproloop.live.authority import HostAuthority
-from reproloop.live.clock_sync import ClockReading
-from reproloop.live.enrollment import EnrollmentClient
-from reproloop.live.evidence_store import EvidenceStore
-from reproloop.live.inventory import enrolled_inventory_document
-from reproloop.live.model import Lab, check
-from reproloop.live.worker import WorkerServer
-from reproloop.storage import _unique_object
+from reproof.ios_profile import validate_ios_profile
+from reproof.core import digest
+from reproof.live.artifact_transfer import ArtifactTransferStore
+from reproof.live.authority import HostAuthority
+from reproof.live.clock_sync import ClockReading
+from reproof.live.enrollment import EnrollmentClient
+from reproof.live.evidence_store import EvidenceStore
+from reproof.live.inventory import enrolled_inventory_document
+from reproof.live.model import Lab, check
+from reproof.live.worker import WorkerServer
+from reproof.storage import _unique_object
 
 
 class _Clock:
@@ -61,7 +61,7 @@ def _profile(project):
     build = project["builds"][0]
     return validate_ios_profile({
         "schemaVersion": 2,
-        "kind": "reproloop-runtime-application",
+        "kind": "reproof-runtime-application",
         "id": "synthetic_ios_profile",
         "projectId": project["id"],
         "projectDigest": digest(project),

@@ -5,13 +5,13 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.live.authority import HostAuthority, ProviderResult, issue_local_parent_grant
-from reproloop.live.clock_sync import ClockReading
-from reproloop.live.iphone import PhysicalIosProvider
-from reproloop.live.model import LiveError
-from reproloop.live.providers import IosProvider
-from reproloop.core import ContractError, digest
-from reproloop.storage import Lease
+from reproof.live.authority import HostAuthority, ProviderResult, issue_local_parent_grant
+from reproof.live.clock_sync import ClockReading
+from reproof.live.iphone import PhysicalIosProvider
+from reproof.live.model import LiveError
+from reproof.live.providers import IosProvider
+from reproof.core import ContractError, digest
+from reproof.storage import Lease
 
 
 class Clock:
@@ -64,7 +64,7 @@ class NativeReceiptBindings(unittest.TestCase):
         # Initialize only the transport-independent base; no paired-device
         # discovery, signing metadata or native installation is accessed.
         self.provider = object.__new__(PhysicalIosProvider)
-        IosProvider.__init__(self.provider, 'synthetic-iphone', root, 'io.reproloop.synthetic')
+        IosProvider.__init__(self.provider, 'synthetic-iphone', root, 'io.reproof.synthetic')
         self.provider.bind_authority(self.owner, 'provider-one')
         self.provider.native_handshake = handshake
         self.provider._receive_frame = lambda: None

@@ -13,8 +13,8 @@ import tempfile
 import time
 import uuid
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from reproloop.ios_runner import prepare_xctestrun,_targets
-from reproloop.storage import write_json
+from reproof.ios_runner import prepare_xctestrun,_targets
+from reproof.storage import write_json
 
 simulator=sys.argv[1];output=Path(sys.argv[2]);assert not output.exists();output.mkdir(parents=True,mode=0o700)
 app=Path('artifacts/ios-cases-build/DerivedData/Build/Products/Debug-iphonesimulator/ReproSample.app').resolve()
@@ -32,7 +32,7 @@ def call(path,body=None,auth=True):
 with tempfile.TemporaryDirectory(prefix='repro-bridge-smoke-') as directory:
  config=prepare_xctestrun('live-ios/build/Build/Products','ReproLiveTests',Path(directory)/'bridge.xctestrun')
  with config.open('rb') as stream:document=plistlib.load(stream)
- for _,target in _targets(document):target.setdefault('EnvironmentVariables',{}).update(REPRO_LIVE_LISTEN_HOST='::1',REPRO_LIVE_LISTEN_PORT=str(port),REPRO_LIVE_TOKEN=token,REPRO_TARGET_BUNDLE='io.reproloop.sample.ios')
+ for _,target in _targets(document):target.setdefault('EnvironmentVariables',{}).update(REPRO_LIVE_LISTEN_HOST='::1',REPRO_LIVE_LISTEN_PORT=str(port),REPRO_LIVE_TOKEN=token,REPRO_TARGET_BUNDLE='io.reproof.sample.ios')
  with config.open('wb') as stream:plistlib.dump(document,stream)
  process=subprocess.Popen(['/usr/bin/xcodebuild','test-without-building','-xctestrun',str(config),'-destination','id='+simulator,
   '-resultBundlePath',str(Path(directory)/'result.xcresult'),'-parallel-testing-enabled','NO','-only-testing:ReproLiveTests/LiveControlTests/testControlSession'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

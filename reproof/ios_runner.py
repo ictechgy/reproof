@@ -225,7 +225,7 @@ class IosSimulator:
         require(isinstance(expected_run_id, str) and auto_profile is not None,
                 'Automatic capture requires a run id and profile')
         _require_profile_fixture(auto_profile, expected_fixture)
-        marker = self.read_app_json('Library/Application Support/ReproLoop/auto-session.json')
+        marker = self.read_app_json('Library/Application Support/Reproof/auto-session.json')
         build_id = self._installed_build_id()
         require(build_id is not None, 'Installed iOS application build identity is unavailable')
         validate_ios_auto_marker(marker, auto_profile, run_id=expected_run_id,
@@ -248,7 +248,7 @@ class IosSimulator:
         except CommandError:pass  # XCTest may have already terminated its own app.
     def collect_capture(self,min_started_at=None,*,expected_run_id=None,auto_profile=None,expected_fixture=None):
         container=self._data_container()
-        base=container/'Library/Application Support/ReproLoop'
+        base=container/'Library/Application Support/Reproof'
         auto = expected_run_id is not None or auto_profile is not None
         auto_marker = None
         if auto:
@@ -265,13 +265,13 @@ class IosSimulator:
         finalized_marker=read_json(checked_relative(base,session+'/finalized.json'))
         validate_finalization(capture,metadata,finalized_marker,min_started_at)
         if auto:
-            pinned=self.read_app_json('Library/Application Support/ReproLoop/auto-session.json')
+            pinned=self.read_app_json('Library/Application Support/Reproof/auto-session.json')
             require(pinned==auto_marker and pinned.get('sessionId')==capture.get('sessionId')
                     and pinned.get('endSequence')==capture.get('endSequence')
                     and pinned.get('fixture')==expected_fixture
                     and pinned.get('finalized') is True,
                     'Automatic capture marker differs from finalized capture')
-            require(self.read_app_json('Library/Application Support/ReproLoop/auto-session.json')==auto_marker,
+            require(self.read_app_json('Library/Application Support/Reproof/auto-session.json')==auto_marker,
                     'Automatic capture marker changed while collecting')
         return capture
     def collect_auto_diagnostics(self,capture,expected_run_id,auto_profile,*,expected_fixture):
@@ -288,8 +288,8 @@ class IosSimulator:
         require(marker.get('sessionId')==session and marker.get('endSequence')==capture.get('endSequence')
                 and marker.get('fixture')==expected_fixture,
                 'Automatic diagnostics marker differs from capture')
-        diagnostics=self.read_app_json(f'Library/Application Support/ReproLoop/{session}/diagnostics.json')
-        require(self.read_app_json('Library/Application Support/ReproLoop/auto-session.json')==marker,
+        diagnostics=self.read_app_json(f'Library/Application Support/Reproof/{session}/diagnostics.json')
+        require(self.read_app_json('Library/Application Support/Reproof/auto-session.json')==marker,
                 'Automatic diagnostics marker changed while collecting')
         return validate_ios_auto_diagnostics(diagnostics,capture,auto_profile,
                                              run_id=expected_run_id,build_id=build_id)

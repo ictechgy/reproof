@@ -3,9 +3,9 @@ import json
 import unittest
 from unittest import mock
 
-from reproloop import contracts
-from reproloop.live.access import AccessController, AccessStore
-from reproloop.live.issue_configuration import compose_issue_workflow, load_issue_configuration
+from reproof import contracts
+from reproof.live.access import AccessController, AccessStore
+from reproof.live.issue_configuration import compose_issue_workflow, load_issue_configuration
 from tests.g9_support import RepairEnvironment
 from tests.test_issue_configuration import configuration
 from tests.test_project_repair import EDIT
@@ -34,7 +34,7 @@ class RepairConfigurationTests(unittest.TestCase):
         store = AccessStore(self.env.root / 'access'); self.addCleanup(store.close)
         store.bootstrap_administrator('admin'); store.register_project('admin', self.env.project)
         access = AccessController(store); access.bind_project(self.env.registration)
-        with mock.patch('reproloop.project_repair.RepairSource.freeze', side_effect=AssertionError('source read at startup')):
+        with mock.patch('reproof.project_repair.RepairSource.freeze', side_effect=AssertionError('source read at startup')):
             bundle = compose_issue_workflow(self.env.lab, access, self.load(self.document), root=self.env.root / 'composed')
         self.addCleanup(bundle.close)
         availability = bundle.workflow.repairs.availability('checkout')
@@ -93,8 +93,8 @@ class RepairConfigurationTests(unittest.TestCase):
             'specificationFields': [], 'diagnostics': {'policyDigest': contracts.digest(repair['diagnosticPolicy']),
                                                      'eventFields': ['seq', 'type', 'name']}}
         document['projects'][0]['repair'] = repair
-        with mock.patch('reproloop.project_repair.RepairSource.freeze', side_effect=AssertionError('source read')), \
-             mock.patch('reproloop.agents.ClaudeProjectAgent.propose_project', side_effect=AssertionError('AI invoked')):
+        with mock.patch('reproof.project_repair.RepairSource.freeze', side_effect=AssertionError('source read')), \
+             mock.patch('reproof.agents.ClaudeProjectAgent.propose_project', side_effect=AssertionError('AI invoked')):
             bundle = compose_issue_workflow(env.lab, access, self.load(document), root=env.root / 'composed')
         self.addCleanup(bundle.close)
         self.assertEqual(bundle.workflow.repairs.runtimes['checkout'].diagnostic_policy, repair['diagnosticPolicy'])

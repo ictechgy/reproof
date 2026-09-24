@@ -6,11 +6,11 @@ import unittest
 from unittest.mock import Mock, patch
 import zipfile
 
-from reproloop.android_observation import validate_observation_profile
-from reproloop.android_profile import validate_android_runtime_profile
-from reproloop.live.android_live import AndroidLiveProvider, android_live_device
-from reproloop.live.model import LiveError
-from reproloop.storage import sha_file
+from reproof.android_observation import validate_observation_profile
+from reproof.android_profile import validate_android_runtime_profile
+from reproof.live.android_live import AndroidLiveProvider, android_live_device
+from reproof.live.model import LiveError
+from reproof.storage import sha_file
 from tests.test_android_observation import ordinary_views_project
 from tests.test_app_logs import snapshot, RUN
 from tests.test_worker_profiles import android_document
@@ -35,14 +35,14 @@ class AndroidObservationLiveTests(unittest.TestCase):
         with zipfile.ZipFile(self.app, 'w') as archive:
             archive.writestr('classes.dex', b'host contract test')
             if document is not None:
-                archive.writestr('assets/reproloop-observation.json', json.dumps(document))
+                archive.writestr('assets/reproof-observation.json', json.dumps(document))
         value = android_document(sha_file(self.app))
         value['artifact']['bytes'] = self.app.stat().st_size
         value['package'] = 'com.example.inventory'
         self.runtime = validate_android_runtime_profile(value)
 
     def provider(self):
-        with patch('reproloop.live.android_live.AdbDevice'):
+        with patch('reproof.live.android_live.AdbDevice'):
             return AndroidLiveProvider('owned-test', self.helper, self.app, runtime_profile=self.runtime)
 
     def log(self, provider):
@@ -62,11 +62,11 @@ class AndroidObservationLiveTests(unittest.TestCase):
             self.write_apk(document)
             with self.assertRaises(LiveError):
                 self.provider()
-            with patch('reproloop.live.android_live.AdbDevice'), self.assertRaises(LiveError):
+            with patch('reproof.live.android_live.AdbDevice'), self.assertRaises(LiveError):
                 android_live_device('owned-test', self.helper, self.app, runtime_profile=self.runtime)
 
     def test_collector_binds_embedded_profile_targets_and_original_marker(self):
-        from reproloop.app_logs import IDENTITY_KEYS
+        from reproof.app_logs import IDENTITY_KEYS
         provider = self.provider()
         provider.app_log_run_id = RUN
         value = self.log(provider)

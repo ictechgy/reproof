@@ -12,8 +12,8 @@ from unittest.mock import patch
 from unittest.mock import Mock
 from types import SimpleNamespace
 
-from reproloop.core import ContractError
-from reproloop.ios_instrumentation import (
+from reproof.core import ContractError
+from reproof.ios_instrumentation import (
     prepare_ios_instrumentation, profile_from_source, sample_ios_auto_profile,
     validate_ios_auto_profile, validate_ios_preparation,
 )
@@ -100,7 +100,7 @@ class ConfiguredIosObservationTests(unittest.TestCase):
             self.assertIn('RLAutomaticRecorder.swift', settings['EXCLUDED_SOURCE_FILE_NAMES'])
             self.assertEqual(settings['OTHER_SWIFT_FLAGS'], ['$(inherited)', '-DPRODUCT_FLAG'])
         debug = project['objects']['DEBUG']['buildSettings']
-        self.assertEqual(debug['INFOPLIST_FILE'], 'ReproLoopInstrumentation/Info.plist')
+        self.assertEqual(debug['INFOPLIST_FILE'], 'ReproofInstrumentation/Info.plist')
         self.assertNotIn('DEBUG', debug['SWIFT_ACTIVE_COMPILATION_CONDITIONS'])
         self.assertIn('REPRO_OBSERVATIONS', debug['SWIFT_ACTIVE_COMPILATION_CONDITIONS'])
         info = plistlib.loads((root / debug['INFOPLIST_FILE']).read_bytes())
@@ -147,7 +147,7 @@ class ConfiguredIosObservationTests(unittest.TestCase):
         self.assertFalse((self.root / 'missing').exists())
 
     def test_build_uses_selected_scheme_and_frozen_public_inputs(self):
-        from reproloop.ios_observation import build_observation_app
+        from reproof.ios_observation import build_observation_app
         prepared = prepare_ios_instrumentation(self.source, self.root / 'prepared', profile=self.document)
         commands = []
         output = self.root / 'built'
@@ -164,8 +164,8 @@ class ConfiguredIosObservationTests(unittest.TestCase):
             (app / 'Info.plist').write_bytes(plistlib.dumps(identity))
             (app / 'Inventory').write_bytes(b'OWNED_PRODUCT')
             return 'Built'
-        with patch('reproloop.ios_observation.run_command', side_effect=command), \
-             patch('reproloop.ios_build.xcode_environment', return_value={}):
+        with patch('reproof.ios_observation.run_command', side_effect=command), \
+             patch('reproof.ios_build.xcode_environment', return_value={}):
             result = build_observation_app(prepared['source'], output)
         build = commands[0][0]
         self.assertEqual(build[build.index('-scheme') + 1], 'Inventory')
@@ -179,24 +179,24 @@ class ConfiguredIosObservationTests(unittest.TestCase):
         self.assertTrue((output / 'source/App/Assets.xcassets/Logo.imageset/logo.png').is_file())
 
     def test_build_rejects_wrong_product_identity(self):
-        from reproloop.ios_observation import build_observation_app
+        from reproof.ios_observation import build_observation_app
         output = self.root / 'wrong-app'
         def command(argv, cwd, **options):
             app = output / 'DerivedData/Build/Products/Release-iphonesimulator/Inventory.app'
             app.mkdir(parents=True)
             (app / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': 'com.example.other'}))
             return 'Built'
-        with patch('reproloop.ios_observation.run_command', side_effect=command), \
-             patch('reproloop.ios_build.xcode_environment', return_value={}):
+        with patch('reproof.ios_observation.run_command', side_effect=command), \
+             patch('reproof.ios_build.xcode_environment', return_value={}):
             with self.assertRaises(ContractError):
                 build_observation_app(self.source, output, profile=self.document, configuration='Release')
         self.assertFalse((output / 'receipt.json').exists())
 
     def test_general_provider_accepts_only_an_embedded_configured_log_adapter(self):
-        from reproloop.core import digest
-        from reproloop.ios_profile import validate_ios_profile
-        from reproloop.ios_storage import tree_manifest
-        from reproloop.live.providers import IosProvider
+        from reproof.core import digest
+        from reproof.ios_profile import validate_ios_profile
+        from reproof.ios_storage import tree_manifest
+        from reproof.live.providers import IosProvider
         from tests.test_worker_profiles import physical_ios_document
         automatic = validate_ios_auto_profile(self.document)
         app = self.root / 'Inventory.app'; app.mkdir()
@@ -234,8 +234,8 @@ class ConfiguredIosObservationTests(unittest.TestCase):
                         runtime.application_identity, app=app, profile=runtime)
 
     def test_general_provider_keeps_authorized_cleanup_available(self):
-        from reproloop.ios_profile import validate_ios_profile
-        from reproloop.live.providers import IosProvider
+        from reproof.ios_profile import validate_ios_profile
+        from reproof.live.providers import IosProvider
         from tests.test_worker_profiles import physical_ios_document
         profile = validate_ios_profile(physical_ios_document())
         provider = IosProvider('owned-synthetic', self.root, profile.bundle,
@@ -258,8 +258,8 @@ class ConfiguredIosObservationTests(unittest.TestCase):
         with self.assertRaises(ContractError): provider._execute('reset', {}, permit)
 
     def test_observation_profile_cannot_adopt_a_legacy_fixture_capture(self):
-        from reproloop.ios_cases import case_spec
-        from reproloop.ios_instrumentation import validate_ios_auto_marker
+        from reproof.ios_cases import case_spec
+        from reproof.ios_instrumentation import validate_ios_auto_marker
         profile = validate_ios_auto_profile(self.document)
         run = '11111111-1111-4111-8111-111111111111'
         fixture = case_spec('counter').fixture
@@ -270,14 +270,14 @@ class ConfiguredIosObservationTests(unittest.TestCase):
             validate_ios_auto_marker(marker, profile, run_id=run, build_id='a' * 32, fixture=fixture)
 
     def test_profile_file_rejects_duplicate_json_fields(self):
-        from reproloop.ios_observation import load_observation_profile
+        from reproof.ios_observation import load_observation_profile
         text = json.dumps(self.document)
         path = self.root / 'selected-profile.json'
         path.write_text('{"applicationId":"com.example.different",' + text[1:])
         with self.assertRaises(ContractError): load_observation_profile(path)
 
     def test_physical_log_reader_uses_the_selected_application_container(self):
-        from reproloop.ios_device import IosPhysicalDevice
+        from reproof.ios_device import IosPhysicalDevice
         reader = object.__new__(IosPhysicalDevice)
         reader.device = SimpleNamespace(identifier='owned-device-reference')
         reader._mutation_lease = lambda: nullcontext()
@@ -287,7 +287,7 @@ class ConfiguredIosObservationTests(unittest.TestCase):
             destination = Path(args[args.index('--destination') + 1])
             destination.write_text('{"owned": true}')
             return {}
-        with patch('reproloop.ios_device._devicectl', side_effect=command):
+        with patch('reproof.ios_device._devicectl', side_effect=command):
             self.assertEqual(reader.read_app_json('app-log-session.json',
                 application_id='com.example.inventory-app'), {'owned': True})
             self.assertEqual(calls[0][calls[0].index('--domain-identifier') + 1], 'com.example.inventory-app')
@@ -295,8 +295,8 @@ class ConfiguredIosObservationTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
     def test_general_launch_rotates_observation_run_before_native_dispatch(self):
-        from reproloop.ios_profile import validate_ios_profile
-        from reproloop.live.providers import IosProvider
+        from reproof.ios_profile import validate_ios_profile
+        from reproof.live.providers import IosProvider
         from tests.test_worker_profiles import physical_ios_document
         runtime = validate_ios_profile(physical_ios_document())
         provider = IosProvider('owned-synthetic', self.root, runtime.bundle,
@@ -319,10 +319,10 @@ class ConfiguredIosObservationTests(unittest.TestCase):
         provider._wait_for_app_log_marker.assert_called_once()
 
     def test_selected_simulator_artifact_cannot_change_between_registration_and_start(self):
-        from reproloop.core import digest
-        from reproloop.ios_profile import validate_ios_profile
-        from reproloop.ios_storage import tree_manifest
-        from reproloop.live.providers import IosProvider
+        from reproof.core import digest
+        from reproof.ios_profile import validate_ios_profile
+        from reproof.ios_storage import tree_manifest
+        from reproof.live.providers import IosProvider
         from tests.test_worker_profiles import physical_ios_document
         app = self.root / 'Selected.app'; app.mkdir()
         (app / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': 'com.example.checkout',
@@ -334,8 +334,8 @@ class ConfiguredIosObservationTests(unittest.TestCase):
         provider = IosProvider('owned-synthetic', self.root, profile.bundle,
             profile.application_identity, app=app, profile=profile)
         (app / 'Selected').write_bytes(b'modified')
-        with patch('reproloop.live.providers.Lease', return_value=nullcontext()), \
-             patch('reproloop.live.providers.subprocess.run', side_effect=AssertionError('Installation must not run')) as command:
+        with patch('reproof.live.providers.Lease', return_value=nullcontext()), \
+             patch('reproof.live.providers.subprocess.run', side_effect=AssertionError('Installation must not run')) as command:
             with self.assertRaises(ContractError): provider.start({'id': 'owned-session'}, Mock())
         command.assert_not_called()
 
@@ -350,7 +350,7 @@ class ConfiguredIosObservationTests(unittest.TestCase):
         workspace = Path(prepared['source'])
         project = plistlib.loads((workspace / document['project'] / 'project.pbxproj').read_bytes())
         debug = project['objects']['DEBUG']['buildSettings']
-        self.assertEqual(debug['INFOPLIST_FILE'], '../ReproLoopInstrumentation/Info.plist')
+        self.assertEqual(debug['INFOPLIST_FILE'], '../ReproofInstrumentation/Info.plist')
         for obj in project['objects'].values():
             if obj.get('isa') == 'PBXFileReference':
                 self.assertTrue((workspace / 'Client' / obj['path']).is_file())

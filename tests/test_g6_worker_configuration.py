@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from reproloop.live.model import LiveError
-from reproloop.live import worker_cli
+from reproof.live.model import LiveError
+from reproof.live import worker_cli
 from tests.test_worker_profiles import android_document
 
 
@@ -29,7 +29,7 @@ class WorkerConfigurationTests(unittest.TestCase):
 
     def _configure(self):
         self.path.write_text(json.dumps(self.document))
-        with patch("reproloop.live.android_live.android_live_device") as factory:
+        with patch("reproof.live.android_live.android_live_device") as factory:
             factory.side_effect = lambda serial, *_, **kw: {
                 "id": "device_" + serial,
                 "_authority": {"deviceKind": "android", "physicalId": serial},

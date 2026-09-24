@@ -14,7 +14,7 @@ Browser → fenced Session API → Android Live provider
 
 원격 구성에서는 provider가 별도 worker 프로세스의 동일 세션 API를 사용한다. 기기 OS lease와 실제 입력은 worker가 소유하고, 상위 controller의 오래된 epoch/sequence/frame을 거절한다.
 
-Android helper는 `android/live`, package `io.reproloop.live`, instrumentation `io.reproloop.live/.LiveInstrumentation`이다. 기존 `android/driver`의 ID 기반 검증 경로와 분리했다. helper는 자기 앱의 private config 파일에서 임시 토큰을 읽고 바로 지운다. 토큰을 ADB 명령행이나 로그에 넣지 않는다.
+Android helper는 `android/live`, package `io.reproof.live`, instrumentation `io.reproof.live/.LiveInstrumentation`이다. 기존 `android/driver`의 ID 기반 검증 경로와 분리했다. helper는 자기 앱의 private config 파일에서 임시 토큰을 읽고 바로 지운다. 토큰을 ADB 명령행이나 로그에 넣지 않는다.
 
 ## 입력과 미디어
 
@@ -34,8 +34,8 @@ Android helper는 `android/live`, package `io.reproloop.live`, instrumentation `
 기존에 빌드된 APK를 사용하는 경로:
 
 ```bash
-python3 -m reproloop live-device-doctor
-python3 -m reproloop live-serve --android auto \
+python3 -m reproof live-device-doctor
+python3 -m reproof live-serve --android auto \
   --android-helper android/live/build/outputs/apk/debug/live-debug.apk \
   --android-app android/sample/build/outputs/apk/buggy/debug/sample-buggy-debug.apk
 ```
@@ -56,12 +56,12 @@ cd android
 ## Worker 분리
 
 ```bash
-python3 -m reproloop live-worker --android auto \
+python3 -m reproof live-worker --android auto \
   --android-helper android/live/build/outputs/apk/debug/live-debug.apk \
   --android-app android/sample/build/outputs/apk/buggy/debug/sample-buggy-debug.apk \
   --output artifacts/worker --token-stdin
 
-python3 -m reproloop live-serve --workers-stdin --output artifacts/coordinator
+python3 -m reproof live-serve --workers-stdin --output artifacts/coordinator
 ```
 
 첫 명령의 stdin은 `{ "token": "<private random token>" }`, 두 번째는 다음 구조다. 실제 토큰을 로그나 명령행에 적지 않는다.
@@ -118,7 +118,7 @@ worker에는 브라우저 UI/CORS, 임의 shell, 임의 파일/설치 명령 API
 ## iPhone 실기기 실행
 
 ```bash
-python3 -m reproloop live-serve --iphone iphone-0000000000000000 \
+python3 -m reproof live-serve --iphone iphone-0000000000000000 \
   --iphone-products artifacts/iphone-live-integrated-build/runner/Build/Products \
   --iphone-app artifacts/iphone-live-integrated-build/sample/Build/Products/Debug-iphoneos/ReproSample.app \
   --output artifacts/iphone-physical-console

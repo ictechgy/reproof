@@ -4,8 +4,8 @@ from dataclasses import replace
 import time
 import unittest
 
-from reproloop import contracts
-from reproloop.qualification import QualificationError
+from reproof import contracts
+from reproof.qualification import QualificationError
 from tests.g9_support import RepairEnvironment
 
 
@@ -51,7 +51,7 @@ class RepairCandidateBindingTests(unittest.TestCase):
         self.assertEqual(self.env.lab.devices['device']['state'], 'available')
 
     def test_protected_verification_requires_this_runners_exact_final_result(self):
-        from reproloop.scenario_runner import ScenarioError
+        from reproof.scenario_runner import ScenarioError
         execution = self.env.registry.authorize_candidate_build(self.env.approved, self.build, self.approval())
         self.env.lab.devices['device']['capabilities']['applicationIdentity']['artifactDigest'] = self.build['artifactDigest']
         self.env.observations._adapters['screen'].value = 'success'

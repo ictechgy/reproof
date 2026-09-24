@@ -29,8 +29,8 @@ _SOURCE_NAMES = (
     "native/android-signing-owner/SigningOwner.java",
     "native/android-signing-owner/fd_identity.c",
 )
-_JAR_NAME = "reproloop-android-signing-owner.jar"
-_JNI_NAME = "libreproloop_signing_owner_fd.dylib"
+_JAR_NAME = "reproof-android-signing-owner.jar"
+_JNI_NAME = "libreproof_signing_owner_fd.dylib"
 _MANIFEST_NAME = "tools-manifest.json"
 _MAX_SOURCE_BYTES = 1024 * 1024
 _MAX_TOOL_BYTES = 256 * 1024 * 1024
@@ -39,12 +39,12 @@ _MAX_PROCESS_OUTPUT = 128 * 1024
 _MAX_MANIFEST_BYTES = 64 * 1024
 _RENAME_EXCL = 0x00000004
 _REQUIRED_CLASSES = frozenset({
-    "io/reproloop/signing/SigningOwner.class",
-    "io/reproloop/signing/SigningOwner$Config.class",
-    "io/reproloop/signing/SigningOwner$Rejected.class",
-    "io/reproloop/signing/SigningOwner$TextCheck.class",
-    "io/reproloop/signing/SigningOwner$ManifestIdentity.class",
-    "io/reproloop/signing/SigningOwner$BoundedSink.class",
+    "io/reproof/signing/SigningOwner.class",
+    "io/reproof/signing/SigningOwner$Config.class",
+    "io/reproof/signing/SigningOwner$Rejected.class",
+    "io/reproof/signing/SigningOwner$TextCheck.class",
+    "io/reproof/signing/SigningOwner$ManifestIdentity.class",
+    "io/reproof/signing/SigningOwner$BoundedSink.class",
 })
 
 
@@ -489,7 +489,7 @@ def _validate_jar(jar_path, classes):
     expected = {path.relative_to(classes).as_posix()
                 for path in class_paths}
     _require(_REQUIRED_CLASSES <= expected and 6 <= len(expected) <= 128
-             and all(name.startswith("io/reproloop/signing/SigningOwner")
+             and all(name.startswith("io/reproof/signing/SigningOwner")
                      and name.endswith(".class") for name in expected),
              "android_signing_tools_process")
     try:
@@ -498,7 +498,7 @@ def _validate_jar(jar_path, classes):
             names = [item.filename for item in infos]
             allowed = expected | {
                 "META-INF/", "META-INF/MANIFEST.MF", "io/",
-                "io/reproloop/", "io/reproloop/signing/"}
+                "io/reproof/", "io/reproof/signing/"}
             _require(len(names) == len(set(names)) <= 132
                      and set(names) == allowed
                      and all(not name.startswith("/") and ".." not in
@@ -552,7 +552,7 @@ def _build_manifest(build_tools, sources, jar_path, library_path,
     output_digest = hashlib.sha256(_canonical(outputs)).hexdigest()
     manifest = {
         "schemaVersion": 1,
-        "kind": "reproloop-android-signing-owner-tools-v1",
+        "kind": "reproof-android-signing-owner-tools-v1",
         "platform": {"system": platform.system(),
                      "machine": platform.machine()},
         "sources": source_records,
@@ -761,7 +761,7 @@ def load_android_signing_owner(output, manifest_digest):
             "outputs", "outputDigest", "ownerDefinitionDigest"}
             and value["schemaVersion"] == 1
             and value["kind"] ==
-                "reproloop-android-signing-owner-tools-v1"
+                "reproof-android-signing-owner-tools-v1"
             and value["platform"] == {
                 "system": platform.system(), "machine": platform.machine()}
             and type(value["sources"]) is dict

@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 import unittest
 
-from reproloop import contracts
-from reproloop.contracts.versions import exact
+from reproof import contracts
+from reproof.contracts.versions import exact
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "release"
@@ -126,7 +126,7 @@ class ReleaseBoundaryTests(unittest.TestCase):
                 self.assertNotEqual(outcome, "match")
 
     def test_swipe_requires_its_endpoint_and_bounded_duration(self):
-        from reproloop.contracts.evidence import validate_input
+        from reproof.contracts.evidence import validate_input
         for parameters in ({"x": 10, "y": 20},
                            {"x": 10, "y": 20, "x2": 30, "y2": 40},
                            {"x": 10, "y": 20, "x2": 30, "y2": 40,
@@ -136,7 +136,7 @@ class ReleaseBoundaryTests(unittest.TestCase):
                     validate_input({"action": "swipe", "parameters": parameters})
 
     def test_locator_tap_does_not_require_stale_coordinates(self):
-        from reproloop.contracts.evidence import validate_input
+        from reproof.contracts.evidence import validate_input
         validate_input({"action": "tap", "parameters": {},
                         "target": {"kind": "accessibility-id", "value": "checkout"}})
 
@@ -153,7 +153,7 @@ class ReleaseBoundaryTests(unittest.TestCase):
             contracts.validate_package_manifest(value)
 
     def test_observation_cannot_self_approve_its_freshness(self):
-        from reproloop.contracts.observation import observation_result
+        from reproof.contracts.observation import observation_result
         value = specimen("observation")
         try:
             result = observation_result(value, value["coverage"])
@@ -162,7 +162,7 @@ class ReleaseBoundaryTests(unittest.TestCase):
         self.assertNotEqual(result, "covered")
 
     def test_sampled_coverage_requires_actual_samples(self):
-        from reproloop.contracts.observation import observation_result
+        from reproof.contracts.observation import observation_result
         value = specimen("observation")
         value.update(intervalMs={"start": 1000, "end": 1100},
                      clockUncertaintyMs=0, coverage="sampled", samplesMs=[],
@@ -174,7 +174,7 @@ class ReleaseBoundaryTests(unittest.TestCase):
                          "unknown")
 
     def test_observation_from_the_future_cannot_satisfy_a_current_check(self):
-        from reproloop.contracts.observation import observation_result
+        from reproof.contracts.observation import observation_result
         value = specimen("observation")
         value.update(intervalMs={"start": 1000, "end": 1100},
                      clockUncertaintyMs=0, coverage="continuous", samplesMs=[],
@@ -186,8 +186,8 @@ class ReleaseBoundaryTests(unittest.TestCase):
                          "unknown")
 
     def test_qualification_checks_the_original_project_identity(self):
-        from reproloop.contracts.scenario import validate_qualification_bindings
-        from reproloop.contracts.versions import digest
+        from reproof.contracts.scenario import validate_qualification_bindings
+        from reproof.contracts.versions import digest
         for field, wrong in (("projectId", "different-project"),
                              ("projectRevision", "different-revision")):
             with self.subTest(field=field):

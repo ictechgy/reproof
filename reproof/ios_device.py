@@ -66,7 +66,7 @@ class IosPhysicalDevice(IosSimulator):
             path = root / 'value.json'
             _devicectl('device', 'copy', 'from', '--device', self.device.identifier,
                 '--domain-type', 'appDataContainer', '--domain-identifier', application_id,
-                '--source', 'Library/Application Support/ReproLoop/' + relative,
+                '--source', 'Library/Application Support/Reproof/' + relative,
                 '--destination', str(path), timeout=30)
             require(path.is_file() and not path.is_symlink() and path.stat().st_size <= max_bytes,
                     'Missing or oversized iOS application JSON')

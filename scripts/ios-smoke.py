@@ -4,12 +4,12 @@ import argparse
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
-from reproloop.core import require,digest
-from reproloop.ios_cli import sample_capture,sample_oracle
-from reproloop.ios_core import compile_ios_capture
-from reproloop.ios_runner import IosSimulator
-from reproloop.ios_storage import create_ios_bundle,tree_manifest
-from reproloop.storage import read_json,write_json
+from reproof.core import require,digest
+from reproof.ios_cli import sample_capture,sample_oracle
+from reproof.ios_core import compile_ios_capture
+from reproof.ios_runner import IosSimulator
+from reproof.ios_storage import create_ios_bundle,tree_manifest
+from reproof.storage import read_json,write_json
 
 parser=argparse.ArgumentParser()
 parser.add_argument('--simulator',required=True);parser.add_argument('--build',type=Path,required=True);parser.add_argument('--output',type=Path,required=True)

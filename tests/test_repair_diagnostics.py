@@ -4,15 +4,15 @@ import hashlib
 import json
 import unittest
 
-from reproloop import contracts
-from reproloop.execution.wire import canonical
-from reproloop.project_repair import RepairError, proposal_packet
+from reproof import contracts
+from reproof.execution.wire import canonical
+from reproof.project_repair import RepairError, proposal_packet
 from tests.test_app_logs import snapshot
 from tests.test_issue_package import example
 from tests.test_project_repair import source_fixture, PRODUCT
 
 
-APP_LOG_MIME = 'application/vnd.reproloop.app-log+json'
+APP_LOG_MIME = 'application/vnd.reproof.app-log+json'
 
 
 def diagnostic_policy(project):
@@ -46,7 +46,7 @@ class RepairDiagnosticsTests(unittest.TestCase):
         return reference
 
     def derive(self):
-        from reproloop.repair_diagnostics import derive_app_log_diagnostics
+        from reproof.repair_diagnostics import derive_app_log_diagnostics
         def read(reference):
             self.reads.append(reference['digest'])
             return self.objects[reference['digest']]

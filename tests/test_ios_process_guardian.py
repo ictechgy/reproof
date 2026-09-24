@@ -12,7 +12,7 @@ import tempfile
 import time
 import unittest
 
-from reproloop.resources import read_resource
+from reproof.resources import read_resource
 
 
 class IOSProcessGuardianTests(unittest.TestCase):
@@ -25,7 +25,7 @@ class IOSProcessGuardianTests(unittest.TestCase):
             target = root/path; target.parent.mkdir(exist_ok=True)
             target.write_bytes(read_resource('native/'+path))
         cls.binary = root/'guardian'
-        sdk = '/Applications/Xcode-27.0.0-beta.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk'
+        sdk = subprocess.run(['xcrun','--sdk','macosx','--show-sdk-path'],capture_output=True,text=True,check=True).stdout.strip()
         result = subprocess.run(['/usr/bin/clang', '-std=c11', '-Wall', '-Wextra', '-Werror', '-isysroot', sdk,
             str(root/'ios-process-guardian/main.c'), '-framework', 'CoreFoundation', '-o', str(cls.binary)],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)

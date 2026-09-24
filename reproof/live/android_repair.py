@@ -52,7 +52,7 @@ class AndroidRepairProject:
         return bundle, analysis
 
     def command(self, provider, bundle, root, receipt):
-        command = [sys.executable, '-m', 'reproloop', 'repair', str(bundle['path']),
+        command = [sys.executable, '-m', 'reproof', 'repair', str(bundle['path']),
                 '--serial', provider.device.serial, '--source', str(self.source),
                 '--output', str(root / 'repair'), '--agent', 'claude', '--max-attempts', '2',
                 '--driver-apk', str(self.build / 'driver.apk'), '--driver-sha256', receipt['driverSha256']]
@@ -137,7 +137,7 @@ class AndroidRepairProject:
         check(agent_receipt.get('provider') == 'claude' and agent_receipt.get('status') == 'completed',
               'repair_failed', 'Android candidate has no completed Claude request receipt')
         self.validate()
-        identity = {'bundle': self.app_profile.data['package'] if self.app_profile else 'io.reproloop.sample',
+        identity = {'bundle': self.app_profile.data['package'] if self.app_profile else 'io.reproof.sample',
                     'artifactDigest': proof['apkSha256']}
         if self.app_profile:identity['appProfileDigest'] = self.app_profile.digest
         return candidate, identity

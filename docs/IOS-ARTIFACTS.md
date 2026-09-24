@@ -162,7 +162,7 @@ code·resource를 검증하고, 인증서 만료 검사와 `kSecCSNoNetworkAcces
 확인했다. 서명 실험은 현재 artifact prototype이며 영속 서명 소유자·복구 API는 아니다.
 실제 Apple 인증서/profile, 회사 앱, 기기 설치·보호 qualification은 이 결과에 포함되지 않는다.
 
-공개 검사기 소스는 `reproloop export-resources --output-new <새 절대 경로>`로
+공개 검사기 소스는 `reproof export-resources --output-new <새 절대 경로>`로
 설치본에서도 꺼낼 수 있다. 등록된 macOS SDK의 clang으로 다음 소스만 컴파일하고,
 생성한 실행 파일의 승인된 SHA-256을 tools 구성에 고정한다.
 

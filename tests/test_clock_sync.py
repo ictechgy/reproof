@@ -2,8 +2,8 @@ import time
 import unittest
 from dataclasses import replace
 
-from reproloop.core import ContractError
-from reproloop.live.clock_sync import (
+from reproof.core import ContractError
+from reproof.live.clock_sync import (
     ClockReading,
     ClockSynchronizer,
     SuspendInclusiveClock,

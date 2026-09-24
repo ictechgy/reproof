@@ -54,10 +54,10 @@ SwiftUI, 앱 내부의 비동기 함수·HTTP·DB 호출을 수집한다고 표�
 사용하는 명시적인 빌드 경로다. 원격 QA나 AI 후보의 보호 실행은 별도 실행 계약을 따른다.
 
 ```sh
-reproloop ios-instrument --source APP_SOURCE --profile uikit-profile.json \
+reproof ios-instrument --source APP_SOURCE --profile uikit-profile.json \
   --output WORK/prepared
-reproloop ios-app-build --source WORK/prepared/source --output WORK/debug
-reproloop ios-app-build --source WORK/prepared/source --configuration Release \
+reproof ios-app-build --source WORK/prepared/source --output WORK/debug
+reproof ios-app-build --source WORK/prepared/source --configuration Release \
   --output WORK/release
 ```
 
@@ -80,7 +80,7 @@ Info.plist·리소스 바이트는 보존하고, 선택한 Debug 설정에 런�
 서비스는 앱에 일치하는 v2 관찰 프로필이 실제로 포함돼 있는지 확인한다.
 
 ```sh
-reproloop live-serve --shared-config shared-coordinator-v2.json \
+reproof live-serve --shared-config shared-coordinator-v2.json \
   --simulator SIMULATOR_ID --products LIVE_HELPER_PRODUCTS \
   --ios-app SELECTED_APP --ios-profile ios-runtime-profile.json \
   --output WORK/live

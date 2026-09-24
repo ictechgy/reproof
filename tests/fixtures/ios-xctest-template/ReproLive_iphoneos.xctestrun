@@ -12,8 +12,8 @@
 		<string>ReproLive.xcodeproj</string>
 		<key>BundleIdentifiersForCrashReportEmphasis</key>
 		<array>
-			<string>io.reproloop.live.host</string>
-			<string>io.reproloop.live.tests</string>
+			<string>io.reproof.live.host</string>
+			<string>io.reproof.live.tests</string>
 		</array>
 		<key>CommandLineArguments</key>
 		<array/>
@@ -70,7 +70,7 @@
 		<key>TestBundlePath</key>
 		<string>__TESTHOST__/PlugIns/ReproLiveTests.xctest</string>
 		<key>TestHostBundleIdentifier</key>
-		<string>io.reproloop.live.tests.xctrunner</string>
+		<string>io.reproof.live.tests.xctrunner</string>
 		<key>TestHostPath</key>
 		<string>__TESTROOT__/Debug-iphoneos/ReproLiveTests-Runner.app</string>
 		<key>TestLanguage</key>

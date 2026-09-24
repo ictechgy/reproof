@@ -19,8 +19,8 @@ from .ios_cases import CASES, case_from_fixture
 from .storage import read_json, sha_file, write_json
 
 ROOT = resource_root()
-TEMPLATES = ROOT / 'reproloop/ios_instrumentation_templates'
-SUPPORT = Path('ReproLoopInstrumentation')
+TEMPLATES = ROOT / 'reproof/ios_instrumentation_templates'
+SUPPORT = Path('ReproofInstrumentation')
 MARKER = 'ios-instrumentation-receipt.json'
 SHA = re.compile(r'[0-9a-f]{64}\Z')
 BUILD_ID = re.compile(r'[A-Za-z0-9_-]{8,128}\Z')
@@ -29,8 +29,8 @@ RUNTIME_FILES = ('RLAutomaticRecorder.swift', 'ReproRuntimeIdentity.swift', 'RLS
 
 
 def _profile_document():
-    return {'schemaVersion': 1, 'kind': 'uikit-runtime-v1', 'applicationId': 'io.reproloop.sample.ios',
-        'project': 'ReproLoop.xcodeproj', 'target': 'ReproSample',
+    return {'schemaVersion': 1, 'kind': 'uikit-runtime-v1', 'applicationId': 'io.reproof.sample.ios',
+        'project': 'Reproof.xcodeproj', 'target': 'ReproSample',
         'cases': ['counter', 'duplicate-submit', 'reset'], 'textTargets': ['counter.name'],
         'numericTargets': ['counter.count'], 'tapTargets': ['counter.add', 'counter.next', 'counter.reset'],
         'backTarget': 'counter.back', 'screenTargets': {'counter.screen.main': 'main', 'counter.screen.details': 'details'},

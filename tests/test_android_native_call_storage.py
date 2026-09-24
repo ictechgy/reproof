@@ -9,9 +9,9 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.adb_endpoint import AdbEndpoint
-from reproloop.execution.journal import RunStore, RunDenied
-from reproloop.repair_android_operation import AndroidOperationStore, AndroidOperationError
+from reproof.adb_endpoint import AdbEndpoint
+from reproof.execution.journal import RunStore, RunDenied
+from reproof.repair_android_operation import AndroidOperationStore, AndroidOperationError
 from tests import test_android_mobile_operation_integration as support
 from tests.test_adb_endpoint import OwnedAdbServer, sha
 
@@ -52,7 +52,7 @@ class AndroidNativeCallStorageTests(unittest.TestCase):
             self.f.lab.release_retained_device_scope(scope)
 
     def command(self):
-        from reproloop.adb_endpoint import adb_client_sandbox
+        from reproof.adb_endpoint import adb_client_sandbox
         work = self.operations.operations / self.f.context.operation_id / 'staging'
         return ('/usr/bin/sandbox-exec', '-p',
             adb_client_sandbox(self.config.tools.adb, work, self.server.path),
@@ -60,7 +60,7 @@ class AndroidNativeCallStorageTests(unittest.TestCase):
             '-s', self.config.serial, 'shell', 'echo owned')
 
     def test_native_workspace_is_reserved_before_any_command(self):
-        from reproloop.android_native_calls import RESERVED_BYTES, validate_workspace
+        from reproof.android_native_calls import RESERVED_BYTES, validate_workspace
         with self.operations.admit(self.f.context, self.fixture.blobs) as operation:
             intent = json.loads((operation.staging_root.parent / 'intent.json').read_bytes())
             payload = sum(item['bytes'] for item in intent['files'].values())
@@ -83,7 +83,7 @@ class AndroidNativeCallStorageTests(unittest.TestCase):
         self.assertFalse(list(operations.operations.rglob('command.plist')))
 
     def test_pending_call_is_bound_and_preserved_for_recovery(self):
-        from reproloop.android_native_calls import prepare_call
+        from reproof.android_native_calls import prepare_call
         with self.operations.admit(self.f.context, self.fixture.blobs) as operation:
             with self.phase(operation) as (phase, descriptors):
                 call = prepare_call(self.operations, descriptors, self.command(), input_bytes=b'owned-input')
@@ -104,7 +104,7 @@ class AndroidNativeCallStorageTests(unittest.TestCase):
             self.assertEqual(inspection.state, 'native-call-unresolved')
 
     def test_oversized_or_foreign_commands_leave_workspace_idle(self):
-        from reproloop.android_native_calls import prepare_call, validate_workspace
+        from reproof.android_native_calls import prepare_call, validate_workspace
         with self.operations.admit(self.f.context, self.fixture.blobs) as operation:
             with self.phase(operation) as (phase, descriptors):
                 for command, body in ((self.command(), b'x' * (64 * 1024 + 1)),
@@ -126,7 +126,7 @@ class AndroidNativeCallStorageTests(unittest.TestCase):
                 pass
 
     def test_partial_input_write_keeps_the_intent_and_reserved_bytes(self):
-        from reproloop import android_native_calls as native
+        from reproof import android_native_calls as native
         with self.operations.admit(self.f.context, self.fixture.blobs) as operation:
             with self.phase(operation) as (phase, descriptors):
                 write = native._write_bytes
@@ -144,8 +144,8 @@ class AndroidNativeCallStorageTests(unittest.TestCase):
             self.assertEqual({path.name for path in root.iterdir()}, {'request.plist'})
 
     def test_malformed_pending_metadata_is_reported_as_invalid(self):
-        from reproloop.android_native_calls import prepare_call
-        from reproloop.execution.wire import canonical
+        from reproof.android_native_calls import prepare_call
+        from reproof.execution.wire import canonical
         with self.operations.admit(self.f.context, self.fixture.blobs) as operation:
             with self.phase(operation) as (phase, descriptors):
                 call = prepare_call(self.operations, descriptors, self.command())
@@ -157,7 +157,7 @@ class AndroidNativeCallStorageTests(unittest.TestCase):
             self.assertEqual(self.operations.status(operation.operation_id)['state'], 'record-invalid')
 
     def test_pending_native_call_prevents_staged_apk_discard(self):
-        from reproloop.android_native_calls import prepare_call
+        from reproof.android_native_calls import prepare_call
         with self.operations.admit(self.f.context, self.fixture.blobs) as operation:
             with self.phase(operation) as (phase, descriptors):
                 binding = descriptors._binding

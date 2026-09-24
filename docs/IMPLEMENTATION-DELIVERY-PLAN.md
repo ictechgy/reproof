@@ -43,16 +43,16 @@ Inspected facts:
 
 | Existing path | Relevant finding |
 |---|---|
-| `reproloop/live/model.py`, `recordings.py` | Recording starts with `provider-reset` or `unknown`; schema requires `frame-references-only`. Events are persisted when frozen rather than through a durable admission journal. |
-| `reproloop/live/providers.py` | Simulator dispatch creates a new command ID, losing the originating operation identity. |
+| `reproof/live/model.py`, `recordings.py` | Recording starts with `provider-reset` or `unknown`; schema requires `frame-references-only`. Events are persisted when frozen rather than through a durable admission journal. |
+| `reproof/live/providers.py` | Simulator dispatch creates a new command ID, losing the originating operation identity. |
 | `live-ios/Tests/LiveControlTests.swift` | Physical bridge dequeues work without an incarnation/deadline check. |
-| `android/live/src/main/java/io/reproloop/live/LiveInstrumentation.kt` | Native input queue and injection paths need authority checks. Observations use approved IDs and bounded traversal. |
-| `reproloop/storage.py` | `Lease` uses kernel file locks in a per-user temporary directory. Existing Android and iOS providers already use these locks. |
-| `reproloop/live/iphone.py` | Signed application validation explicitly requires the sample bundle; constructor also restricts fixtures to sample cases. |
-| `reproloop/android_profile.py` | Existing trusted profile separation is useful, but fixture inputs must be empty and several contracts remain sample-shaped. |
-| `reproloop/live/worker.py`, `worker_cli.py` | Authenticated worker transport exists; configuration constructs a static inventory and lacks physical iPhone wiring and durable artifact transfer. |
-| `reproloop/live/server.py`, `live-web/` | Existing browser server is single-user and loopback-only. Browser assets and Node tests are in `live-web/`. |
-| `reproloop/orchestrator.py`, `replay.py` | Repair protects selected inputs but permits only a numeric-expression edit; build, regression, and candidate installation are not an end-to-end containment boundary. |
+| `android/live/src/main/java/io/reproof/live/LiveInstrumentation.kt` | Native input queue and injection paths need authority checks. Observations use approved IDs and bounded traversal. |
+| `reproof/storage.py` | `Lease` uses kernel file locks in a per-user temporary directory. Existing Android and iOS providers already use these locks. |
+| `reproof/live/iphone.py` | Signed application validation explicitly requires the sample bundle; constructor also restricts fixtures to sample cases. |
+| `reproof/android_profile.py` | Existing trusted profile separation is useful, but fixture inputs must be empty and several contracts remain sample-shaped. |
+| `reproof/live/worker.py`, `worker_cli.py` | Authenticated worker transport exists; configuration constructs a static inventory and lacks physical iPhone wiring and durable artifact transfer. |
+| `reproof/live/server.py`, `live-web/` | Existing browser server is single-user and loopback-only. Browser assets and Node tests are in `live-web/`. |
+| `reproof/orchestrator.py`, `replay.py` | Repair protects selected inputs but permits only a numeric-expression edit; build, regression, and candidate installation are not an end-to-end containment boundary. |
 
 This Mac is arm64; Swift and Xcode are available. Neither ffmpeg nor ffprobe was found on PATH. The hypervisor support query was denied, so VM feasibility remains unqualified.
 
@@ -77,7 +77,7 @@ The coordinator owns authorization and scheduling. Each host owns physical dispa
 
 **G0 — Freeze contracts and implement their validators**
 
-Ownership: add `reproloop/contracts/` with `project.py`, `evidence.py`, `scenario.py`, `observation.py`, `execution.py`, and `versions.py`; add `docs/RELEASE-CONTRACTS.md`. Existing legacy validators remain unchanged.
+Ownership: add `reproof/contracts/` with `project.py`, `evidence.py`, `scenario.py`, `observation.py`, `execution.py`, and `versions.py`; add `docs/RELEASE-CONTRACTS.md`. Existing legacy validators remain unchanged.
 
 Define these distinct objects:
 
@@ -140,7 +140,7 @@ Do not download an image, install tools, or access signing material implicitly. 
 
 **G1 — Durable host authority through native injection**
 
-Ownership: add `reproloop/live/authority.py` and `state_store.py`; modify `storage.py`, `live/model.py`, `providers.py`, `android_live.py`, `iphone.py`, `worker.py`, and both native helpers. Audit lock callers in `device.py`, `ios_device.py`, `ios_runner.py`, and `live/android.py`.
+Ownership: add `reproof/live/authority.py` and `state_store.py`; modify `storage.py`, `live/model.py`, `providers.py`, `android_live.py`, `iphone.py`, `worker.py`, and both native helpers. Audit lock callers in `device.py`, `ios_device.py`, `ios_runner.py`, and `live/android.py`.
 
 One operation envelope survives every hop:
 
@@ -212,7 +212,7 @@ Add `tests/test_evidence_store.py`, `test_recording_recovery.py`, and `test_cloc
 
 **G3 — AVFoundation video and event mapping**
 
-Ownership: add `native/macos-video/Package.swift`, `Sources/ReproVideo/main.swift`, `reproloop/live/video.py`, and `scripts/verify-video.py`.
+Ownership: add `native/macos-video/Package.swift`, `Sources/ReproVideo/main.swift`, `reproof/live/video.py`, and `scripts/verify-video.py`.
 
 Implement a small bounded encoder protocol:
 
@@ -250,7 +250,7 @@ Add `tests/test_video_protocol.py`; place native encoder acceptance in `scripts/
 
 **G4 — Prepared original recording and approved replay**
 
-Ownership: add `reproloop/fixtures.py`, `scenario_runner.py`, `qualification.py`, and `live/issue_sessions.py`; integrate with `live/jobs.py`, `model.py`, and the new project contracts. Keep legacy `replay.py` behavior behind its existing API.
+Ownership: add `reproof/fixtures.py`, `scenario_runner.py`, `qualification.py`, and `live/issue_sessions.py`; integrate with `live/jobs.py`, `model.py`, and the new project contracts. Keep legacy `replay.py` behavior behind its existing API.
 
 Implement a bounded scenario interpreter:
 
@@ -322,7 +322,7 @@ Add `tests/test_project_access.py`, `test_enrollment.py`, and `test_release_migr
 
 **G6 — Physical workers, application profiles, and artifact transport**
 
-Ownership: `worker.py`, `worker_cli.py`, `providers.py`, `android_live.py`, `iphone.py`; add `live/artifact_transfer.py` and `reproloop/ios_profile.py`. Native helper changes remain under one provider-integration owner.
+Ownership: `worker.py`, `worker_cli.py`, `providers.py`, `android_live.py`, `iphone.py`; add `live/artifact_transfer.py` and `reproof/ios_profile.py`. Native helper changes remain under one provider-integration owner.
 
 General application profiles must identify:
 
@@ -333,7 +333,7 @@ General application profiles must identify:
 - Approved launch/preparation bindings.
 - Optional app-log/capture adapter and version.
 
-Remove sample-only iPhone assumptions from the general provider path. Keep sample fixtures as legacy adapters. Do not require arbitrary applications to contain the sample SDK or Repro Loop-specific build metadata.
+Remove sample-only iPhone assumptions from the general provider path. Keep sample fixtures as legacy adapters. Do not require arbitrary applications to contain the sample SDK or Reproof-specific build metadata.
 
 Verify selected artifact identity before install and the strongest available installed/launch identity evidence afterward. Where a platform cannot supply required identity proof, qualification fails rather than substituting an assertion.
 
@@ -375,7 +375,7 @@ Physical-device and two-Mac deployment acceptance remain pending.
 
 **G7 — Browser issue workflow and replayable packages**
 
-Ownership: add `reproloop/issue_package.py` and `live-web/video.js`; modify `live-web/app.js`, `index.html`, `styles.css`, `server.py`, `client.py`, and `commands.py`.
+Ownership: add `reproof/issue_package.py` and `live-web/video.js`; modify `live-web/app.js`, `index.html`, `styles.css`, `server.py`, `client.py`, and `commands.py`.
 
 Browser workflow:
 
@@ -445,7 +445,7 @@ VM absence cannot block this gate.
 
 **G8 — Qualified build and runtime execution backend**
 
-Ownership: add `reproloop/execution/{backend.py,protocol.py,qualification.py,artifacts.py}`, `native/macos-execution/`, `guest/reproloop_agent/`, `scripts/provision-repair-guest.py`, and `docs/REPAIR-EXECUTION.md`.
+Ownership: add `reproof/execution/{backend.py,protocol.py,qualification.py,artifacts.py}`, `native/macos-execution/`, `guest/reproof_agent/`, `scripts/provision-repair-guest.py`, and `docs/REPAIR-EXECUTION.md`.
 
 Implement one backend, not a provider marketplace: an Apple Virtualization-based macOS guest backend, subject to the early feasibility checkpoint.
 
@@ -493,7 +493,7 @@ path; they do not enable a production environment or prove actual acceptance.
 
 **G9 — General project-aware repair and protected verification**
 
-Ownership: add `reproloop/project_repair.py` and `validation.py`; integrate `agents.py`, `live/repair_jobs.py`, and browser repair presentation. Preserve legacy orchestrators for their existing restricted use.
+Ownership: add `reproof/project_repair.py` and `validation.py`; integrate `agents.py`, `live/repair_jobs.py`, and browser repair presentation. Preserve legacy orchestrators for their existing restricted use.
 
 Sequence:
 

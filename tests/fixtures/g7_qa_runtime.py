@@ -24,8 +24,8 @@ import zlib
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from reproloop import contracts
-from reproloop.live.model import Lab, check
+from reproof import contracts
+from reproof.live.model import Lab, check
 
 
 def project_document():
@@ -171,8 +171,8 @@ def frame_png(width, height, index, count):
 
 
 def worker_main(configuration):
-    from reproloop.live import worker_cli
-    from reproloop.ios_profile import validate_ios_profile
+    from reproof.live import worker_cli
+    from reproof.ios_profile import validate_ios_profile
     from tests.fixtures.g6_worker_process import _profile
     from tests.fixtures.g6_worker_cli_process import PublicOutput
 
@@ -249,7 +249,7 @@ def worker_main(configuration):
     for name, value in documents.items():
         with (root / name).open("x") as stream: json.dump(value, stream)
     credentials = io.StringIO(json.dumps({key: configuration[key] for key in ("enrollmentToken", "transportToken")}))
-    with patch("reproloop.live.iphone.iphone_device", side_effect=synthetic_iphone), \
+    with patch("reproof.live.iphone.iphone_device", side_effect=synthetic_iphone), \
             patch.object(worker_cli, "connected_worker_devices", side_effect=lambda devices: {d["id"] for d in devices}), \
             patch.object(sys, "stdin", credentials), patch.object(sys, "stdout", PublicOutput(sys.stdout)):
         return worker_cli.main(["--port", "0", "--output", str(root / "output"), "--authority-root", str(root / "authority"),
@@ -259,12 +259,12 @@ def worker_main(configuration):
 
 
 def coordinator_main(configuration):
-    from reproloop.live.access import AccessController, AccessStore
-    from reproloop.live.authority import HostAuthority
-    from reproloop.live.configuration import issue_bounded_project_grant
-    from reproloop.live.issue_configuration import compose_issue_workflow, load_issue_configuration
-    from reproloop.live.server import LiveServer
-    from reproloop.live.worker_cli import configured_remote_devices
+    from reproof.live.access import AccessController, AccessStore
+    from reproof.live.authority import HostAuthority
+    from reproof.live.configuration import issue_bounded_project_grant
+    from reproof.live.issue_configuration import compose_issue_workflow, load_issue_configuration
+    from reproof.live.server import LiveServer
+    from reproof.live.worker_cli import configured_remote_devices
     root = Path(configuration["root"])
     store = AccessStore(root / "coordinator-v2")
     authority = HostAuthority(root / "authority" / "authority.sqlite3")

@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from reproloop.live.model import Lab,LiveError
+from reproof.live.model import Lab,LiveError
 from tests.test_live_model import Provider
 
 

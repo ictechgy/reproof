@@ -14,7 +14,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 
-SDK = Path('/Applications/Xcode-27.0.0-beta.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk')
+SDK = Path(os.environ.get('MACOSX_SDK_PATH') or subprocess.run(['xcrun','--sdk','macosx','--show-sdk-path'],capture_output=True,text=True,check=True).stdout.strip())
 
 
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -26,16 +26,16 @@ class IOSSigningToolsTests(unittest.TestCase):
         self.root = Path(temporary.name).resolve(); self.output = self.root/'tools'
 
     def tools(self):
-        from reproloop.ios_signing_tools import IOSSigningBuildTools
+        from reproof.ios_signing_tools import IOSSigningBuildTools
         return IOSSigningBuildTools(Path('/usr/bin/clang'),sha('/usr/bin/clang'),SDK,sha(SDK/'SDKSettings.json'))
 
     def build(self, **kwargs):
-        from reproloop.ios_signing_tools import build_ios_signing_owner
+        from reproof.ios_signing_tools import build_ios_signing_owner
         return build_ios_signing_owner(self.output,self.tools(),cancellation=kwargs.get('cancellation',threading.Event()),
             deadline_monotonic=kwargs.get('deadline',time.monotonic()+45))
 
     def command(self, *extra):
-        from reproloop.cli import main
+        from reproof.cli import main
         output = io.StringIO()
         with redirect_stdout(output):
             code = main(['ios-signing','build-tools','--output-new',str(self.output),
@@ -44,9 +44,9 @@ class IOSSigningToolsTests(unittest.TestCase):
         return code,json.loads(output.getvalue())
 
     def test_public_cli_builds_loadable_tools_without_opening_recovery_configuration(self):
-        from reproloop.ios_signing_tools import load_ios_signing_owner
+        from reproof.ios_signing_tools import load_ios_signing_owner
         previous = {number:signal.getsignal(number) for number in (signal.SIGINT,signal.SIGTERM)}
-        with patch('reproloop.ios_signing_cli.load_ios_signing_configuration',
+        with patch('reproof.ios_signing_cli.load_ios_signing_configuration',
                    side_effect=AssertionError('build must not open a signing journal')):
             code,report = self.command()
         self.assertEqual(code,0)
@@ -58,7 +58,7 @@ class IOSSigningToolsTests(unittest.TestCase):
 
     def test_cli_rejects_invalid_deadline_and_existing_output_with_static_error(self):
         for value in ('0','nan','inf','121'):
-            with self.subTest(timeout=value), patch('reproloop.ios_signing_tools._run_fixed') as run:
+            with self.subTest(timeout=value), patch('reproof.ios_signing_tools._run_fixed') as run:
                 code,report = self.command('--timeout-seconds',value)
                 self.assertEqual(code,2); self.assertEqual(report['status'],'rejected')
                 self.assertTrue(report['cleanupConfirmed']); run.assert_not_called()
@@ -69,7 +69,7 @@ class IOSSigningToolsTests(unittest.TestCase):
         self.assertEqual(marker.read_bytes(),b'owned')
 
     def test_missing_output_parent_uses_public_build_error(self):
-        from reproloop.ios_signing_tools import IOSSigningToolsError
+        from reproof.ios_signing_tools import IOSSigningToolsError
         self.output = self.root/'missing'/'tools'
         with self.assertRaises(IOSSigningToolsError) as caught: self.build()
         self.assertEqual(caught.exception.code,'ios_signing_tools_output')
@@ -91,7 +91,7 @@ class IOSSigningToolsTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob('.tools.*')),[])
 
     def test_timeout_collects_real_tool_process_group_and_private_workspace(self):
-        from reproloop.ios_signing_tools import IOSSigningBuildTools, IOSSigningToolsError, build_ios_signing_owner
+        from reproof.ios_signing_tools import IOSSigningBuildTools, IOSSigningToolsError, build_ios_signing_owner
         fake,pids = self.sleeping_compiler()
         tools = IOSSigningBuildTools(fake,sha(fake),SDK,sha(SDK/'SDKSettings.json'))
         started = time.monotonic()
@@ -105,7 +105,7 @@ class IOSSigningToolsTests(unittest.TestCase):
 
     def test_cli_sigterm_collects_real_tool_process_group_and_private_workspace(self):
         fake,pids = self.sleeping_compiler()
-        process = subprocess.Popen([sys.executable,'-m','reproloop','ios-signing','build-tools',
+        process = subprocess.Popen([sys.executable,'-m','reproof','ios-signing','build-tools',
             '--output-new',str(self.output),'--clang',str(fake),'--clang-sha256',sha(fake),
             '--sdk-root',str(SDK),'--sdk-settings-sha256',sha(SDK/'SDKSettings.json')],
             cwd=Path(__file__).resolve().parents[1],stdin=subprocess.DEVNULL,
@@ -126,8 +126,8 @@ class IOSSigningToolsTests(unittest.TestCase):
         self.assert_processes_removed(pids)
 
     def test_real_offline_build_loads_exact_native_outputs_and_public_sources(self):
-        from reproloop.ios_signing_tools import load_ios_signing_owner
-        from reproloop.resources import read_resource
+        from reproof.ios_signing_tools import load_ios_signing_owner
+        from reproof.resources import read_resource
         result = self.build()
         loaded = load_ios_signing_owner(self.output,result.manifest_digest)
         self.assertEqual(loaded.definition_digest,result.tools.definition_digest)
@@ -142,24 +142,24 @@ class IOSSigningToolsTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob('.tools.*')),[])
 
     def test_existing_output_changed_compiler_and_cancelled_build_do_not_start(self):
-        from reproloop.ios_signing_tools import IOSSigningBuildTools, IOSSigningToolsError
+        from reproof.ios_signing_tools import IOSSigningBuildTools, IOSSigningToolsError
         with self.assertRaises(IOSSigningToolsError):
             IOSSigningBuildTools(Path('/usr/bin/clang'),'0'*64,SDK,sha(SDK/'SDKSettings.json'))
         self.output.mkdir()
         marker = self.output/'preserve'; marker.write_bytes(b'owned')
-        with patch('reproloop.ios_signing_tools._run_fixed') as run:
+        with patch('reproof.ios_signing_tools._run_fixed') as run:
             with self.assertRaises(IOSSigningToolsError): self.build()
             run.assert_not_called()
         self.assertEqual(marker.read_bytes(),b'owned')
         self.output = self.root/'cancelled'
         stop=threading.Event(); stop.set()
-        with patch('reproloop.ios_signing_tools._run_fixed') as run:
+        with patch('reproof.ios_signing_tools._run_fixed') as run:
             with self.assertRaises(IOSSigningToolsError): self.build(cancellation=stop)
             run.assert_not_called()
         self.assertFalse(self.output.exists())
 
     def test_modified_manifest_or_binary_is_rejected_without_rebuilding(self):
-        from reproloop.ios_signing_tools import load_ios_signing_owner, IOSSigningToolsError
+        from reproof.ios_signing_tools import load_ios_signing_owner, IOSSigningToolsError
         result = self.build()
         with self.assertRaises(IOSSigningToolsError): load_ios_signing_owner(self.output,'0'*64)
         result.tools.guardian.write_bytes(b'changed native output')

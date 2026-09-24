@@ -15,10 +15,10 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.execution.artifacts import BlobSet
-from reproloop.ios_device_tools import IOSDeviceToolError
-from reproloop.ios_mobile_operation import IOSMobileOperationStore
+from reproof import contracts
+from reproof.execution.artifacts import BlobSet
+from reproof.ios_device_tools import IOSDeviceToolError
+from reproof.ios_mobile_operation import IOSMobileOperationStore
 from tests import test_ios_device_guardian as guardians
 from tests.test_ios_xctest_artifact import MACHO_BUNDLE
 
@@ -82,8 +82,8 @@ def xctest_guardian_quarantine_child(root):
 
 class IOSMobileXCTestTests(unittest.TestCase):
     def setUp(self):
-        from reproloop.ios_mobile_xctest import IOSXCTestTools
-        from reproloop.ios_xctest_template import IOSXCTestTemplate
+        from reproof.ios_mobile_xctest import IOSXCTestTools
+        from reproof.ios_xctest_template import IOSXCTestTemplate
         self.g=guardians.IOSDeviceGuardianTests(methodName='runTest')
         self.addCleanup(self.g.doCleanups);self.g.setUp()
         self.root=self.g.c.root
@@ -98,7 +98,7 @@ class IOSMobileXCTestTests(unittest.TestCase):
         fixture=guardians.native.preparation.fixtures.IOSArtifactTransferTests(methodName='runTest')
         self.addCleanup(fixture.doCleanups);fixture.setUp()
         bodies=[]
-        for role,bundle in (('helper-host','io.reproloop.live.host'),('helper-runner','io.reproloop.live.tests.xctrunner')):
+        for role,bundle in (('helper-host','io.reproof.live.host'),('helper-runner','io.reproof.live.tests.xctrunner')):
             app=fixture.make_flat_app()
             info=plistlib.loads((app/'Info.plist').read_bytes());info['CFBundleIdentifier']=bundle
             (app/'Info.plist').write_bytes(plistlib.dumps(info))
@@ -113,7 +113,7 @@ class IOSMobileXCTestTests(unittest.TestCase):
             bodies.append((role+'.ipa',fixture.make_ipa(app,fixture.root/(role+'.ipa')).read_bytes()))
         self.baselines=BlobSet((('original.ipa',self.g.c.body),*bodies))
         selected=replace(self.g.operations.definition,baseline_digest=self.baselines.digest,
-            helper_bundles=(('helper-host','io.reproloop.live.host'),('helper-runner','io.reproloop.live.tests.xctrunner')),
+            helper_bundles=(('helper-host','io.reproof.live.host'),('helper-runner','io.reproof.live.tests.xctrunner')),
             xctest_definition_digest=self.tools.definition_digest)
         self.operations=IOSMobileOperationStore(self.g.c.runs,selected,self.root/'xctest-operations')
         self.addCleanup(self.operations.close)
@@ -147,7 +147,7 @@ while not pathlib.Path(RELEASE).exists():time.sleep(.01)
 
     @contextmanager
     def owned(self):
-        from reproloop.ios_mobile_xctest import IOSXCTestRunner
+        from reproof.ios_mobile_xctest import IOSXCTestRunner
         with self.operations.admit(self.g.c.context,self.g.c.artifacts,self.baselines) as operation:
             for role in self.operations._roles:
                 self.operations.prepare(operation,role,cancellation=threading.Event(),deadline_monotonic=time.monotonic()+10)
@@ -177,7 +177,7 @@ while not pathlib.Path(RELEASE).exists():time.sleep(.01)
             pairs=[];original_pipe=os.pipe
             def pipe():
                 pair=original_pipe();pairs.append(pair);return pair
-            with patch('reproloop.ios_mobile_xctest.os.pipe',side_effect=pipe):
+            with patch('reproof.ios_mobile_xctest.os.pipe',side_effect=pipe):
                 session=self.start(runner,launch,permit)
             self.addCleanup(session.close)
             with self.assertRaises(OSError):os.fstat(pairs[1][0])
@@ -252,7 +252,7 @@ while not pathlib.Path(RELEASE).exists():time.sleep(.01)
             self.assertTrue(session.close())
 
     def test_close_collects_terminal_guardian_after_delayed_output_threads(self):
-        from reproloop.ios_mobile_xctest import _Collector
+        from reproof.ios_mobile_xctest import _Collector
         release_collectors = threading.Event()
         class DelayedCollector(_Collector):
             def _read(self):
@@ -260,7 +260,7 @@ while not pathlib.Path(RELEASE).exists():time.sleep(.01)
                 release_collectors.wait(10)
         with self.owned() as (owner, runner):
             launch = self.prepare(runner)
-            with patch('reproloop.ios_mobile_xctest._Collector', DelayedCollector):
+            with patch('reproof.ios_mobile_xctest._Collector', DelayedCollector):
                 session = self.start(runner, launch, self.permit(launch))
             self.addCleanup(session.close)
             self.addCleanup(release_collectors.set)
@@ -295,7 +295,7 @@ while not pathlib.Path(RELEASE).exists():time.sleep(.01)
                 calls+=1
                 if calls==2:raise OSError('owned pipe creation failure')
                 return original()
-            with patch('reproloop.ios_mobile_xctest.os.pipe',side_effect=pipe):
+            with patch('reproof.ios_mobile_xctest.os.pipe',side_effect=pipe):
                 with self.assertRaises(IOSDeviceToolError):self.start(runner,launch,permit)
             self.assertEqual(len(owner.operations._native_exports),0)
             self.assertTrue(owner._command_lock.acquire(blocking=False));owner._command_lock.release()
@@ -477,7 +477,7 @@ while not pathlib.Path(RELEASE).exists():time.sleep(.01)
         return subprocess.run(('pgrep','-g',str(pgid)),capture_output=True,text=True).stdout.split()
 
     def test_tunnel_hold_watchdog_reaps_the_monitor_when_the_owner_pipe_dies(self):
-        from reproloop.ios_mobile_xctest import _spawn_tunnel_hold
+        from reproof.ios_mobile_xctest import _spawn_tunnel_hold
         hold=_spawn_tunnel_hold(self.fake_devicectl(),'00000000-0000000000000000',self.root,time.monotonic()+60)
         self.assertIsNotNone(hold)
         self.g.wait_for(lambda:len(self.group_members(hold.process.pid))==2)
@@ -487,7 +487,7 @@ while not pathlib.Path(RELEASE).exists():time.sleep(.01)
         self.assertEqual(self.group_members(hold.process.pid),[])
 
     def test_tunnel_hold_release_stops_the_monitor(self):
-        from reproloop.ios_mobile_xctest import _spawn_tunnel_hold,_stop_tunnel_hold
+        from reproof.ios_mobile_xctest import _spawn_tunnel_hold,_stop_tunnel_hold
         hold=_spawn_tunnel_hold(self.fake_devicectl(),'00000000-0000000000000000',self.root,time.monotonic()+60)
         self.assertIsNotNone(hold)
         self.g.wait_for(lambda:len(self.group_members(hold.process.pid))==2)

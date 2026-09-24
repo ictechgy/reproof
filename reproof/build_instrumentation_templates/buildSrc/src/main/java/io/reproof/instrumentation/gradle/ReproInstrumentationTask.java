@@ -1,4 +1,4 @@
-package io.reproloop.instrumentation.gradle;
+package io.reproof.instrumentation.gradle;
 
 import java.io.IOException;
 import java.io.InputStream;

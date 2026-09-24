@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 JNIEXPORT jboolean JNICALL
-Java_io_reproloop_signing_SigningOwner_validateFdPathNative(
+Java_io_reproof_signing_SigningOwner_validateFdPathNative(
         JNIEnv *environment, jclass owner_class, jint descriptor,
         jstring path_value, jboolean directory, jboolean zero_size,
         jboolean require_lock) {
@@ -38,7 +38,7 @@ Java_io_reproloop_signing_SigningOwner_validateFdPathNative(
 }
 
 JNIEXPORT jboolean JNICALL
-Java_io_reproloop_signing_SigningOwner_validatePrivateRegularFdNative(
+Java_io_reproof_signing_SigningOwner_validatePrivateRegularFdNative(
         JNIEnv *environment, jclass owner_class, jint descriptor) {
     (void)environment;
     (void)owner_class;

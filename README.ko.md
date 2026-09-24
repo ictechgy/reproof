@@ -1,8 +1,8 @@
-# Repro Loop
+# Reproof
 
 [English](README.md)
 
-Repro Loop는 STF에 의존하지 않는 self-hosted 모바일 QA 플랫폼입니다. 회사 QA
+Reproof는 STF에 의존하지 않는 self-hosted 모바일 QA 플랫폼입니다. 회사 QA
 이슈를 영상·행동·시작 조건으로 기록하고, Android와 iOS에서 결정적으로
 재현하며, AI가 생성한 수정을 적용하고, 같은 승인 원본으로 수정 후보를 다시
 검증합니다.
@@ -85,9 +85,9 @@ platform-tools, Gradle 8.14.5(wrapper 포함), USB 디버깅이 허용된 Androi
 필요합니다.
 
 ```bash
-cd <repro-loop 클론 경로>
-python3 -m reproloop doctor
-python3 -m reproloop build --receipt artifacts/build.json
+cd <reproof 클론 경로>
+python3 -m reproof doctor
+python3 -m reproof build --receipt artifacts/build.json
 ```
 
 `build`는 샘플 앱과 ID 기반 입력 드라이버를 함께 빌드하고 소스·APK 해시를
@@ -98,14 +98,14 @@ python3 -m reproloop build --receipt artifacts/build.json
 `--scripted`로 합성 QA 동작을 실행하면 첫 번들이 자동으로 생성됩니다.
 
 ```bash
-python3 -m reproloop record \
+python3 -m reproof record \
   --apk android/sample/build/outputs/apk/buggy/debug/sample-buggy-debug.apk \
   --driver-apk android/driver/build/outputs/apk/debug/driver-debug.apk \
   --receipt artifacts/build.json \
   --scripted --output artifacts/qa-bundle
 
-python3 -m reproloop validate artifacts/qa-bundle
-python3 -m reproloop replay artifacts/qa-bundle --output artifacts/original-runs
+python3 -m reproof validate artifacts/qa-bundle
+python3 -m reproof replay artifacts/qa-bundle --output artifacts/original-runs
 ```
 
 직접 QA를 하려면 `--scripted`를 빼고 실행합니다. 샘플 앱에서 `QA`를 입력하고
@@ -113,7 +113,7 @@ python3 -m reproloop replay artifacts/qa-bundle --output artifacts/original-runs
 freeze(고정)됩니다. 기록 전용 버튼은 재생 이벤트에 들어가지 않습니다. 여러
 기기가 연결되어 있으면 `--serial`로 선택합니다.
 
-전용 샘플 패키지 `io.reproloop.sample`은 각 실행 전에 초기화됩니다. 기기
+전용 샘플 패키지 `io.reproof.sample`은 각 실행 전에 초기화됩니다. 기기
 화면을 켜고 잠금 해제한 상태에서 실행합니다.
 
 ## 수정 루프
@@ -122,7 +122,7 @@ freeze(고정)됩니다. 기록 전용 버튼은 재생 이벤트에 들어가�
 결과에 AI 실행으로 기록되지 않습니다.
 
 ```bash
-python3 -m reproloop repair artifacts/qa-bundle \
+python3 -m reproof repair artifacts/qa-bundle \
   --patch-file scripts/sample-fix.json \
   --output artifacts/offline-repair
 ```
@@ -131,7 +131,7 @@ Claude CLI가 로그인된 환경에서는 샘플 소스와 합성 QA 기록을 
 패치를 생성할 수 있습니다.
 
 ```bash
-python3 -m reproloop repair artifacts/qa-bundle \
+python3 -m reproof repair artifacts/qa-bundle \
   --agent claude --output artifacts/claude-repair
 ```
 
@@ -183,10 +183,10 @@ cd android
 - `android/sample`: 버그·정상 빌드와 보호된 회귀 테스트
 - `android/driver`: UiAutomation의 resource ID로 관찰·탭·입력·스크롤·뒤로
   가기
-- `reproloop`: 번들 검증, 컴파일, ADB 실행, 반복 판정, 수정 오케스트레이터,
+- `reproof`: 번들 검증, 컴파일, ADB 실행, 반복 판정, 수정 오케스트레이터,
   HTML 리포트
 - `ios`: Swift Recorder·UIKit 샘플·보호된 XCUITest와 logic regression
-- `reproloop/ios_*`: Simulator 빌드·v2 번들·batch 실행·Swift 수정 검증
+- `reproof/ios_*`: Simulator 빌드·v2 번들·batch 실행·Swift 수정 검증
 - `schemas`: 기록·판정 데이터의 공개 형식
 - `tests`: 실패·변조·반복 결과·패치 경계 검증
 
@@ -199,13 +199,13 @@ cd android
 
 ## Live 콘솔
 
-`python3 -m reproloop live-serve --demo`로 로컬 콘솔을 실행합니다. 실제 iOS
+`python3 -m reproof live-serve --demo`로 로컬 콘솔을 실행합니다. 실제 iOS
 Simulator 연결, 녹화/재생과 Python 스크립트보내기는
 [Live 실행 문서](docs/LIVE-RUNBOOK.md), 검증 결과는 [Live QA](docs/LIVE-QA.md)를
 참고하세요.
 
 기기 연결 없이 작업 큐와 녹화 라이브러리를 확인하려면
-`python3 -m reproloop live-serve --demo --demo-count 2`를 실행하세요.
+`python3 -m reproof live-serve --demo --demo-count 2`를 실행하세요.
 운영·CLI·에이전트 도구는 [운영 문서](docs/LIVE-OPERATIONS.md)를
 참고하세요.
 

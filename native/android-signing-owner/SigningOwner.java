@@ -1,4 +1,4 @@
-package io.reproloop.signing;
+package io.reproof.signing;
 
 import com.android.apksig.ApkSigner;
 import com.android.apksig.ApkVerifier;
@@ -54,7 +54,7 @@ import java.util.regex.Pattern;
  */
 public final class SigningOwner {
     static {
-        System.loadLibrary("reproloop_signing_owner_fd");
+        System.loadLibrary("reproof_signing_owner_fd");
     }
     private static final int MAX_CONFIG_BYTES = 64 * 1024;
     private static final int MAX_SECRET_BYTES = 2048;
@@ -546,7 +546,7 @@ public final class SigningOwner {
                         .setV3SigningEnabled(config.schemes.contains("v3"))
                         .setV4SigningEnabled(false)
                         .setOtherSignersSignaturesPreserved(false)
-                        .setCreatedBy("ReproLoop Android Signing Owner")
+                        .setCreatedBy("Reproof Android Signing Owner")
                         .build();
                 owner.sign();
                 output.getFD().sync();

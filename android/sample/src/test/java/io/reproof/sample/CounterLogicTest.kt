@@ -1,4 +1,4 @@
-package io.reproloop.sample
+package io.reproof.sample
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

@@ -25,10 +25,10 @@ bash scripts/ios-cases.sh <SIMULATOR_UUID> artifacts/my-offline-cases offline
 개별 사례:
 
 ```bash
-python3 -m reproloop ios-build --simulator <SIMULATOR_UUID> --output artifacts/cases-build
-python3 -m reproloop ios-record --case duplicate-submit --simulator <SIMULATOR_UUID> \
+python3 -m reproof ios-build --simulator <SIMULATOR_UUID> --output artifacts/cases-build
+python3 -m reproof ios-record --case duplicate-submit --simulator <SIMULATOR_UUID> \
   --build artifacts/cases-build --output artifacts/submission-record
-python3 -m reproloop ios-repair artifacts/submission-record/bundle --simulator <SIMULATOR_UUID> \
+python3 -m reproof ios-repair artifacts/submission-record/bundle --simulator <SIMULATOR_UUID> \
   --agent claude --output artifacts/submission-repair
 ```
 

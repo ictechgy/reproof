@@ -6,7 +6,7 @@ import tempfile
 import unittest
 import uuid
 
-from reproloop.execution.resources import GuestBundle, ResourceError, provision, validate_catalog
+from reproof.execution.resources import GuestBundle, ResourceError, provision, validate_catalog
 from tests.test_execution_protocol import build_environment
 
 

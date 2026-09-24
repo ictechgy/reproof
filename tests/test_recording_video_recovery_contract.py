@@ -5,11 +5,11 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.disk_budget import DiskBudget
-from reproloop.live.evidence_store import EvidenceStore
-from reproloop.live.recording_session import RecordingStore, RecordingStoreError
-from reproloop.live.video import VideoFrameSink
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.disk_budget import DiskBudget
+from reproof.live.evidence_store import EvidenceStore
+from reproof.live.recording_session import RecordingStore, RecordingStoreError
+from reproof.live.video import VideoFrameSink
 from tests.test_clock_sync import FakeClock
 from tests.test_recording_recovery import begin_recording, project_document, collection_policy
 from tests.test_video_state_machine import FakeEncoder, limits
@@ -128,7 +128,7 @@ class RecordingVideoRecoveryContractTests(unittest.TestCase):
         unpin = self.evidence.unpin_id
         def fail_source_pin(identifier):
             if identifier == 'source_outcome_recording_one':
-                from reproloop.live.evidence_store import EvidenceStoreError
+                from reproof.live.evidence_store import EvidenceStoreError
                 raise EvidenceStoreError('injected unpin failure')
             return unpin(identifier)
         with mock.patch.object(self.evidence, 'unpin_id', side_effect=fail_source_pin):
@@ -158,8 +158,8 @@ class RecordingVideoRecoveryContractTests(unittest.TestCase):
 
     def test_duration_rejects_inputs_and_regular_observations_but_allows_terminal_logs(self):
         from tests.test_recording_recovery import tap_input
-        from reproloop.live.recording_session import RecordingDurationError
-        from reproloop.app_logs import APP_LOG_MIME
+        from reproof.live.recording_session import RecordingDurationError
+        from reproof.app_logs import APP_LOG_MIME
         self.clock.advance(600_000_000_000)
         with self.assertRaises(RecordingDurationError):
             self.session.admit_input('late_input', 1, 'provider_one', tap_input())

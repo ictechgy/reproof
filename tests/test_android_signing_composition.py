@@ -8,19 +8,19 @@ import threading
 import unittest
 from unittest import mock
 
-from reproloop import contracts
-from reproloop.execution.artifacts import ArtifactValidationAuthority, BlobSet
-from reproloop.execution.backend import QualificationAuthority
-from reproloop.execution.guest import serve_one
-from reproloop.execution.journal import RunStore
-from reproloop.execution.resources import provision
-from reproloop.execution.wire import accept_bootstrap
-from reproloop.repair_android_signing import (
+from reproof import contracts
+from reproof.execution.artifacts import ArtifactValidationAuthority, BlobSet
+from reproof.execution.backend import QualificationAuthority
+from reproof.execution.guest import serve_one
+from reproof.execution.journal import RunStore
+from reproof.execution.resources import provision
+from reproof.execution.wire import accept_bootstrap
+from reproof.repair_android_signing import (
     AndroidApkInspector, AndroidApkSigner, AndroidSigningError, AndroidSigningIdentity,
     AndroidSigningMaterialResolver, AndroidSigningTools,
 )
-from reproloop.repair_composition import ProtectedRepairComposition
-from reproloop.repair_execution import RepairExecutionError
+from reproof.repair_composition import ProtectedRepairComposition
+from reproof.repair_execution import RepairExecutionError
 from tests.test_execution_protocol import build_route, validation_plan
 from tests.test_execution_qualification import ProbeVMDouble
 from tests.test_execution_resources import resource_inputs
@@ -56,7 +56,7 @@ class AndroidSigningCompositionTests(unittest.TestCase):
         unsigned = ArtifactValidationAuthority()
         unsigned.register('bounded-artifacts', paths=('candidate.apk',), max_bytes=4096,
                           checker=lambda blobs: blobs.entries == (('candidate.apk', self.apk),))
-        with mock.patch('reproloop.execution.qualification.NativeVM', ProbeVMDouble), \
+        with mock.patch('reproof.execution.qualification.NativeVM', ProbeVMDouble), \
                 mock.patch.object(ProbeVMDouble, 'network_denied', True), \
                 mock.patch.object(ProbeVMDouble, 'stop_confirmed', True), \
                 mock.patch.object(ProbeVMDouble, 'bounded_output_denied', True):
@@ -87,7 +87,7 @@ class AndroidSigningCompositionTests(unittest.TestCase):
                               executor=ExecutorDouble())
                 self.thread = threading.Thread(target=serve); self.thread.start()
         self.source = BlobSet((('src/example.kt', b'explicit VM output fixture'),))
-        with mock.patch('reproloop.execution.runtime.NativeVM', ApkVMDouble):
+        with mock.patch('reproof.execution.runtime.NativeVM', ApkVMDouble):
             return self.builder.build(self.source, operation_id='owned_build', repair_plan_digest='b' * 64,
                                       cancellation=threading.Event())
 

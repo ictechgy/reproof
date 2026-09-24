@@ -12,8 +12,8 @@ import threading
 import time
 import uuid
 
-from reproloop.contracts.versions import bounded_int, digest, exact, require, validate_id
-from reproloop.core import ContractError
+from reproof.contracts.versions import bounded_int, digest, exact, require, validate_id
+from reproof.core import ContractError
 from .artifacts import ArtifactError, BlobSet, receive_blobs
 from .backend import BackendQualification, ExecutionDenied, QualificationAuthority, REQUIRED_PROBES
 from .journal import RunDenied, RunStore

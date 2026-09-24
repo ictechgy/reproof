@@ -5,10 +5,10 @@ import json
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
-from reproloop.core import compile_capture,ContractError
-from reproloop.device import AdbDevice,DRIVER,PACKAGE
-from reproloop.storage import create_bundle,read_json,write_json
-from reproloop.cli import sample_oracle
+from reproof.core import compile_capture,ContractError
+from reproof.device import AdbDevice,DRIVER,PACKAGE
+from reproof.storage import create_bundle,read_json,write_json
+from reproof.cli import sample_oracle
 
 parser=argparse.ArgumentParser()
 parser.add_argument('--apk',type=Path,required=True)

@@ -122,7 +122,7 @@ public final class RLSanitationRuntime: NSObject, RLSanitationRuntimeBridge {
                 profileDigest: profileDigest,
                 startedAtMs: startedAtMs
             )
-            let name = CFNotificationName("io.reproloop.sanitize.\(runID)" as CFString)
+            let name = CFNotificationName("io.reproof.sanitize.\(runID)" as CFString)
             observerName = name
             let pointer = Unmanaged.passUnretained(observer).toOpaque()
             CFNotificationCenterAddObserver(
@@ -169,7 +169,7 @@ public final class RLSanitationRuntime: NSObject, RLSanitationRuntimeBridge {
             let startedAtMs = nowMilliseconds()
             let receipt = try sanitize(policy, digest: digest, runID: runID,
                                        stage: "cleanup", startedAtMs: startedAtMs)
-            let base = applicationSupportDirectory().appendingPathComponent("ReproLoop", isDirectory: true)
+            let base = applicationSupportDirectory().appendingPathComponent("Reproof", isDirectory: true)
             try ReproRuntimeIdentityWriter.write(
                 bundleID: context.bundleID,
                 buildID: context.buildID,
@@ -234,7 +234,7 @@ public final class RLSanitationRuntime: NSObject, RLSanitationRuntimeBridge {
             let components = relative.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
             try check(!components.isEmpty && components.allSatisfy(validPathComponent))
             let folded = components.map { $0.lowercased() }
-            try check(!(root == "application-support" && folded.first == "reproloop"))
+            try check(!(root == "application-support" && folded.first == "reproof"))
             for (otherRoot, other) in foldedPaths where root == otherRoot {
                 let count = min(folded.count, other.count)
                 try check(Array(folded.prefix(count)) != Array(other.prefix(count)))

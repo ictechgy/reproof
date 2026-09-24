@@ -3,8 +3,8 @@ import time
 import unittest
 from unittest.mock import Mock
 
-from reproloop.live.issue_workflow import IssueWorkflow, RecordingDurationReached
-from reproloop.live.model import LiveError
+from reproof.live.issue_workflow import IssueWorkflow, RecordingDurationReached
+from reproof.live.model import LiveError
 
 
 class IssueRecordingDurationTests(unittest.TestCase):
@@ -31,7 +31,7 @@ class IssueRecordingDurationTests(unittest.TestCase):
             guard('session_check')
         # The same callback also gates provider observations and final logs.
         # Natural expiry must not be rewritten as authorization_revoked there.
-        from reproloop.live.model import Lab
+        from reproof.live.model import Lab
         recorder.duration_reached.side_effect = None
         recorder.duration_reached.return_value = True
         for kind in ('observe', 'control', 'app_logs', 'session'):

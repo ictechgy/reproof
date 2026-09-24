@@ -11,7 +11,7 @@ A runtime profile binds the exact project digest, application/build IDs,
 package or bundle, selected artifact digest and size, provenance digest,
 launch target, helper versions, observation capabilities, geometry limits,
 and approved launch/preparation references. It has `schemaVersion: 2` and
-`kind: "reproloop-runtime-application"`. Unknown fields, unsupported adapters,
+`kind: "reproof-runtime-application"`. Unknown fields, unsupported adapters,
 duplicate identifiers, and malformed nested values are rejected.
 
 Use `validate_android_runtime_profile` / `load_android_runtime_profile` or
@@ -97,16 +97,16 @@ Duplicate aliases or physical identities are rejected. Do not combine
 `--devices-config` with individual device/product flags or legacy authority mode.
 
 ```sh
-python3 -m reproloop live-worker \
-  --output /var/lib/reproloop/worker-output \
-  --authority-root /var/lib/reproloop/worker-authority \
-  --devices-config /etc/reproloop/devices.json \
-  --project-registration /etc/reproloop/checkout-registration.json \
-  --project-registration /etc/reproloop/catalog-registration.json \
+python3 -m reproof live-worker \
+  --output /var/lib/reproof/worker-output \
+  --authority-root /var/lib/reproof/worker-authority \
+  --devices-config /etc/reproof/devices.json \
+  --project-registration /etc/reproof/checkout-registration.json \
+  --project-registration /etc/reproof/catalog-registration.json \
   --coordinator https://coordinator.example:8443 \
   --host-id mac-a --host-incarnation startup-unique-id \
   --enrollment-stdin \
-  --host-credential-output /run/reproloop/worker-host-credential.json
+  --host-credential-output /run/reproof/worker-host-credential.json
 ```
 
 Each registration file contains exactly `project` and `collectionPolicy`.
@@ -174,7 +174,7 @@ remembers it after allocation, or accepts explicit `project_id` after reconnect.
 
 ```python
 import time
-from reproloop.live.worker import WorkerClient
+from reproof.live.worker import WorkerClient
 
 # worker_token comes from the service's private credential channel.
 client = WorkerClient("https://worker.example:9876", worker_token)

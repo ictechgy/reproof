@@ -14,17 +14,17 @@ if [ -e "$output" ]; then
   exit 2
 fi
 mkdir -p "$output"
-python3 -m reproloop ios-build --simulator "$simulator" --output "$output/build"
+python3 -m reproof ios-build --simulator "$simulator" --output "$output/build"
 for case_name in counter duplicate-submit reset; do
-  python3 -m reproloop ios-record --case "$case_name" --simulator "$simulator" \
+  python3 -m reproof ios-record --case "$case_name" --simulator "$simulator" \
     --build "$output/build" --output "$output/$case_name/record"
   if [ "$mode" = claude ]; then
-    python3 -m reproloop ios-repair "$output/$case_name/record/bundle" --simulator "$simulator" \
+    python3 -m reproof ios-repair "$output/$case_name/record/bundle" --simulator "$simulator" \
       --agent claude --output "$output/$case_name/repair"
   else
     patch="scripts/ios-$case_name-fix.json"
     if [ "$case_name" = counter ]; then patch="scripts/ios-sample-fix.json"; fi
-    python3 -m reproloop ios-repair "$output/$case_name/record/bundle" --simulator "$simulator" \
+    python3 -m reproof ios-repair "$output/$case_name/record/bundle" --simulator "$simulator" \
       --patch-file "$patch" --output "$output/$case_name/repair"
   fi
 done

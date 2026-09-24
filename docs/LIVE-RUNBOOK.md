@@ -8,7 +8,7 @@
 
 ```bash
 # 합성 기기: 서버·UI·녹화 흐름을 로컬에서 확인
-python3 -m reproloop live-serve --demo
+python3 -m reproof live-serve --demo
 ```
 
 서버가 출력하는 `http://127.0.0.1:8765`를 연다. `localhost` 등 다른 Host는 거절한다. 기기 선택 → Start session → Reset & record → 화면 조작 → Stop → Replay recording 순서다. 텍스트를 보내기 전에 기기 화면의 입력란에 포커스를 둔다. 녹화의 문자열은 변수로 치환되므로 재생 전에 변수 값을 입력한다.
@@ -26,7 +26,7 @@ xcodebuild build-for-testing \
 # 사용할 Simulator를 먼저 부팅하고 샘플을 설치한다.
 xcrun simctl boot <SIMULATOR_UUID>
 xcrun simctl install <SIMULATOR_UUID> <ReproSample.app 경로>
-python3 -m reproloop live-serve --simulator <SIMULATOR_UUID> --demo
+python3 -m reproof live-serve --simulator <SIMULATOR_UUID> --demo
 ```
 
 이 작업에서 검증한 Simulator UUID는 `D3A74A3D-F247-498C-AA4D-33891901E946`, 설치 앱은 `artifacts/ios-cases-build/DerivedData/Build/Products/Debug-iphonesimulator/ReproSample.app`이다. 이미 부팅된 Simulator에 `boot`를 다시 실행하지 않는다.
@@ -36,7 +36,7 @@ python3 -m reproloop live-serve --simulator <SIMULATOR_UUID> --demo
 Android는 연결되고 승인된 기기의 serial을 명시한다.
 
 ```bash
-python3 -m reproloop live-serve --android <ADB_SERIAL> --demo
+python3 -m reproof live-serve --android <ADB_SERIAL> --demo
 ```
 
 Android baseline은 PNG 캡처와 ADB batch tap/long-press/swipe/home을 제공한다. 텍스트·fixture reset·재생은 광고하지 않는다. 화면 회전은 다음 frame의 geometry로 감지한다. 연결 해제 시 세션을 실패/격리하고 정상 정리 후 다시 연다. 현재 Android 기기가 없어 이 경로는 명령 변환 테스트만 통과했으며, 연속 입력 helper와 실제 성능 검증은 남아 있다.

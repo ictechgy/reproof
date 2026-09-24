@@ -40,12 +40,12 @@ fixture, 숫자 판정식, AI 수정 권한은 이 프로필에 넣지 않는다
 합계 60 MiB이며, 준비 후 생성 파일도 900개 한도에 포함된다.
 
 ```sh
-reproloop android-instrument \
+reproof android-instrument \
   --source /path/to/public-android-source \
   --observation-profile /path/to/views-profile.json \
   --output /path/to/new-prepared-directory
 
-reproloop android-app-build \
+reproof android-app-build \
   --source /path/to/new-prepared-directory/source \
   --observation-profile /path/to/new-prepared-directory/app-profile.json \
   --output /path/to/new-build-directory \
@@ -76,7 +76,7 @@ Gradle 플러그인을 연결한다. 제품 Kotlin·Java 본문, 리소스, 기�
 등록한 프로젝트·앱·빌드와 일치하는 공유 서비스 구성을 사용한다.
 
 ```sh
-reproloop live-serve \
+reproof live-serve \
   --android AUTHORIZED_SERIAL \
   --android-helper /path/to/current-live-debug.apk \
   --android-app /path/to/new-build-directory/app.apk \

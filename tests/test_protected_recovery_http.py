@@ -7,7 +7,7 @@ import sys
 import threading
 import unittest
 
-from reproloop.live.server import LiveServer
+from reproof.live.server import LiveServer
 from tests import test_protected_recovery_service as support
 
 
@@ -38,7 +38,7 @@ class ProtectedRecoveryHttpTests(unittest.TestCase):
         finally:connection.close()
 
     def cli(self,*args,role='operator'):
-        result=subprocess.run([sys.executable,'-m','reproloop','protected-service',*args,
+        result=subprocess.run([sys.executable,'-m','reproof','protected-service',*args,
             '--server',self.server.origin,'--credential-stdin'],input=self.f.tokens[role]+'\n',
             text=True,capture_output=True,timeout=45,cwd=Path(__file__).resolve().parent.parent)
         self.assertNotIn(self.f.tokens[role],result.stdout+result.stderr)

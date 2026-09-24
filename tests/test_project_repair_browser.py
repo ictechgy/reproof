@@ -4,7 +4,7 @@ import threading
 import unittest
 import uuid
 
-from reproloop.live.server import LiveServer
+from reproof.live.server import LiveServer
 from tests import test_live_project_repair as support
 from tests.fixtures.g9_browser_check import browser_check
 

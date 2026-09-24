@@ -3,8 +3,8 @@ import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.res.Resources;
 import android.view.View;
-import io.reproloop.autotrace.ReproAuto;
-import io.reproloop.autotrace.ReproHooks;
+import io.reproof.autotrace.ReproAuto;
+import io.reproof.autotrace.ReproHooks;
 
 public final class RuntimeHarness {
     private static final int BUTTON_ID = 7;

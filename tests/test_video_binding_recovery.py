@@ -8,12 +8,12 @@ import tempfile
 import unittest
 from unittest import mock
 
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.disk_budget import DiskBudget, DiskReservation
-from reproloop.live.evidence_store import EvidenceStore
-from reproloop.live.frame_spool import FrameSpool, FrameSpoolError
-from reproloop.live.recording_session import RecordingStore
-from reproloop.live.video import VideoCatalog, VideoFrameSink, VideoProtocolError
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.disk_budget import DiskBudget, DiskReservation
+from reproof.live.evidence_store import EvidenceStore
+from reproof.live.frame_spool import FrameSpool, FrameSpoolError
+from reproof.live.recording_session import RecordingStore
+from reproof.live.video import VideoCatalog, VideoFrameSink, VideoProtocolError
 from tests.test_clock_sync import FakeClock
 from tests.test_recording_recovery import (
     begin_recording, collection_policy, project_document,
@@ -36,7 +36,7 @@ def _open_binding_store(root):
 
 
 def _crash_v1_prebinding(root, boundary):
-    from reproloop.live.frame_spool import FrameSpool
+    from reproof.live.frame_spool import FrameSpool
 
     _, evidence, recordings = _open_binding_store(root)
     _, session = begin_recording(recordings)
@@ -94,7 +94,7 @@ def _crash_v1_prebinding(root, boundary):
             boundary_patch = mock.patch.object(
                 sink, "_retire_prebinding_source", side_effect=retire)
         elif boundary == "work-cleanup":
-            from reproloop.live import video as video_module
+            from reproof.live import video as video_module
             original = video_module._remove_empty_prebinding_work
 
             def clean_work(*args):
@@ -569,7 +569,7 @@ class VideoBindingRecoveryTests(unittest.TestCase):
                             self.assertTrue(released)
                             return {}
 
-                        with mock.patch("reproloop.live.video.fcntl.flock",
+                        with mock.patch("reproof.live.video.fcntl.flock",
                                         side_effect=observe_flock), \
                                 mock.patch.object(
                                     catalog, "recover_transient",

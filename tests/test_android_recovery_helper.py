@@ -6,9 +6,9 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.live.authority import NATIVE_PROTOCOL_VERSION,HELPER_VERSION
-from reproloop.live.android_live import HELPER
+from reproof import contracts
+from reproof.live.authority import NATIVE_PROTOCOL_VERSION,HELPER_VERSION
+from reproof.live.android_live import HELPER
 from tests import test_android_recovery as support
 
 
@@ -66,7 +66,7 @@ class AndroidRecoveryHelperTests(unittest.TestCase):
         self.server.shell_session=shell;self.server.helper_response=status
 
     def recover(self):
-        from reproloop.android_recovery_helper import recover_android_helper
+        from reproof.android_recovery_helper import recover_android_helper
         f=self.f
         with f.operations.native_recovery(f.operation.operation_id,f.operation.request_digest,
             device=f.device,snapshot=f.snapshot,parent_grant=f.grant) as recovery:
@@ -74,7 +74,7 @@ class AndroidRecoveryHelperTests(unittest.TestCase):
                 deadline_monotonic=time.monotonic()+10)
 
     def test_fresh_helper_identity_and_idle_input_are_observed_before_collection(self):
-        from reproloop import android_recovery
+        from reproof import android_recovery
         original=android_recovery.run_native_adb;failures=[]
         def capture(*args,**kwargs):
             result=original(*args,**kwargs)
@@ -117,7 +117,7 @@ class AndroidRecoveryHelperTests(unittest.TestCase):
         self.assertGreater(self.f.f.fixture.runs.status(self.f.operation.operation_id)['reservedBytes'],0)
 
     def test_changed_configuration_body_is_rejected_before_helper_start(self):
-        from reproloop import android_recovery_helper
+        from reproof import android_recovery_helper
         original=android_recovery_helper.run_native_adb
         def changed(*args,**kwargs):
             if kwargs.get('input_bytes'):

@@ -8,10 +8,10 @@ import sys
 import time
 import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from reproloop.device import AdbDevice
-from reproloop.live.android_live import android_live_device
-from reproloop.live.model import Lab
-from reproloop.storage import write_json
+from reproof.device import AdbDevice
+from reproof.live.android_live import android_live_device
+from reproof.live.model import Lab
+from reproof.storage import write_json
 
 p = argparse.ArgumentParser()
 p.add_argument('--output', type=Path, required=True)

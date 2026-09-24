@@ -4,17 +4,17 @@ from types import SimpleNamespace
 import threading
 import unittest
 import uuid
-from reproloop.device import AdbDevice
-from reproloop.live.android_live import AndroidLiveProvider
-from reproloop.live.providers import IosProvider
-from reproloop.live.model import LiveError
-from reproloop.ios_instrumentation import sample_ios_auto_profile
+from reproof.device import AdbDevice
+from reproof.live.android_live import AndroidLiveProvider
+from reproof.live.providers import IosProvider
+from reproof.live.model import LiveError
+from reproof.ios_instrumentation import sample_ios_auto_profile
 from tests.test_app_logs import marker,snapshot,RUN,SESSION
 
 
 class AppLogProviderTests(unittest.TestCase):
     def test_android_reader_checks_run_and_original_marker_around_snapshot(self):
-        device=AdbDevice.__new__(AdbDevice);device.package='io.reproloop.plain'
+        device=AdbDevice.__new__(AdbDevice);device.package='io.reproof.plain'
         device.app_profile=SimpleNamespace(digest='a'*64,data={'appLogs':1,'targets':{'tap':['add']},'screenTargets':{'panel':'main'}})
         paths=[]
         def read(path,limit):
@@ -23,11 +23,11 @@ class AppLogProviderTests(unittest.TestCase):
         device._sdk_json=read
         self.assertEqual(device.collect_app_logs(RUN),snapshot())
         self.assertEqual(paths,['files/repro/app-log-session.json','files/repro/app-logs/'+SESSION+'/app-log.json','files/repro/app-log-session.json'])
-        from reproloop.core import ContractError
+        from reproof.core import ContractError
         with self.assertRaises(ContractError):device.collect_app_logs(str(uuid.uuid4()))
 
     def test_ios_observation_only_readiness_is_independent_of_replay_marker(self):
-        provider=IosProvider('sim',Path('products'),'io.reproloop.sample.ios',record_sdk=True,app_logs_only=True)
+        provider=IosProvider('sim',Path('products'),'io.reproof.sample.ios',record_sdk=True,app_logs_only=True)
         profile=sample_ios_auto_profile();provider.auto_profile=profile;provider.auto_run_id=RUN;provider.automatic_app_logs=True
         value=snapshot();value.update(platform='ios',applicationId=provider.bundle,profileDigest=profile.digest)
         for event in value['events']:
@@ -61,7 +61,7 @@ class AndroidAppLogCleanupTests(unittest.TestCase):
     def test_logging_app_stops_before_its_device_lease_is_released(self):
         provider=AndroidLiveProvider.__new__(AndroidLiveProvider)
         provider.stop=threading.Event();provider.process=None;provider.port=None;provider.transport=None;provider.thread=None
-        provider.automatic_app_logs=True;provider.target_package='io.reproloop.plain';provider.token='test-only';provider.lease_held=True
+        provider.automatic_app_logs=True;provider.target_package='io.reproof.plain';provider.token='test-only';provider.lease_held=True
         running=[True];released=[]
         def shell(*args,**kwargs):
             if args==('am','force-stop',provider.target_package):running[0]=False;return ''
@@ -76,7 +76,7 @@ class AndroidAppLogCleanupTests(unittest.TestCase):
     def test_logging_app_force_stop_failure_keeps_lease_reserved(self):
         provider=AndroidLiveProvider.__new__(AndroidLiveProvider)
         provider.stop=threading.Event();provider.process=None;provider.port=None;provider.transport=None;provider.thread=None
-        provider.automatic_app_logs=True;provider.target_package='io.reproloop.plain';provider.token='test-only';provider.lease_held=True
+        provider.automatic_app_logs=True;provider.target_package='io.reproof.plain';provider.token='test-only';provider.lease_held=True
         released=[]
         def shell(*args,**kwargs):
             if args==('am','force-stop',provider.target_package):raise RuntimeError('stop failed')
@@ -92,7 +92,7 @@ class AndroidAppLogCleanupTests(unittest.TestCase):
     def test_logging_app_without_acquired_lease_issues_no_app_command(self):
         provider=AndroidLiveProvider.__new__(AndroidLiveProvider)
         provider.stop=threading.Event();provider.process=None;provider.port=None;provider.transport=None;provider.thread=None
-        provider.automatic_app_logs=True;provider.target_package='io.reproloop.plain';provider.token='test-only';provider.lease_held=False
+        provider.automatic_app_logs=True;provider.target_package='io.reproof.plain';provider.token='test-only';provider.lease_held=False
         commands=[]
         class Lease:
             def __exit__(self,*args):commands.append('release')

@@ -9,7 +9,7 @@ import threading
 import time
 import unittest
 
-from reproloop.fixtures import AdapterCapabilities, FixtureCoordinator, FixtureError, LoopbackFixtureAdapter
+from reproof.fixtures import AdapterCapabilities, FixtureCoordinator, FixtureError, LoopbackFixtureAdapter
 from tests.g4_fixture_support import serve
 from tests.test_fixture_allocations import collection_policy, project_document
 from tests.test_recording_recovery import open_store

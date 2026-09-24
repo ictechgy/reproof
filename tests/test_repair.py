@@ -1,8 +1,8 @@
 from pathlib import Path
 import tempfile
 import unittest
-from reproloop.repair import apply_edits, validate_sample_expression
-from reproloop.core import ContractError
+from reproof.repair import apply_edits, validate_sample_expression
+from reproof.core import ContractError
 
 
 class PatchBoundaryTests(unittest.TestCase):

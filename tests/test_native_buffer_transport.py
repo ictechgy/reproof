@@ -6,11 +6,11 @@ import threading
 import unittest
 from unittest.mock import Mock, patch
 
-from reproloop.live.android_live import AndroidLiveProvider, UsbBridgeClient
-from reproloop.live.authority import HELPER_VERSION, NATIVE_PROTOCOL_VERSION, NativeHandshake
-from reproloop.live.iphone import PhysicalIosProvider, TunnelClient
-from reproloop.live.model import LiveError
-from reproloop.live.native_frame_clock import NativeFrameClock
+from reproof.live.android_live import AndroidLiveProvider, UsbBridgeClient
+from reproof.live.authority import HELPER_VERSION, NATIVE_PROTOCOL_VERSION, NativeHandshake
+from reproof.live.iphone import PhysicalIosProvider, TunnelClient
+from reproof.live.model import LiveError
+from reproof.live.native_frame_clock import NativeFrameClock
 
 
 def handshake():
@@ -183,7 +183,7 @@ class NativeBufferTransportTests(unittest.TestCase):
         provider.app_logs_only = False
         provider.auto_profile = None
         provider.stop = threading.Event()
-        provider.bundle = 'io.reproloop.sample.ios'
+        provider.bundle = 'io.reproof.sample.ios'
         provider._check_permit = Mock()
         provider._receive_frame = Mock()
         authority_wire = {'protocolVersion': 1, 'operationId': operation_id}
@@ -206,16 +206,16 @@ class NativeBufferTransportTests(unittest.TestCase):
 
     def test_ios_cleanup_ack_requires_valid_termination_evidence(self):
         from types import SimpleNamespace
-        valid = {'bundleId': 'io.reproloop.sample.ios', 'state': 'not-running',
+        valid = {'bundleId': 'io.reproof.sample.ios', 'state': 'not-running',
                  'observer': 'xctest-application-state'}
         permit = SimpleNamespace(operation_id='op-clean')
         for evidence, expected_ok in (
             (valid, True),
             (None, False),
-            (dict(valid, bundleId='io.reproloop.other'), False),
+            (dict(valid, bundleId='io.reproof.other'), False),
             (dict(valid, state='running'), False),
             (dict(valid, observer='sysdiagnose'), False),
-            ({'bundleId': 'io.reproloop.sample.ios'}, False),
+            ({'bundleId': 'io.reproof.sample.ios'}, False),
         ):
             with self.subTest(evidence=evidence):
                 ack = {'pending': False, 'id': 'op-clean', 'ok': True,
@@ -235,7 +235,7 @@ class NativeBufferTransportTests(unittest.TestCase):
 
     def test_ios_rejects_cleanup_evidence_on_non_cleanup_and_failed_cleanup(self):
         from types import SimpleNamespace
-        evidence = {'bundleId': 'io.reproloop.sample.ios', 'state': 'not-running',
+        evidence = {'bundleId': 'io.reproof.sample.ios', 'state': 'not-running',
                     'observer': 'xctest-application-state'}
         # 비cleanup 동작의 ack에 증거가 섞이면 거절한다.
         ack = {'pending': False, 'id': 'op-tap', 'ok': True,

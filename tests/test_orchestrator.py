@@ -2,11 +2,11 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from reproloop.core import digest
-from reproloop.agents import AgentUnavailable
-from reproloop.storage import create_bundle,sha_file
-from reproloop.repair import snapshot_source
-from reproloop.orchestrator import repair_job,PRODUCT_FILE,APK_RELATIVE
+from reproof.core import digest
+from reproof.agents import AgentUnavailable
+from reproof.storage import create_bundle,sha_file
+from reproof.repair import snapshot_source
+from reproof.orchestrator import repair_job,PRODUCT_FILE,APK_RELATIVE
 from tests.test_core import capture,oracle
 from tests.test_replay import FakeDevice
 
@@ -35,14 +35,14 @@ class OrchestratorTests(unittest.TestCase):
         return repair_job(device,self.bundle,self.source,self.root/'repair',Agent(),
                           {'gradle':'fake-gradle','java_home':'fake-jdk','sdk_home':'fake-sdk'})
     def test_full_boundary_retains_original_and_verifies_patch(self):
-        with patch('reproloop.orchestrator.build_android',self.build),patch('reproloop.orchestrator.run_command',self._tests_pass):
+        with patch('reproof.orchestrator.build_android',self.build),patch('reproof.orchestrator.run_command',self._tests_pass):
             r=self.invoke(FakeDevice(['2']*3+['1']*3))
         self.assertEqual(r['status'],'verified');self.assertEqual(len(r['runs']),6)
         self.assertIn('increment() = 2',(self.source/PRODUCT_FILE).read_text())
         self.assertTrue((self.root/'repair/attempt-1/patch.diff').is_file())
         self.assertEqual(r['attempts'][0]['agentReceipt'],Agent.last_receipt)
     def test_no_source_regression_task_cannot_verify(self):
-        with patch('reproloop.orchestrator.build_android',self.build),patch('reproloop.orchestrator.run_command',return_value='NO-SOURCE'):
+        with patch('reproof.orchestrator.build_android',self.build),patch('reproof.orchestrator.run_command',return_value='NO-SOURCE'):
             r=self.invoke(FakeDevice(['2']*3))
         self.assertEqual(r['status'],'verification_failed')
     def test_provider_failure_is_terminal_without_repeated_calls(self):
@@ -59,7 +59,7 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(len(result['attempts']),1)
 
     def test_baseline_mixed_stops_before_agent_or_build(self):
-        with patch('reproloop.orchestrator.build_android') as build:
+        with patch('reproof.orchestrator.build_android') as build:
             r=self.invoke(FakeDevice(['2','1','2']));build.assert_not_called()
         self.assertEqual(r['status'],'inconclusive');self.assertEqual(r['attempts'],[])
 
@@ -68,7 +68,7 @@ class OrchestratorTests(unittest.TestCase):
             result=self.build(workspace,**kwargs)
             self._tests_pass([],workspace)
             return result
-        with patch('reproloop.orchestrator.build_android',build),patch('reproloop.orchestrator.run_command',return_value='UP-TO-DATE'):
+        with patch('reproof.orchestrator.build_android',build),patch('reproof.orchestrator.run_command',return_value='UP-TO-DATE'):
             result=self.invoke(FakeDevice(['2']*3+['1']*3))
         self.assertEqual(result['status'],'verification_failed')
 
@@ -77,7 +77,7 @@ class OrchestratorTests(unittest.TestCase):
             external=self.root/'external-reports'
             self._tests_pass([],external)
             (Path(cwd)/'sample/build/test-results').symlink_to(external/'sample/build/test-results',target_is_directory=True)
-        with patch('reproloop.orchestrator.build_android',self.build),patch('reproloop.orchestrator.run_command',tests):
+        with patch('reproof.orchestrator.build_android',self.build),patch('reproof.orchestrator.run_command',tests):
             result=self.invoke(FakeDevice(['2']*3+['1']*3))
         self.assertEqual(result['status'],'verification_failed')
 

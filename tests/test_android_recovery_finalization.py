@@ -9,10 +9,10 @@ import unittest
 from unittest.mock import patch
 import uuid
 
-from reproloop.core import ContractError
-from reproloop.execution.journal import RunDenied
-from reproloop.live.authority import HostAuthority, ProviderResult
-from reproloop.repair_android_operation import AndroidOperationError
+from reproof.core import ContractError
+from reproof.execution.journal import RunDenied
+from reproof.live.authority import HostAuthority, ProviderResult
+from reproof.repair_android_operation import AndroidOperationError
 from tests import test_android_recovery_helper as support
 
 
@@ -186,7 +186,7 @@ class AndroidRecoveryFinalizationTests(unittest.TestCase):
             consume(captured[0], authority=self.operations)
 
     def test_reconciliation_commit_survives_interrupted_private_record_update(self):
-        from reproloop import android_recovery_finalization
+        from reproof import android_recovery_finalization
         write = android_recovery_finalization._replace_at
         def interrupted(directory, name, value):
             if name == "finalization.json" and value["state"] == "reconciled":
@@ -203,7 +203,7 @@ class AndroidRecoveryFinalizationTests(unittest.TestCase):
         self.assertEqual(len(self.helper.server.requests), requests)
 
     def test_old_finalization_after_release_cannot_touch_a_new_owner(self):
-        from reproloop import android_recovery_finalization
+        from reproof import android_recovery_finalization
         write = android_recovery_finalization._replace_at
         def interrupted(directory, name, value):
             if name == "finalization.json" and value["state"] == "completed":

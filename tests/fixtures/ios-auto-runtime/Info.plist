@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>io.reproloop.sample.ios</string>
+	<string>io.reproof.sample.ios</string>
 	<key>ReproBuildID</key>
 	<string>fixture-build-id</string>
 	<key>ReproAutoProfileDigest</key>
-	<string>9945d4fbf9ded0d23476bc1c0247b595404c7863b83f6d5629946a0cae8e2d83</string>
+	<string>dd9c8d36386b285ffd42e62d405fb698f827a8ab84d79685186213d4c71ebd55</string>
 	<key>ReproAutoProfile</key>
 	<dict>
 		<key>schemaVersion</key>
@@ -15,9 +15,9 @@
 		<key>kind</key>
 		<string>uikit-runtime-v1</string>
 		<key>applicationId</key>
-		<string>io.reproloop.sample.ios</string>
+		<string>io.reproof.sample.ios</string>
 		<key>project</key>
-		<string>ReproLoop.xcodeproj</string>
+		<string>Reproof.xcodeproj</string>
 		<key>target</key>
 		<string>ReproSample</string>
 		<key>cases</key>
@@ -27,9 +27,13 @@
 			<string>reset</string>
 		</array>
 		<key>textTargets</key>
-		<array><string>counter.name</string></array>
+		<array>
+			<string>counter.name</string>
+		</array>
 		<key>numericTargets</key>
-		<array><string>counter.count</string></array>
+		<array>
+			<string>counter.count</string>
+		</array>
 		<key>tapTargets</key>
 		<array>
 			<string>counter.add</string>
@@ -40,16 +44,21 @@
 		<string>counter.back</string>
 		<key>screenTargets</key>
 		<dict>
-			<key>counter.screen.main</key><string>main</string>
-			<key>counter.screen.details</key><string>details</string>
+			<key>counter.screen.main</key>
+			<string>main</string>
+			<key>counter.screen.details</key>
+			<string>details</string>
 		</dict>
 		<key>startState</key>
 		<dict>
-			<key>screen</key><string>main</string>
+			<key>screen</key>
+			<string>main</string>
 			<key>nodes</key>
 			<dict>
-				<key>counter.name</key><string></string>
-				<key>counter.count</key><string>0</string>
+				<key>counter.name</key>
+				<string></string>
+				<key>counter.count</key>
+				<string>0</string>
 			</dict>
 		</dict>
 	</dict>

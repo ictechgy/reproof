@@ -11,17 +11,17 @@ import tempfile
 import time
 import unittest
 
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.disk_budget import DiskBudget
-from reproloop.live.evidence_store import EvidenceStore
-from reproloop.live.frame_spool import FrameSpool
-from reproloop.live.recording_session import (
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.disk_budget import DiskBudget
+from reproof.live.evidence_store import EvidenceStore
+from reproof.live.frame_spool import FrameSpool
+from reproof.live.recording_session import (
     RecordingRecoverySession,
     RecordingSession,
     RecordingStore,
     RecordingStoreError,
 )
-from reproloop.live.video import (
+from reproof.live.video import (
     VideoCatalog,
     VideoFrameSink,
     VideoLimits,
@@ -173,7 +173,7 @@ def _crash_process(root, boundary):
 
 class VideoSourceRecoveryTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="reproloop-video-source-recovery-")
+        self.temp = tempfile.TemporaryDirectory(prefix="reproof-video-source-recovery-")
         self.root = Path(self.temp.name)
 
     def tearDown(self):
@@ -421,7 +421,7 @@ class VideoSourceRecoveryTests(unittest.TestCase):
         }
         for name, mutate in mutations.items():
             with self.subTest(state=name), tempfile.TemporaryDirectory(
-                    prefix=f"reproloop-video-impossible-{name}-") as directory:
+                    prefix=f"reproof-video-impossible-{name}-") as directory:
                 root = Path(directory)
                 self.assertEqual(_crash_process(root, "before_source_release"), 42)
                 budget, evidence, recordings, _clock = _open(root)

@@ -2,8 +2,8 @@
 import struct
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.ios_artifact_transfer import parse_ios_artifact
+from reproof.core import ContractError
+from reproof.ios_artifact_transfer import parse_ios_artifact
 from tests import test_ios_artifact_transfer as support
 
 MACHO_BUNDLE = support.MACHO64_ARM64[:12] + struct.pack('<I', 8) + support.MACHO64_ARM64[16:]

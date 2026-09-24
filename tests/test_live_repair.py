@@ -8,13 +8,13 @@ import threading
 import time
 import unittest
 from unittest.mock import Mock, patch
-from reproloop.core import digest
-from reproloop.ios_storage import tree_manifest
-from reproloop.ios_cases import case_spec
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.providers import DemoProvider, demo_device
-from reproloop.live.repair_jobs import LiveRepairJobs
-from reproloop.storage import write_json
+from reproof.core import digest
+from reproof.ios_storage import tree_manifest
+from reproof.ios_cases import case_spec
+from reproof.live.model import Lab, LiveError
+from reproof.live.providers import DemoProvider, demo_device
+from reproof.live.repair_jobs import LiveRepairJobs
+from reproof.storage import write_json
 
 
 class CaptureFailureProvider(DemoProvider):
@@ -38,8 +38,8 @@ class LiveRepairBoundaryTests(unittest.TestCase):
         app = products / 'Debug-iphoneos/ReproSample.app'
         app.mkdir(parents=True)
         (app / 'fixture').write_text('synthetic fixture')
-        (app / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':'io.reproloop.sample.ios','ReproBuildID':'fixture-build'}))
-        self.identity = {'bundle': 'io.reproloop.sample.ios', 'artifactDigest': digest(tree_manifest(app))}
+        (app / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':'io.reproof.sample.ios','ReproBuildID':'fixture-build'}))
+        self.identity = {'bundle': 'io.reproof.sample.ios', 'artifactDigest': digest(tree_manifest(app))}
         write_json(self.build / 'receipt.json', {'executionEnvironment': 'physical-iphone', 'signed': True,
             'buildCompleted':True, 'buildId':'fixture-build',
             'sourceDigest': digest(tree_manifest(self.source, True)), 'productsDigest': digest(tree_manifest(products)),
@@ -173,9 +173,9 @@ class LiveRepairBoundaryTests(unittest.TestCase):
             process.returncode=130
         phone=Mock();phone.lease.return_value=nullcontext()
         observation=Mock(returncode=0,stdout=json.dumps([{'counter':True,'observedCount':'2'}]).encode())
-        with patch('reproloop.live.repair_jobs.subprocess.run',return_value=observation),\
-             patch('reproloop.live.repair_jobs.os.killpg',side_effect=interrupt) as kill,\
-             patch('reproloop.ios_device.IosPhysicalDevice',return_value=phone):
+        with patch('reproof.live.repair_jobs.subprocess.run',return_value=observation),\
+             patch('reproof.live.repair_jobs.os.killpg',side_effect=interrupt) as kill,\
+             patch('reproof.ios_device.IosPhysicalDevice',return_value=phone):
             job=self.submit()
             self.repairs.workers[job['id']].join(timeout=5)
         self.assertEqual(self.repairs.get(job['id'],'owner')['state'],'cancelled')

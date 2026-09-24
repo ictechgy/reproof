@@ -11,7 +11,7 @@ import stat
 
 PACKAGE = Path(__file__).resolve().parent
 _PART = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_.-]{0,159}\Z')
-_ROOTS = frozenset({'reproloop', 'live-web', 'android', 'ios', 'live-ios', 'native',
+_ROOTS = frozenset({'reproof', 'live-web', 'android', 'ios', 'live-ios', 'native',
                     'guest', 'tools', 'scripts'})
 _EXCLUDED = frozenset({'auth.json', 'local.properties', 'credentials.json', 'build',
                        'build-device', 'artifacts', 'node_modules', '__pycache__'})

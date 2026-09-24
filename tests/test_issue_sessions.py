@@ -4,10 +4,10 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.fixtures import FixtureError
-from reproloop.live.issue_sessions import IssueSessionError, IssueSessionService
-from reproloop.live.jobs import IssueSessionJobs
-from reproloop.live.model import LiveError
+from reproof.fixtures import FixtureError
+from reproof.live.issue_sessions import IssueSessionError, IssueSessionService
+from reproof.live.jobs import IssueSessionJobs
+from reproof.live.model import LiveError
 from tests.g4_support import G4Environment, ScenarioProvider
 
 
@@ -210,7 +210,7 @@ class IssueSessionTests(unittest.TestCase):
 
 
 def contracts_digest(value):
-    from reproloop import contracts
+    from reproof import contracts
     return contracts.digest(value)
 
 

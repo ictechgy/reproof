@@ -1,8 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <application android:allowBackup="false" android:label="Repro Loop Live" />
+    <application android:allowBackup="false" android:label="Reproof Live" />
     <instrumentation
         android:name=".LiveInstrumentation"
-        android:targetPackage="io.reproloop.live"
-        android:label="Repro Loop Live" />
+        android:targetPackage="io.reproof.live"
+        android:label="Reproof Live" />
 </manifest>

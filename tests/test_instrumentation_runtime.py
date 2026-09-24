@@ -3,10 +3,10 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATES = ROOT / "reproloop" / "instrumentation_templates" / "android"
-DEBUG_RUNTIME = TEMPLATES / "debug" / "java" / "io" / "reproloop" / "autotrace" / "ReproAuto.kt"
-RECEIVER = TEMPLATES / "debug" / "java" / "io" / "reproloop" / "autotrace" / "AutoExportReceiver.kt"
-RELEASE_RUNTIME = TEMPLATES / "release" / "java" / "io" / "reproloop" / "autotrace" / "ReproAuto.kt"
+TEMPLATES = ROOT / "reproof" / "instrumentation_templates" / "android"
+DEBUG_RUNTIME = TEMPLATES / "debug" / "java" / "io" / "reproof" / "autotrace" / "ReproAuto.kt"
+RECEIVER = TEMPLATES / "debug" / "java" / "io" / "reproof" / "autotrace" / "AutoExportReceiver.kt"
+RELEASE_RUNTIME = TEMPLATES / "release" / "java" / "io" / "reproof" / "autotrace" / "ReproAuto.kt"
 
 
 class InstrumentationRuntimeTemplateTests(unittest.TestCase):
@@ -34,7 +34,7 @@ class InstrumentationRuntimeTemplateTests(unittest.TestCase):
         receiver = RECEIVER.read_text()
         self.assertIn('android:permission="android.permission.DUMP"', manifest)
         self.assertIn('android:exported="true"', manifest)
-        self.assertIn("io.reproloop.EXPORT_CAPTURE", manifest)
+        self.assertIn("io.reproof.EXPORT_CAPTURE", manifest)
         self.assertIn("if (intent.action != ACTION_EXPORT_CAPTURE)", receiver)
         self.assertIn("ReproAuto.export()", receiver)
         self.assertIn("RESULT_ACCEPTED = 0", receiver)
@@ -53,7 +53,7 @@ class InstrumentationRuntimeTemplateTests(unittest.TestCase):
             self.assertIn(f"const val {name}", source)
 
     def test_recorder_exposes_accepted_event_sequence(self):
-        source = (ROOT / "android" / "sdk" / "src" / "main" / "java" / "io" / "reproloop" / "sdk" / "ReproRecorder.kt").read_text()
+        source = (ROOT / "android" / "sdk" / "src" / "main" / "java" / "io" / "reproof" / "sdk" / "ReproRecorder.kt").read_text()
         self.assertIn("fun lastEventSequence(): Int = synchronized(lock) { nextSequence - 1 }", source)
 
 

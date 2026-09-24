@@ -216,7 +216,7 @@ class JobQueue:
             _check(not self._closed, "closed", "Job queue is closed")
             if self._dispatcher is None or not self._dispatcher.is_alive():
                 self._stop.clear()
-                self._dispatcher = threading.Thread(target=self._dispatch, name="reproloop-job-queue", daemon=True)
+                self._dispatcher = threading.Thread(target=self._dispatch, name="reproof-job-queue", daemon=True)
                 self._dispatcher.start()
         return self
 
@@ -386,7 +386,7 @@ class JobQueue:
                         self._cancel[job["id"]] = threading.Event()
                         self._persist(job)
                         candidate = job
-                        worker = threading.Thread(target=self._run, args=(job,), name="reproloop-replay-job", daemon=True)
+                        worker = threading.Thread(target=self._run, args=(job,), name="reproof-replay-job", daemon=True)
                         self._workers[job["id"]] = worker
                         worker.start()
                         break

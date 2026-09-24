@@ -7,7 +7,7 @@ import stat
 import unittest
 from unittest import mock
 
-from reproloop.execution.artifacts import BlobSet
+from reproof.execution.artifacts import BlobSet
 
 
 class RepairJournalTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class RepairJournalTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve() / 'repairs'
 
     def journal(self, **kwargs):
-        from reproloop.repair_journal import RepairJournal
+        from reproof.repair_journal import RepairJournal
         journal = RepairJournal(self.root, disk_limit=1024 * 1024, **kwargs)
         self.addCleanup(journal.close)
         return journal
@@ -28,7 +28,7 @@ class RepairJournalTests(unittest.TestCase):
         return journal.create(**values)
 
     def test_cancel_is_durable_and_late_success_cannot_win(self):
-        from reproloop.repair_journal import RepairJournalError
+        from reproof.repair_journal import RepairJournalError
         journal = self.journal(); job = self.create(journal)
         token = journal.cancellation(job['id'])
         journal.update(job['id'], phase='building', status='running')
@@ -40,7 +40,7 @@ class RepairJournalTests(unittest.TestCase):
         self.assertEqual(reopened.get(job['id'])['status'], 'quarantined')
 
     def test_idempotency_conflicts_and_process_restart_are_retained(self):
-        from reproloop.repair_journal import RepairJournalError
+        from reproof.repair_journal import RepairJournalError
         journal = self.journal(); job = self.create(journal)
         self.assertEqual(self.create(journal)['id'], job['id'])
         with self.assertRaises(RepairJournalError): self.create(journal, request_digest='2' * 64)
@@ -51,7 +51,7 @@ class RepairJournalTests(unittest.TestCase):
         with self.assertRaises(RepairJournalError): reopened.update(job['id'], status='running')
 
     def test_only_one_writer_and_bounded_private_outputs(self):
-        from reproloop.repair_journal import RepairJournalError
+        from reproof.repair_journal import RepairJournalError
         journal = self.journal(); job = self.create(journal, reservation_bytes=4)
         with self.assertRaises(RepairJournalError): self.journal()
         journal.write_blobs(job['id'], 'candidate', BlobSet((('app.swift', b'four'),)))
@@ -62,7 +62,7 @@ class RepairJournalTests(unittest.TestCase):
         self.assertFalse((self.root / job['id'] / 'extra').exists())
 
     def test_terminal_states_and_cancelled_output_remain_closed(self):
-        from reproloop.repair_journal import RepairJournalError
+        from reproof.repair_journal import RepairJournalError
         journal = self.journal(); job = self.create(journal)
         journal.cancel(job['id']); journal.finish(job['id'], 'cancelled')
         with self.assertRaises(RepairJournalError):
@@ -97,7 +97,7 @@ class RepairJournalTests(unittest.TestCase):
         self.assertEqual(unknown.read_bytes(), b'concurrent file')
 
     def test_confirmed_expiry_releases_data_capacity_without_reviving_old_requests(self):
-        from reproloop.repair_journal import RepairJournalError
+        from reproof.repair_journal import RepairJournalError
         journal = self.journal()
         job = self.create(journal, reservation_bytes=1024*1024, retain_until_ms=10)
         journal.write_blobs(job['id'], 'candidate', BlobSet((('app.swift', b'owned source'),)))
@@ -113,7 +113,7 @@ class RepairJournalTests(unittest.TestCase):
         self.assertTrue(original['outputsExpired'])
 
     def test_failed_job_insert_does_not_accumulate_uncharged_directories(self):
-        from reproloop.repair_journal import RepairJournalError
+        from reproof.repair_journal import RepairJournalError
         journal = self.journal()
         journal._db.set_authorizer(lambda operation, table, *_:
             sqlite3.SQLITE_DENY if operation == sqlite3.SQLITE_INSERT and table == 'jobs' else sqlite3.SQLITE_OK)
@@ -124,13 +124,13 @@ class RepairJournalTests(unittest.TestCase):
         self.assertEqual(self.create(journal)['status'], 'created')
 
     def test_output_fsync_failure_cannot_publish_a_complete_blob(self):
-        from reproloop.repair_journal import RepairJournalError
+        from reproof.repair_journal import RepairJournalError
         journal = self.journal(); job = self.create(journal)
         real_fsync = os.fsync
         def fail_file(fd):
             if stat.S_ISREG(os.fstat(fd).st_mode): raise OSError('owned fsync failure')
             return real_fsync(fd)
-        with mock.patch('reproloop.repair_journal.os.fsync', side_effect=fail_file):
+        with mock.patch('reproof.repair_journal.os.fsync', side_effect=fail_file):
             with self.assertRaises(RepairJournalError):
                 journal.write_blobs(job['id'], 'candidate', BlobSet((('app.swift', b'owned source'),)))
         self.assertEqual(journal.get(job['id'])['status'], 'quarantined')

@@ -11,7 +11,7 @@ from unittest.mock import patch
 import zipfile
 import weakref
 
-from reproloop.core import ContractError
+from reproof.core import ContractError
 from tests import test_ios_artifact_transfer as support
 from tests import test_ios_provisioning_cms as cms_support
 from tests import test_ios_provisioning_policy as policy_support
@@ -26,12 +26,12 @@ class IOSArtifactProvisioningTests(unittest.TestCase):
         (version / 'Foo').unlink(); version.rmdir(); version.parent.rmdir()
 
     def parse(self, source=None):
-        from reproloop.ios_artifact_provisioning import parse_provisioned_ios_artifact
+        from reproof.ios_artifact_provisioning import parse_provisioned_ios_artifact
         return parse_provisioned_ios_artifact(self.app if source is None else source)
 
     def test_profiles_are_private_and_bound_to_exact_bundle_identifiers(self):
-        from reproloop.ios_artifact_provisioning import require_provisioned_ios_artifact
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_provisioning import require_provisioned_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
         selected = self.parse()
         self.assertIs(require_provisioned_ios_artifact(selected), selected)
         self.assertEqual(selected.artifact.app_digest, parse_ios_artifact(self.app).app_digest)
@@ -78,7 +78,7 @@ class IOSArtifactProvisioningTests(unittest.TestCase):
         self.assertNotEqual(selected.binding_digest, second.binding_digest)
 
     def test_profile_changes_during_capture_do_not_issue_an_artifact_binding(self):
-        from reproloop import ios_artifact_transfer as transfer
+        from reproof import ios_artifact_transfer as transfer
         actual = transfer._read_tree_file
         def changed(tree, logical_path, **kwargs):
             if logical_path == 'embedded.mobileprovision':
@@ -89,7 +89,7 @@ class IOSArtifactProvisioningTests(unittest.TestCase):
                 self.parse()
 
     def test_oversized_profile_is_rejected_before_capturing_its_bytes(self):
-        from reproloop import ios_artifact_transfer as transfer
+        from reproof import ios_artifact_transfer as transfer
         (self.app / 'embedded.mobileprovision').write_bytes(b'x' * (4 * 1024 * 1024 + 1))
         actual = transfer._read_tree_file
         profiles = []
@@ -103,7 +103,7 @@ class IOSArtifactProvisioningTests(unittest.TestCase):
         self.assertEqual(profiles, [])
 
     def test_combined_profile_capture_is_bounded_before_any_profile_is_retained(self):
-        from reproloop import ios_artifact_transfer as transfer
+        from reproof import ios_artifact_transfer as transfer
         body = b'x' * (4 * 1024 * 1024)
         (self.app / 'embedded.mobileprovision').write_bytes(body)
         (self.app / 'PlugIns/Widget.appex/embedded.mobileprovision').write_bytes(body)
@@ -141,10 +141,10 @@ class IOSArtifactProvisioningVerificationTests(unittest.TestCase):
             (self.app / name).write_bytes(self.material.cms)
 
     def verifier(self, policies=None):
-        from reproloop import contracts
-        from reproloop.ios_artifact_provisioning import IOSArtifactProvisioningVerifier
-        from reproloop.ios_provisioning_cms import IOSCmsTools, IOSCmsTrust
-        from reproloop.ios_provisioning_policy import decoded_profile_digest
+        from reproof import contracts
+        from reproof.ios_artifact_provisioning import IOSArtifactProvisioningVerifier
+        from reproof.ios_provisioning_cms import IOSCmsTools, IOSCmsTrust
+        from reproof.ios_provisioning_policy import decoded_profile_digest
         tools = IOSCmsTools(self.material.openssl,
             hashlib.sha256(self.material.openssl.read_bytes()).hexdigest(),
             hashlib.sha256(Path('/usr/bin/sandbox-exec').read_bytes()).hexdigest())
@@ -170,7 +170,7 @@ class IOSArtifactProvisioningVerificationTests(unittest.TestCase):
                             cancellation=threading.Event(), deadline_monotonic=time.monotonic() + 10)
 
     def test_actual_cms_and_policy_cover_both_bundles_in_one_artifact_context(self):
-        from reproloop.ios_artifact_provisioning import parse_provisioned_ios_artifact
+        from reproof.ios_artifact_provisioning import parse_provisioned_ios_artifact
         owner, policy = self.verifier()
         # Operator input is snapshotted at construction.
         policy['.']['entitlements']['get-task-allow'] = False
@@ -195,7 +195,7 @@ class IOSArtifactProvisioningVerificationTests(unittest.TestCase):
             owner.require_verified(result, artifact, context_digest='c' * 64)
 
     def test_missing_or_mismatched_bundle_policies_never_issue_partial_success(self):
-        from reproloop.ios_artifact_provisioning import parse_provisioned_ios_artifact
+        from reproof.ios_artifact_provisioning import parse_provisioned_ios_artifact
         def changed(required):
             required['PlugIns/Widget.appex']['profileDigest'] = '0' * 64
             return required
@@ -212,8 +212,8 @@ class IOSArtifactProvisioningVerificationTests(unittest.TestCase):
         self.assertEqual(owner.retained_profile_bytes, 0)
 
     def test_result_collection_close_and_initial_cancellation_preserve_owner_bounds(self):
-        from reproloop.ios_artifact_provisioning import parse_provisioned_ios_artifact
-        from reproloop.ios_provisioning_cms import IOSCmsError
+        from reproof.ios_artifact_provisioning import parse_provisioned_ios_artifact
+        from reproof.ios_provisioning_cms import IOSCmsError
         owner, _ = self.verifier()
         artifact = parse_provisioned_ios_artifact(self.app)
         result = self.verify(owner, artifact)

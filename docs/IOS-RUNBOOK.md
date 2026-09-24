@@ -29,12 +29,12 @@
 
 ```bash
 xcrun simctl list devices available
-python3 -m reproloop ios-doctor --simulator <SIMULATOR_UUID>
+python3 -m reproof ios-doctor --simulator <SIMULATOR_UUID>
 ```
 
 꺼진 Simulator는 먼저 `xcrun simctl boot <SIMULATOR_UUID>`로 부팅하고 `xcrun simctl bootstatus <SIMULATOR_UUID> -b`로 준비를 확인한다. 기존 기기를 지우거나 초기화할 필요는 없다. 테스트는 전용 샘플 앱만 설치하고 앱의 메모리 fixture를 다시 만든다.
 
-프로젝트는 `ios/project.yml`과 생성된 `ios/ReproLoop.xcodeproj`를 포함한다. 필요하면 `cd ios && xcodegen generate --spec project.yml`로 재생성한다. 외부 Swift package 의존성은 없으며 Simulator 빌드는 signing을 끈다. 전역 Xcode 선택이나 인증서·프로파일을 변경하지 않는다.
+프로젝트는 `ios/project.yml`과 생성된 `ios/Reproof.xcodeproj`를 포함한다. 필요하면 `cd ios && xcodegen generate --spec project.yml`로 재생성한다. 외부 Swift package 의존성은 없으며 Simulator 빌드는 signing을 끈다. 전역 Xcode 선택이나 인증서·프로파일을 변경하지 않는다.
 
 ## 한 번에 실행
 
@@ -47,17 +47,17 @@ bash scripts/ios-demo.sh <SIMULATOR_UUID> artifacts/my-ios-demo
 ## 단계별 실행
 
 ```bash
-python3 -m reproloop ios-build \
+python3 -m reproof ios-build \
   --simulator <SIMULATOR_UUID> --output artifacts/my-ios-build
 
-python3 -m reproloop ios-record \
+python3 -m reproof ios-record \
   --simulator <SIMULATOR_UUID> --build artifacts/my-ios-build \
   --output artifacts/my-ios-record
 
-python3 -m reproloop ios-replay artifacts/my-ios-record/bundle \
+python3 -m reproof ios-replay artifacts/my-ios-record/bundle \
   --simulator <SIMULATOR_UUID> --output artifacts/my-ios-baseline
 
-python3 -m reproloop ios-repair artifacts/my-ios-record/bundle \
+python3 -m reproof ios-repair artifacts/my-ios-record/bundle \
   --simulator <SIMULATOR_UUID> --patch-file scripts/ios-sample-fix.json \
   --output artifacts/my-ios-repair
 ```

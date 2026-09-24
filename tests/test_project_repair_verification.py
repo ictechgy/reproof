@@ -2,9 +2,9 @@
 import threading
 import unittest
 
-from reproloop import contracts
-from reproloop.project_repair import ProjectRepair
-from reproloop.repair_journal import RepairJournal
+from reproof import contracts
+from reproof.project_repair import ProjectRepair
+from reproof.repair_journal import RepairJournal
 from tests.g9_support import RepairEnvironment
 from tests.g9_execution_support import SyntheticRepairExecution
 from tests.test_project_repair import BEFORE, PRODUCT

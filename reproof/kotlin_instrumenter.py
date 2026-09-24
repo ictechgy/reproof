@@ -56,7 +56,7 @@ def configure_gradle(settings: str, module: str) -> dict[str, str]:
 
 def _run_tool(source_files, mode, selection):
     java_home = _java_home()
-    with tempfile.TemporaryDirectory(prefix="reproloop-kotlin-") as directory:
+    with tempfile.TemporaryDirectory(prefix="reproof-kotlin-") as directory:
         root = Path(directory)
         for relative, source in source_files.items():
             destination = root / PurePosixPath(relative)
@@ -70,7 +70,7 @@ def _run_tool(source_files, mode, selection):
             # resources stay immutable; no checkout cache is needed or copied.
             tool = root / '_fixed-tool'
             try:
-                for name in ('build.sh', 'src/main/java/io/reproloop/instrumenter/KotlinInstrumenter.java'):
+                for name in ('build.sh', 'src/main/java/io/reproof/instrumenter/KotlinInstrumenter.java'):
                     destination = tool / name
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(read_resource('tools/kotlin-instrumenter/' + name))
@@ -89,7 +89,7 @@ def _run_tool(source_files, mode, selection):
             "-Djava.awt.headless=true",
             "-cp",
             f"{classes}{os.pathsep}{classpath}",
-            "io.reproloop.instrumenter.KotlinInstrumenter",
+            "io.reproof.instrumenter.KotlinInstrumenter",
             str(root),
             mode,
             selection,
@@ -170,7 +170,7 @@ def _subprocess_environment(java_home: str) -> dict[str, str]:
 def _ensure_built(java_home: str, *, tool_root=None) -> None:
     tool = _TOOL if tool_root is None else tool_root
     classes = tool / "build" / "classes"
-    class_file = classes / "io" / "reproloop" / "instrumenter" / "KotlinInstrumenter.class"
+    class_file = classes / "io" / "reproof" / "instrumenter" / "KotlinInstrumenter.class"
     sources = list((tool / "src").rglob("*.java"))
     newest_source = max((path.stat().st_mtime_ns for path in sources), default=0)
     if (classes / "classpath").is_file() and class_file.is_file() and class_file.stat().st_mtime_ns >= newest_source:

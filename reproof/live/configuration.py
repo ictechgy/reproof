@@ -52,7 +52,7 @@ class SharedConfiguration:
     browser_session_seconds: int
 
     def public(self):
-        return {"schemaVersion": 2, "kind": "reproloop-shared-public-configuration",
+        return {"schemaVersion": 2, "kind": "reproof-shared-public-configuration",
                 "origin": self.origin,
                 "browserSessionSeconds": self.browser_session_seconds,
                 "projectCount": len(self.project_files)}
@@ -68,7 +68,7 @@ def load_shared_configuration(path):
         "schemaVersion", "kind", "stateRoot", "listen", "projects",
         "browserSessionSeconds"})
     _require(value["schemaVersion"] == 2 and type(value["schemaVersion"]) is int
-             and value["kind"] == "reproloop-shared-coordinator")
+             and value["kind"] == "reproof-shared-coordinator")
     _require(isinstance(value["stateRoot"], str) and value["stateRoot"])
     state_root = Path(value["stateRoot"]).absolute()
     _require(state_root.name == "coordinator-v2",
@@ -230,7 +230,7 @@ def _stdin_credential(enabled):
 
 def admin_main(argv=None):
     parser = argparse.ArgumentParser(
-        prog="reproloop live-admin",
+        prog="reproof live-admin",
         description="Local administrator operations for the isolated coordinator-v2 store")
     sub = parser.add_subparsers(dest="operation", required=True)
 

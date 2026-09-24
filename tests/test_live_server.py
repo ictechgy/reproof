@@ -5,9 +5,9 @@ import tempfile
 import threading
 import time
 import unittest
-from reproloop.live.model import Lab
-from reproloop.live.providers import demo_device
-from reproloop.live.server import LiveServer
+from reproof.live.model import Lab
+from reproof.live.providers import demo_device
+from reproof.live.server import LiveServer
 
 
 class HttpTests(unittest.TestCase):

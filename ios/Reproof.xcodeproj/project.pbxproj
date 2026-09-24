@@ -188,7 +188,7 @@
 					};
 				};
 			};
-			buildConfigurationList = C2979A3854F15B25EA643FF8 /* Build configuration list for PBXProject "ReproLoop" */;
+			buildConfigurationList = C2979A3854F15B25EA643FF8 /* Build configuration list for PBXProject "Reproof" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -266,7 +266,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.reproloop.sample.ios.replay;
+				PRODUCT_BUNDLE_IDENTIFIER = io.reproof.sample.ios.replay;
 				PRODUCT_NAME = ReproReplayTests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -409,7 +409,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.reproloop.sample.ios.replay;
+				PRODUCT_BUNDLE_IDENTIFIER = io.reproof.sample.ios.replay;
 				PRODUCT_NAME = ReproReplayTests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -427,7 +427,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.reproloop.sample.ios.logic;
+				PRODUCT_BUNDLE_IDENTIFIER = io.reproof.sample.ios.logic;
 				PRODUCT_NAME = ReproLogicTests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -447,7 +447,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.reproloop.sample.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = io.reproof.sample.ios;
 				PRODUCT_NAME = ReproSample;
 				REPRO_BUILD_ID = "ios-mvp-1";
 				SDKROOT = iphoneos;
@@ -467,7 +467,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.reproloop.sample.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = io.reproof.sample.ios;
 				PRODUCT_NAME = ReproSample;
 				REPRO_BUILD_ID = "ios-mvp-1";
 				SDKROOT = iphoneos;
@@ -485,7 +485,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.reproloop.sample.ios.logic;
+				PRODUCT_BUNDLE_IDENTIFIER = io.reproof.sample.ios.logic;
 				PRODUCT_NAME = ReproLogicTests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -514,7 +514,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		C2979A3854F15B25EA643FF8 /* Build configuration list for PBXProject "ReproLoop" */ = {
+		C2979A3854F15B25EA643FF8 /* Build configuration list for PBXProject "Reproof" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				2324F71F13909919D5F0C9D3 /* Debug */,

@@ -4,8 +4,8 @@ import json
 import threading
 import unittest
 
-from reproloop.agents import AgentUnavailable
-from reproloop.repair_journal import RepairJournal
+from reproof.agents import AgentUnavailable
+from reproof.repair_journal import RepairJournal
 from tests.g9_support import RepairEnvironment
 from tests.test_project_repair import BEFORE, EDIT, PRODUCT
 
@@ -35,7 +35,7 @@ class ProjectRepairJobTests(unittest.TestCase):
         self.addCleanup(self.journal.close)
 
     def repair(self, agent=None, **kwargs):
-        from reproloop.project_repair import ProjectRepair
+        from reproof.project_repair import ProjectRepair
         self.agent = agent or LocalProposalDouble()
         return ProjectRepair(self.env.source, self.env.registry, self.env.engine, self.journal,
             self.agent, build_recipe_id='build_app', validation_recipe_ids=('regression_ui',), **kwargs)
@@ -53,7 +53,7 @@ class ProjectRepairJobTests(unittest.TestCase):
         self.assertEqual(result['status'], 'proposal-ready')
         self.assertFalse(result['result']['verified'])
         self.assertEqual(result['result']['changedPaths'], [PRODUCT])
-        self.assertEqual(result['plan']['baselineDigest'], __import__('reproloop').contracts.digest(self.baseline))
+        self.assertEqual(result['plan']['baselineDigest'], __import__('reproof').contracts.digest(self.baseline))
         self.assertEqual(result['plan']['attemptBudget'], self.env.approved.qualification['attemptBudget'])
         self.assertEqual(result['provider']['kind'], 'local-test-adapter')
         output = repair.proposal(result['id'])
@@ -121,7 +121,7 @@ class ProjectRepairJobTests(unittest.TestCase):
         self.assertEqual(agent.calls, 0)
 
     def test_idempotency_cannot_restart_terminal_work_or_change_mode(self):
-        from reproloop.repair_journal import RepairJournalError
+        from reproof.repair_journal import RepairJournalError
         repair = self.repair(); result = self.run_job(repair)
         self.assertEqual(self.create(repair)['id'], result['id'])
         self.assertEqual(repair.execute(result['id'], self.env.approved, authorize=lambda: True), result)

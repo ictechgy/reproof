@@ -7,14 +7,14 @@ import threading
 import unittest
 from unittest import mock
 
-from reproloop import contracts
-from reproloop.execution.artifacts import ArtifactValidationAuthority
-from reproloop.execution.backend import QualificationAuthority
-from reproloop.execution.journal import RunStore
-from reproloop.execution.resources import provision
-from reproloop.live.access import AccessController, AccessStore
-from reproloop.live import issue_configuration
-from reproloop.repair_execution import RepairExecutionError
+from reproof import contracts
+from reproof.execution.artifacts import ArtifactValidationAuthority
+from reproof.execution.backend import QualificationAuthority
+from reproof.execution.journal import RunStore
+from reproof.execution.resources import provision
+from reproof.live.access import AccessController, AccessStore
+from reproof.live import issue_configuration
+from reproof.repair_execution import RepairExecutionError
 from tests.g9_execution_support import SyntheticRepairExecution
 from tests.g9_support import RepairEnvironment
 from tests.test_execution_protocol import build_route
@@ -26,7 +26,7 @@ from tests.test_project_repair import EDIT
 
 class BuildCompositionTests(unittest.TestCase):
     def setUp(self):
-        from reproloop.repair_composition import ProtectedRepairComposition
+        from reproof.repair_composition import ProtectedRepairComposition
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         metadata, paths = resource_inputs(self.root)
@@ -43,7 +43,7 @@ class BuildCompositionTests(unittest.TestCase):
         self.artifacts.register('bounded-artifacts', paths=('product.bin',), max_bytes=4096, checker=lambda _: True)
         for name in ('stop_confirmed', 'network_denied', 'bounded_output_denied'):
             self.enterContext(mock.patch.object(ProbeVMDouble, name, True))
-        self.enterContext(mock.patch('reproloop.execution.qualification.NativeVM', ProbeVMDouble))
+        self.enterContext(mock.patch('reproof.execution.qualification.NativeVM', ProbeVMDouble))
 
     def build(self, **changes):
         arguments = dict(bundle=self.bundle, store=self.store, route=self.route, validation_plan=self.plan,
@@ -75,13 +75,13 @@ class BuildCompositionTests(unittest.TestCase):
     def test_mismatched_recipe_environment_and_plan_are_rejected_before_vm_dispatch(self):
         for changed in ({'recipeId': 'not-in-bundle'}, {'environmentDigest': 'f' * 64},
                         {'validationPlanId': 'unregistered'}, {'projectDigest': 'c' * 64}):
-            with self.subTest(changed=changed), mock.patch('reproloop.execution.qualification.NativeVM',
+            with self.subTest(changed=changed), mock.patch('reproof.execution.qualification.NativeVM',
                     side_effect=AssertionError('invalid configuration dispatched')):
                 with self.assertRaises(RepairExecutionError): self.build(route={**self.route, **changed})
         self.assertEqual(self.composition.status()['builds'], [])
 
     def test_imported_qualification_flags_are_not_a_composition_authority(self):
-        from reproloop.repair_composition import ProtectedRepairComposition
+        from reproof.repair_composition import ProtectedRepairComposition
         with self.assertRaises(RepairExecutionError): ProtectedRepairComposition(authority={'qualified': True})
         with self.assertRaises(RepairExecutionError): self.composition.register('profile', {'verified': True})
 
@@ -92,7 +92,7 @@ class BuildCompositionTests(unittest.TestCase):
         self._close_during_qualification(ignore_cancel=True)
 
     def _close_during_qualification(self, *, ignore_cancel):
-        from reproloop.execution.native import NativeError
+        from reproof.execution.native import NativeError
         entered = threading.Event(); release = threading.Event(); stopped = threading.Event()
         class WaitingVMDouble(ProbeVMDouble):
             def __init__(self, *args, **kwargs):
@@ -109,7 +109,7 @@ class BuildCompositionTests(unittest.TestCase):
         def qualify():
             try: outcomes.append(self.build())
             except Exception as error: outcomes.append(error)
-        with mock.patch('reproloop.execution.qualification.NativeVM', WaitingVMDouble):
+        with mock.patch('reproof.execution.qualification.NativeVM', WaitingVMDouble):
             worker = threading.Thread(target=qualify); worker.start()
             try:
                 self.assertTrue(entered.wait(2))
@@ -132,7 +132,7 @@ class BuildCompositionTests(unittest.TestCase):
 
 class IssueRepairCompositionTests(unittest.TestCase):
     def setUp(self):
-        from reproloop.repair_composition import ProtectedRepairComposition
+        from reproof.repair_composition import ProtectedRepairComposition
         self.env = RepairEnvironment(); self.addCleanup(self.env.close)
         store = AccessStore(self.env.root / 'access'); self.addCleanup(store.close)
         store.bootstrap_administrator('admin'); store.register_project('admin', self.env.project)
@@ -157,8 +157,8 @@ class IssueRepairCompositionTests(unittest.TestCase):
         self.addCleanup(self.composition.close)
 
     def executor(self, *, same_runner=True):
-        from reproloop.repair_mobile import ProtectedMobileSupervisor
-        from reproloop.repair_verification import ProtectedRepairExecutor
+        from reproof.repair_mobile import ProtectedMobileSupervisor
+        from reproof.repair_verification import ProtectedRepairExecutor
         previous = self.synthetic.mobile()
         mobile = ProtectedMobileSupervisor(authority=previous.authority, qualification=previous.qualification,
             route=previous.route, validation_plan=previous.validation_plan, signer=previous.signer,
@@ -173,7 +173,7 @@ class IssueRepairCompositionTests(unittest.TestCase):
 
     def test_deferred_service_attaches_the_exact_local_executor_without_source_reads(self):
         executor = self.executor(); self.composition.register('owned-execution', executor)
-        with mock.patch('reproloop.project_repair.RepairSource.freeze', side_effect=AssertionError('premature read')):
+        with mock.patch('reproof.project_repair.RepairSource.freeze', side_effect=AssertionError('premature read')):
             self.attach()
         runtime = self.bundle.workflow.repairs.runtimes['checkout']
         self.assertIs(runtime.executor, executor)
@@ -183,7 +183,7 @@ class IssueRepairCompositionTests(unittest.TestCase):
             build_recipe_id='build_app', validation_recipe_ids=('regression_ui',))
 
     def test_selected_profile_must_exist_locally_and_cannot_use_another_authority(self):
-        from reproloop.repair_composition import ProtectedRepairComposition
+        from reproof.repair_composition import ProtectedRepairComposition
         foreign = ProtectedRepairComposition(authority=QualificationAuthority()); self.addCleanup(foreign.close)
         with self.assertRaises(RepairExecutionError): foreign.register('owned-execution', self.executor())
         with self.assertRaises(contracts.ContractError): self.attach()

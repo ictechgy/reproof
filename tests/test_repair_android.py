@@ -11,21 +11,21 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.android_profile import validate_android_runtime_profile
-from reproloop.device import DeviceError
-from reproloop.execution.artifacts import BlobSet
-from reproloop.fixtures import AdapterCapabilities, FixtureCoordinator, LoopbackFixtureAdapter
-from reproloop.live.android_live import AndroidLiveProvider
-from reproloop.live.authority import HostAuthority, canonical_device_fingerprint
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.issue_sessions import FixturePreparation
-from reproloop.live.model import Lab
-from reproloop.qualification import ScenarioRegistry
-from reproloop.repair_android import (AndroidMobileAdapterConfig, AndroidMobileTools,
+from reproof import contracts
+from reproof.android_profile import validate_android_runtime_profile
+from reproof.device import DeviceError
+from reproof.execution.artifacts import BlobSet
+from reproof.fixtures import AdapterCapabilities, FixtureCoordinator, LoopbackFixtureAdapter
+from reproof.live.android_live import AndroidLiveProvider
+from reproof.live.authority import HostAuthority, canonical_device_fingerprint
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.issue_sessions import FixturePreparation
+from reproof.live.model import Lab
+from reproof.qualification import ScenarioRegistry
+from reproof.repair_android import (AndroidMobileAdapterConfig, AndroidMobileTools,
                                       AndroidTrustedMobileAdapter, PinnedAdbDevice)
-from reproloop.repair_mobile import MobileContext, MobileFailureObservation, MobileInstallationObservation
-from reproloop.scenario_runner import (ObservationRegistry, ScenarioRunner,
+from reproof.repair_mobile import MobileContext, MobileFailureObservation, MobileInstallationObservation
+from reproof.scenario_runner import (ObservationRegistry, ScenarioRunner,
                                        StaticVariableResolver, VariableResolverRegistry)
 from tests.g4_support import (LoopbackService, SECRET, SnapshotObservationAdapter,
                               qualification, runtime_policy, specification)

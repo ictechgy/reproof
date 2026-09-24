@@ -16,21 +16,21 @@ import time
 import unittest.mock
 import zipfile
 
-from reproloop import contracts
-from reproloop.execution.artifacts import BlobSet
-from reproloop.execution.journal import RunStore
-from reproloop.ios_device_tools import IOSDeviceQueryDefinition, IOSDeviceTools
-from reproloop.ios_mobile_inputs import IOSBaselineReference, IOSMobileInputsConfig
-from reproloop.ios_mobile_operation import IOSMobileOperationStore
-from reproloop.ios_profile import validate_ios_profile
-from reproloop.ios_sanitation import validate_ios_sanitation_policy
-from reproloop.ios_storage import tree_manifest
-from reproloop.live.authority import HostAuthority
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.issue_sessions import FixturePreparation
-from reproloop.live.model import Lab
-from reproloop.qualification import ApprovedExecution
-from reproloop.repair_mobile import MobileContext
+from reproof import contracts
+from reproof.execution.artifacts import BlobSet
+from reproof.execution.journal import RunStore
+from reproof.ios_device_tools import IOSDeviceQueryDefinition, IOSDeviceTools
+from reproof.ios_mobile_inputs import IOSBaselineReference, IOSMobileInputsConfig
+from reproof.ios_mobile_operation import IOSMobileOperationStore
+from reproof.ios_profile import validate_ios_profile
+from reproof.ios_sanitation import validate_ios_sanitation_policy
+from reproof.ios_storage import tree_manifest
+from reproof.live.authority import HostAuthority
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.issue_sessions import FixturePreparation
+from reproof.live.model import Lab
+from reproof.qualification import ApprovedExecution
+from reproof.repair_mobile import MobileContext
 from tests import g4_support
 from tests import test_ios_artifact_transfer as artifact_fixtures
 from tests import test_ios_mobile_helper as helper_fixtures
@@ -180,13 +180,13 @@ class IOSServiceFixture:
             if "PRODUCT_BUNDLE_IDENTIFIER" in settings:
                 settings["PRODUCT_BUNDLE_IDENTIFIER"] = bundle
         project_path.write_bytes(plistlib.dumps(project_document))
-        from reproloop.ios_instrumentation import validate_ios_auto_profile
+        from reproof.ios_instrumentation import validate_ios_auto_profile
         auto = validate_ios_auto_profile(auto_document)
-        from reproloop.ios_instrumentation import prepare_ios_instrumentation
+        from reproof.ios_instrumentation import prepare_ios_instrumentation
         prepared = self.root / "prepared-observation"
         prepare_ios_instrumentation(source, prepared, profile=auto, sanitation_policy=sanitation)
         self.prepared_runtime_info = plistlib.loads(
-            (prepared / "source/ReproLoopInstrumentation/Info.plist").read_bytes())
+            (prepared / "source/ReproofInstrumentation/Info.plist").read_bytes())
 
         original_app = self.artifacts.make_flat_app()
         _embed_app(original_app, bundle=bundle, build_id="original-27", metadata=self.prepared_runtime_info)
@@ -288,7 +288,7 @@ class IOSServiceFixture:
         self.baselines = (
             IOSBaselineReference("original", bundle, original_path,
                                  hashlib.sha256(original_ipa_bytes).hexdigest(), len(original_ipa_bytes)),
-            IOSBaselineReference("helper-host", "io.reproloop.live.host", helper_paths["helper-host"],
+            IOSBaselineReference("helper-host", "io.reproof.live.host", helper_paths["helper-host"],
                                  hashlib.sha256(helper_paths["helper-host"].read_bytes()).hexdigest(),
                                  helper_paths["helper-host"].stat().st_size),
             IOSBaselineReference("helper-runner", self.xctest.tools.template.runner_bundle_identifier,
@@ -416,7 +416,7 @@ elif args[:3] == ['device','info','apps']:
                 fixture.doubles.append(double)
                 return double
         self._launches = []
-        from reproloop.ios_mobile_xctest import IOSXCTestRunner
+        from reproof.ios_mobile_xctest import IOSXCTestRunner
         original_prepare = IOSXCTestRunner.prepare
         def prepare(runner, *args, **kwargs):
             if fixture.xctest.release.exists():
@@ -428,9 +428,9 @@ elif args[:3] == ['device','info','apps']:
                 fixture.runtime_file.write_text(json.dumps(launch.payload["runtimeIdentity"]))
             return launch
         self._patches.append(unittest.mock.patch.object(IOSXCTestRunner, "prepare", prepare))
-        self._patches.append(unittest.mock.patch("reproloop.ios_mobile_helper.TunnelClient", new=Factory()))
+        self._patches.append(unittest.mock.patch("reproof.ios_mobile_helper.TunnelClient", new=Factory()))
         self._patches.append(unittest.mock.patch(
-            "reproloop.live.native_frame_clock.NativeFrameClock.frame_arguments",
+            "reproof.live.native_frame_clock.NativeFrameClock.frame_arguments",
             return_value={"timing_source": "native-unmapped"}))
         for patcher in self._patches:
             patcher.start()

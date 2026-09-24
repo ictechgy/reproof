@@ -12,7 +12,7 @@ ROOT=resource_root()
 
 def main(argv=None):
     parser=argparse.ArgumentParser(
-        prog='reproloop live-serve',
+        prog='reproof live-serve',
         description='Single-user loopback console or authenticated shared Live coordinator')
     parser.add_argument('command',choices=['live-serve'])
     parser.add_argument('--port',type=int,default=8765)
@@ -22,7 +22,7 @@ def main(argv=None):
     parser.add_argument('--ios-app',type=Path,help='Simulator app artifact to install for Live')
     parser.add_argument('--ios-profile',type=Path,help='Registered general iOS runtime application profile JSON')
     parser.add_argument('--app-logs',action='store_true',help='Record automatic app observations without enabling AI repair')
-    parser.add_argument('--bundle',default='io.reproloop.sample.ios')
+    parser.add_argument('--bundle',default='io.reproof.sample.ios')
     parser.add_argument('--android',action='append',default=[],help='Authorized ADB serial; batch-input baseline, no reset/replay fixture')
     parser.add_argument('--demo',action='store_true',help='Include explicitly synthetic counter device')
     parser.add_argument('--workers-stdin',action='store_true',help='Read authenticated worker configurations from stdin')
@@ -272,7 +272,7 @@ def main(argv=None):
         server=LiveServer(
             lab,args.port,max_jobs_running=args.job_concurrency,
             repair_project=repair_project)
-    print(f'Repro Loop Live: {server.origin}',flush=True)
+    print(f'Reproof Live: {server.origin}',flush=True)
     print(('Shared project coordinator · authenticated membership'
            if access is not None else
            'Local single-user console · sampled frames · gesture-batch input'),flush=True)

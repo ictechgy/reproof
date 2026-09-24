@@ -1,6 +1,6 @@
 import unittest
 
-from reproloop.live.clock_sync import (
+from reproof.live.clock_sync import (
     ClockSynchronizer,
     RecordingClockError,
     RecordingTimeAnchor,

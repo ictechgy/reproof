@@ -329,7 +329,7 @@ class _IOSDeviceQueryGuardian:
             and Path(work).parent==self.definition.work_root and max_output_bytes==65536)
         runtime_copy = arguments == (str(self.definition.tools.devicectl),'device','copy','from',
             '--device',self.definition.identifier,'--domain-type','appDataContainer',
-            '--domain-identifier',self.definition.bundle,'--source','Library/Application Support/ReproLoop/runtime-identity.json',
+            '--domain-identifier',self.definition.bundle,'--source','Library/Application Support/Reproof/runtime-identity.json',
             '--destination',str(work/'identity.json'),'--json-output',str(work/'result.json'))
         if runtime_copy:
             _require(watched_files == ((work/'result.json',256*1024),(work/'identity.json',4096)))

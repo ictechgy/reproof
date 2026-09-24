@@ -3,9 +3,9 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
-from reproloop.core import digest
-from reproloop.live.model import Lab
-from reproloop.live.providers import demo_device
+from reproof.core import digest
+from reproof.live.model import Lab
+from reproof.live.providers import demo_device
 from tests import test_live_server as http_helpers
 from tests.test_live_recordings import recording
 
@@ -35,8 +35,8 @@ class OperationsHttpTests(unittest.TestCase):
         self.assertEqual(derived['events'][0]['offsetMs'],50)
         self.assertEqual(self.request('/api/recordings/'+r['id'])[1]['recording'],r)
     def test_two_servers_cannot_operate_one_output_store(self):
-        from reproloop.live.server import LiveServer
-        from reproloop.core import ContractError
+        from reproof.live.server import LiveServer
+        from reproof.core import ContractError
         other=Lab([demo_device()],self.temp.name)
         with self.assertRaises(ContractError):LiveServer(other)
     def test_sessions_heartbeat_events_and_health(self):

@@ -152,7 +152,7 @@ class ApiError extends Error {
 }
 
 function getClientId() {
-  const key = "repro-loop-live-client-id";
+  const key = "reproof-live-client-id";
   let value = sessionStorage.getItem(key);
   if (!value) {
     value = typeof crypto?.randomUUID === "function"
@@ -294,7 +294,7 @@ function adoptSession(session) {
   if (sessionChanged) resetAppLogs();
   if (state.session?.id !== session.id || state.session?.epoch !== session.epoch) state.sequence = session.lastSequence || 0;
   state.session = session;
-  sessionStorage.setItem("repro-loop-live-session", session.id);
+  sessionStorage.setItem("reproof-live-session", session.id);
   if (session.controllerId === state.clientId) {
     state.sequence = Math.max(state.sequence, 0);
   } else if (!session.controllerId) {
@@ -1668,7 +1668,7 @@ async function initialize() {
   await loadDevices();
   await Promise.all([loadRecordings(), loadJobs(), loadSessions()]);
   startBackgroundPolling();
-  const previous = params.get("session") || sessionStorage.getItem("repro-loop-live-session");
+  const previous = params.get("session") || sessionStorage.getItem("reproof-live-session");
   if (previous) {
     try {
       const { session } = await apiRequest(sessionPath(previous));
@@ -1677,7 +1677,7 @@ async function initialize() {
       renderDevices();
       if (session.recordingId) await refreshRecording();
       if (session.state !== "closed") startPolling();
-    } catch { sessionStorage.removeItem("repro-loop-live-session"); }
+    } catch { sessionStorage.removeItem("reproof-live-session"); }
   }
 }
 initialize();

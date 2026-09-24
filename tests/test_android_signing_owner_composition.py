@@ -12,17 +12,17 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop import contracts
-from reproloop.execution.artifacts import ArtifactValidationAuthority, BlobSet
-from reproloop.execution.guest import serve_one
-from reproloop.execution.journal import RunDenied, RunStore
-from reproloop.execution.resources import provision
-from reproloop.execution.wire import MAX_TRANSFER_BYTES, accept_bootstrap
-from reproloop.repair_android_signing import AndroidSigningIdentity, AndroidSigningMaterialResolver
-from reproloop.repair_composition import ProtectedRepairComposition
-from reproloop.repair_execution import RepairExecutionError
-from reproloop.repair_signing import SigningContext
-from reproloop.repair_signing_recovery import MIN_OPERATION_BYTES, SigningOperationStore, SigningOwnerTools
+from reproof import contracts
+from reproof.execution.artifacts import ArtifactValidationAuthority, BlobSet
+from reproof.execution.guest import serve_one
+from reproof.execution.journal import RunDenied, RunStore
+from reproof.execution.resources import provision
+from reproof.execution.wire import MAX_TRANSFER_BYTES, accept_bootstrap
+from reproof.repair_android_signing import AndroidSigningIdentity, AndroidSigningMaterialResolver
+from reproof.repair_composition import ProtectedRepairComposition
+from reproof.repair_execution import RepairExecutionError
+from reproof.repair_signing import SigningContext
+from reproof.repair_signing_recovery import MIN_OPERATION_BYTES, SigningOperationStore, SigningOwnerTools
 from tests import test_android_signing_owner as native
 from tests.test_execution_protocol import build_route, validation_plan
 from tests.test_execution_qualification import ProbeVMDouble
@@ -39,8 +39,8 @@ class AndroidSigningOwnerCompositionTests(unittest.TestCase):
         cls.native = native.AndroidSigningOwnerTests
         cls.tools = SigningOwnerTools(cls.native.java, sha(cls.native.java),
             cls.native.owner_jar, sha(cls.native.owner_jar),
-            cls.native.native/'libreproloop_signing_owner_fd.dylib',
-            sha(cls.native.native/'libreproloop_signing_owner_fd.dylib'),
+            cls.native.native/'libreproof_signing_owner_fd.dylib',
+            sha(cls.native.native/'libreproof_signing_owner_fd.dylib'),
             native.APKSIGNER_JAR, sha(native.APKSIGNER_JAR))
 
     @classmethod
@@ -60,7 +60,7 @@ class AndroidSigningOwnerCompositionTests(unittest.TestCase):
         unsigned = ArtifactValidationAuthority()
         unsigned.register('bounded-artifacts', paths=('candidate.apk',), max_bytes=MAX_TRANSFER_BYTES,
                           checker=lambda blobs: blobs.entries == (('candidate.apk', self.apk),))
-        with mock.patch('reproloop.execution.qualification.NativeVM', ProbeVMDouble), \
+        with mock.patch('reproof.execution.qualification.NativeVM', ProbeVMDouble), \
                 mock.patch.object(ProbeVMDouble, 'network_denied', True), \
                 mock.patch.object(ProbeVMDouble, 'stop_confirmed', True), \
                 mock.patch.object(ProbeVMDouble, 'bounded_output_denied', True):
@@ -70,7 +70,7 @@ class AndroidSigningOwnerCompositionTests(unittest.TestCase):
         # moves to a different RunStore root between tests.
         password = secrets.token_hex(18).encode()
         key = self.root/'owned-test.p12'
-        variable = 'REPROLOOP_D4_COMPOSITION_TEST_PASSWORD'
+        variable = 'REPROOF_D4_COMPOSITION_TEST_PASSWORD'
         env = {'PATH':'/usr/bin:/bin','LANG':'C','LC_ALL':'C',variable:password.decode()}
         result = subprocess.run([str(self.native.keytool), '-genkeypair', '-storetype', 'PKCS12',
             '-keystore',str(key),'-storepass:env',variable,'-keypass:env',variable,'-alias','owned-test',
@@ -113,7 +113,7 @@ class AndroidSigningOwnerCompositionTests(unittest.TestCase):
                               executor=ExecutorDouble())
                 self.thread=threading.Thread(target=serve);self.thread.start()
         self.source=BlobSet((('src/example.kt',b'explicit VM boundary fixture'),))
-        with mock.patch('reproloop.execution.runtime.NativeVM',ApkVMDouble):
+        with mock.patch('reproof.execution.runtime.NativeVM',ApkVMDouble):
             return self.builder.build(self.source,operation_id='owned_build',repair_plan_digest='b'*64,
                                       cancellation=threading.Event())
 
@@ -154,7 +154,7 @@ class AndroidSigningOwnerCompositionTests(unittest.TestCase):
 
     def test_interrupted_factory_closes_partial_android_signing_owners(self):
         from tests.signing_factory_support import check_interrupted_factory
-        from reproloop.repair_android_signing_owner import AndroidSigningOwnerSigner, AndroidSigningOwnerInspector
+        from reproof.repair_android_signing_owner import AndroidSigningOwnerSigner, AndroidSigningOwnerInspector
         check_interrupted_factory(self, self.configure, owner=self.composition,
             operations_type=SigningOperationStore, signer_type=AndroidSigningOwnerSigner,
             inspector_type=AndroidSigningOwnerInspector, resolver=self.resolver)

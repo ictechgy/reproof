@@ -12,10 +12,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
-from reproloop.core import ContractError
-from reproloop.live.media import MAX_IMAGE_BYTES, MAX_METADATA_BYTES, encode_frame, serve_frames
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.providers import demo_device
+from reproof.core import ContractError
+from reproof.live.media import MAX_IMAGE_BYTES, MAX_METADATA_BYTES, encode_frame, serve_frames
+from reproof.live.model import Lab, LiveError
+from reproof.live.providers import demo_device
 
 
 def read_records(data):

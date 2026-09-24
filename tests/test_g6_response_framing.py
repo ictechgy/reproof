@@ -6,8 +6,8 @@ from pathlib import Path
 import threading
 import unittest
 
-from reproloop.live.model import LiveError
-from reproloop.live.worker import WorkerClient
+from reproof.live.model import LiveError
+from reproof.live.worker import WorkerClient
 
 
 class ResponseFramingTests(unittest.TestCase):

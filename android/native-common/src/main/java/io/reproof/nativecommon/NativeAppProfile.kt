@@ -1,4 +1,4 @@
-package io.reproloop.nativecommon
+package io.reproof.nativecommon
 
 import org.json.JSONArray
 import org.json.JSONObject
@@ -72,7 +72,7 @@ class NativeAppProfile private constructor(
             if (value.has("schemaVersion")) return parseGeneral(value, profileDigest)
             requireKeys(value, setOf("package", "activity", "fixture", "startState", "targets"))
             val packageName = value.getString("package")
-            require(PACKAGE.matches(packageName) && packageName !in setOf("io.reproloop.live", "io.reproloop.driver")) {
+            require(PACKAGE.matches(packageName) && packageName !in setOf("io.reproof.live", "io.reproof.driver")) {
                 "invalid profile package"
             }
             val activity = value.getString("activity")
@@ -159,7 +159,7 @@ class NativeAppProfile private constructor(
             val packageName = value.getString("package")
             val activity = value.getString("activity")
             val applicationId = value.getString("applicationId")
-            require(PACKAGE.matches(packageName) && packageName !in setOf("io.reproloop.live", "io.reproloop.driver") &&
+            require(PACKAGE.matches(packageName) && packageName !in setOf("io.reproof.live", "io.reproof.driver") &&
                 ACTIVITY.matches(activity) && identifier(applicationId)) { "invalid general target" }
             val actions = stringSet(value.getJSONArray("actions"), GENERAL_ACTIONS, 16, "general action")
             require(actions.isNotEmpty()) { "missing general actions" }
@@ -180,7 +180,7 @@ class NativeAppProfile private constructor(
         /** The only descriptor accepted when the host did not opt into a profile. */
         fun legacy(): NativeAppProfile = parse(
             JSONObject()
-                .put("package", "io.reproloop.sample")
+                .put("package", "io.reproof.sample")
                 .put("activity", ".MainActivity")
                 .put("fixture", JSONObject().put("id", "default").put("version", 1).put("inputs", JSONObject()))
                 .put("startState", JSONObject().put("screen", "main").put("nodes", JSONObject().put("count", "0").put("name", "")))

@@ -4,10 +4,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop import contracts
-from reproloop.fixtures import FixtureCoordinator
-from reproloop.live.authority import HostAuthority, canonical_device_fingerprint
-from reproloop.live.model import Lab, LiveError
+from reproof import contracts
+from reproof.fixtures import FixtureCoordinator
+from reproof.live.authority import HostAuthority, canonical_device_fingerprint
+from reproof.live.model import Lab, LiveError
 from tests.test_fixture_allocations import collection_policy, project_document
 from tests.test_live_authority_integration import Clock, FencedProvider, parent_grant
 

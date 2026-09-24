@@ -4,7 +4,7 @@ Python 3.11 이상과 pip가 필요하다. Python 런타임의 외부 의존성�
 wheel은 웹 UI, 자동 계측 템플릿, Android SDK/드라이버, iOS helper와 고정 네이티브
 도구의 공개 소스를 포함한다. 기기용 바이너리·서명 자격증명·VM 이미지는 포함하지 않는다.
 
-현재 [D4 r14 개발 배포물](../artifacts/product-delivery/d4-foundation-package-r14/dist/repro_loop-0.1.0-py3-none-any.whl)의
+현재 [D4 r14 개발 배포물](../artifacts/product-delivery/d4-foundation-package-r14/dist/reproof-0.1.0-py3-none-any.whl)의
 SHA-256은 `b56c7aa393c3db868b4ebf36557f15a8f077ef7b9aa5c4b2595b4d6344324c49`이다.
 [설치 검증](../artifacts/product-delivery/d4-foundation-package-r14/acceptance.json)에는
 153개 모듈·109개 공개 리소스의 해시, 설치된 ADB/검사기와 CLI 서버의 중단 후 복구를 기록했다.
@@ -25,8 +25,8 @@ SHA-256은 `b56c7aa393c3db868b4ebf36557f15a8f077ef7b9aa5c4b2595b4d6344324c49`이
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install --no-index --no-deps RELEASE_WHEEL
-.venv/bin/reproloop installation-check
-.venv/bin/reproloop live-serve --demo --output runtime/live
+.venv/bin/reproof installation-check
+.venv/bin/reproof live-serve --demo --output runtime/live
 ```
 
 마지막 명령이 출력하는 loopback 주소를 브라우저에서 연다. `--demo`는 명시적인
@@ -43,7 +43,7 @@ python3 -m venv .venv
 설치 폴더를 빌드 작업 공간으로 사용하지 않는다. 새 경로로 공개 소스를 내보낸다.
 
 ```sh
-.venv/bin/reproloop export-resources --output-new native-sources
+.venv/bin/reproof export-resources --output-new native-sources
 xcrun swift build --package-path native-sources/native/macos-video \
   --scratch-path native-build/video -c release
 ```

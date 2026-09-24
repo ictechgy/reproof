@@ -8,17 +8,17 @@ import unittest
 import weakref
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.ios_fixture_recovery import (
+from reproof import contracts
+from reproof.ios_fixture_recovery import (
     IOSFixtureRecoveryError,
     recover_ios_fixtures,
     require_ios_fixture_recovery,
 )
-from reproloop.ios_mobile_callbacks import IOSNativeCallbackCoordinator
-from reproloop.ios_mobile_operation import IOSMobileOperationStore
-from reproloop.ios_native_recovery import native_recovery
-from reproloop.live.authority import HostAuthority
-from reproloop.live.issue_sessions import (
+from reproof.ios_mobile_callbacks import IOSNativeCallbackCoordinator
+from reproof.ios_mobile_operation import IOSMobileOperationStore
+from reproof.ios_native_recovery import native_recovery
+from reproof.live.authority import HostAuthority
+from reproof.live.issue_sessions import (
     FIXTURE_RESERVATION_VERSION,
     _operation,
     fixture_reservation_id,

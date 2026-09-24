@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 
-from reproloop.kotlin_instrumenter import _ensure_built, _java_home, _subprocess_environment
+from reproof.kotlin_instrumenter import _ensure_built, _java_home, _subprocess_environment
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class AndroidNativeFrameGeometryTests(unittest.TestCase):
     def test_real_native_dimension_helper_emits_even_bounded_ratio_preserving_frames(self):
-        source = (ROOT / "android/live/src/main/java/io/reproloop/live/LiveInstrumentation.kt").read_text()
+        source = (ROOT / "android/live/src/main/java/io/reproof/live/LiveInstrumentation.kt").read_text()
         start = source.index("private fun evenFrameDimensions(")
         end = source.index("\n\nclass LiveInstrumentation", start)
         helper = source[start:end]

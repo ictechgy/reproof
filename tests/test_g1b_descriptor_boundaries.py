@@ -4,8 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.live.model import Lab, LiveError
+from reproof.core import ContractError
+from reproof.live.model import Lab, LiveError
 
 
 class StartupProbe:

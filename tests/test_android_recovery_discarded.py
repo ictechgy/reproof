@@ -5,7 +5,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.repair_android_operation import AndroidOperationError
+from reproof.repair_android_operation import AndroidOperationError
 from tests import test_android_recovery as device_support
 from tests import test_android_recovery_finalization as support
 
@@ -24,7 +24,7 @@ class AndroidDiscardedStageRecoveryTests(unittest.TestCase):
         return fixture
 
     def recover(self, fixture, *, expected_failure=False):
-        from reproloop import android_recovery, android_recovery_helper
+        from reproof import android_recovery, android_recovery_helper
         calls=[]
         original=android_recovery.run_native_adb
         def observed(*args,**kwargs):
@@ -102,7 +102,7 @@ class AndroidDiscardedStageRecoveryTests(unittest.TestCase):
         self.assertGreater(f.runs.status(f.f.operation.operation_id)["reservedBytes"], 0)
 
     def test_missing_installed_apk_does_not_start_helper_or_release(self):
-        from reproloop.live.android_live import HELPER
+        from reproof.live.android_live import HELPER
         for target in ('original','helper'):
             with self.subTest(target=target):
                 f=self.fixture()

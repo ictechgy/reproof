@@ -383,7 +383,7 @@ class IssueSessionService:
                 pass
             finally:
                 completed.set()
-        threading.Thread(target=close,name="reproloop-issue-cleanup",daemon=True).start()
+        threading.Thread(target=close,name="reproof-issue-cleanup",daemon=True).start()
         return (completed.wait(timeout_seconds)
                 and result.get("closed",{}).get("state")=="closed")
 

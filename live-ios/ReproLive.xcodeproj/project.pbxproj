@@ -185,7 +185,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.reproloop.live.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.reproof.live.tests;
 				PRODUCT_NAME = ReproLiveTests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -206,7 +206,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.reproloop.live.host;
+				PRODUCT_BUNDLE_IDENTIFIER = io.reproof.live.host;
 				PRODUCT_NAME = ReproLiveHost;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -223,7 +223,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.reproloop.live.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.reproof.live.tests;
 				PRODUCT_NAME = ReproLiveTests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -244,7 +244,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.reproloop.live.host;
+				PRODUCT_BUNDLE_IDENTIFIER = io.reproof.live.host;
 				PRODUCT_NAME = ReproLiveHost;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";

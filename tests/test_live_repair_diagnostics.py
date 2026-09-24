@@ -11,8 +11,8 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop import contracts
-from reproloop.live.model import LiveError
+from reproof import contracts
+from reproof.live.model import LiveError
 from tests.g4_support import ScenarioProvider, SECRET
 from tests.g9_support import RepairEnvironment
 from tests.test_project_repair import source_fixture, PRODUCT
@@ -66,7 +66,7 @@ class LiveRepairDiagnosticsTests(unittest.TestCase):
         return issue_id, self.fixture.wait(issue_id, states={'complete', 'failed', 'quarantined'})
 
     def service(self, agent=None, transfer_policy=None):
-        from reproloop.live.project_repair_jobs import ProjectRepairConfiguration, ProjectRepairJobs
+        from reproof.live.project_repair_jobs import ProjectRepairConfiguration, ProjectRepairJobs
         self.agent = agent or LocalProposalDouble()
         self.repairs = ProjectRepairJobs(self.env.root / 'diagnostic-repairs', self.workflow,
             (ProjectRepairConfiguration(self.env.source, self.agent, 'build_app', ('regression_ui',),
@@ -78,7 +78,7 @@ class LiveRepairDiagnosticsTests(unittest.TestCase):
             'specificationDigest': self.spec_digest, 'mode': 'propose'})['repair']
 
     def wait(self, identifier):
-        from reproloop.repair_journal import TERMINAL
+        from reproof.repair_journal import TERMINAL
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             job = self.repairs.journal.get(identifier)
@@ -102,7 +102,7 @@ class LiveRepairDiagnosticsTests(unittest.TestCase):
     def test_expired_closed_log_is_removed_from_memory_without_a_download(self):
         sid = self.view['issue']['sessionId']
         reference = self.env.lab._evidence_store.lookup(self.references()[0]['digest'])
-        with mock.patch('reproloop.live.model.time.time', return_value=reference.retain_until_ms / 1000 + 1):
+        with mock.patch('reproof.live.model.time.time', return_value=reference.retain_until_ms / 1000 + 1):
             self.env.lab.reap_expired()
         self.assertFalse('appLog' in self.env.lab._session(sid, 'owner'))
 
@@ -119,7 +119,7 @@ class LiveRepairDiagnosticsTests(unittest.TestCase):
         self.assertFalse(result['result']['verified'])
         self.assertNotIn(SECRET, json.dumps(diagnostic))
         self.assertNotIn('runs', json.dumps(self.repairs.get(self.fixture.principals['viewer'], result['id'])))
-        from reproloop.live.access import AccessError
+        from reproof.live.access import AccessError
         with self.assertRaises(AccessError): self.repairs.diagnostics(self.fixture.principals['viewer'], result['id'])
 
     def test_source_only_external_approval_cannot_send_diagnostic_bytes(self):
@@ -152,7 +152,7 @@ class LiveRepairDiagnosticsTests(unittest.TestCase):
     def test_expiry_during_ai_request_cancels_and_rejects_the_late_edit(self):
         def expire(cancel):
             expiry = self.repairs.journal.list()[0]['retainUntilMs']
-            with mock.patch('reproloop.live.project_repair_jobs.time.time', return_value=expiry / 1000 + 1):
+            with mock.patch('reproof.live.project_repair_jobs.time.time', return_value=expiry / 1000 + 1):
                 self.assertTrue(cancel.is_set())
         self.service(LocalProposalDouble(effect=expire)); result = self.wait(self.start()['id'])
         self.assertEqual(result['status'], 'cancelled')
@@ -161,7 +161,7 @@ class LiveRepairDiagnosticsTests(unittest.TestCase):
         self.assertTrue(self.repairs.journal.get(result['id'])['outputsExpired'])
 
     def test_active_derivation_pins_its_log_source_until_provider_completion(self):
-        from reproloop.live.evidence_store import EvidenceStoreError
+        from reproof.live.evidence_store import EvidenceStoreError
         def remove(_):
             with self.assertRaises(EvidenceStoreError):
                 self.env.lab._evidence_store.tombstone(self.references()[0]['digest'], reason='operator_removed')
@@ -169,7 +169,7 @@ class LiveRepairDiagnosticsTests(unittest.TestCase):
         self.assertEqual(result['status'], 'proposal-ready')
 
     def test_http_and_cli_export_only_the_approved_projection_without_overwriting(self):
-        from reproloop.live.server import LiveServer
+        from reproof.live.server import LiveServer
         agent = LocalProposalDouble(); agent.external = True; agent.provider_id = 'claude'
         policy = {'schemaVersion': 2, 'projectDigest': contracts.digest(self.env.project),
             'providerId': 'claude', 'approvedTransfer': True, 'sourcePaths': [PRODUCT],
@@ -184,7 +184,7 @@ class LiveRepairDiagnosticsTests(unittest.TestCase):
         self.addCleanup(close)
         token = self.fixture.access_store.issue_principal_credential('admin', 'owner', lifetime_seconds=600)['token']
         output = self.env.root / 'diagnostic-review'
-        command = [sys.executable, '-m', 'reproloop', 'live-issues', 'repair-diagnostics', result['id'],
+        command = [sys.executable, '-m', 'reproof', 'live-issues', 'repair-diagnostics', result['id'],
                    '--output', str(output), '--server', server.origin, '--credential-stdin']
         def cli():
             value = subprocess.run(command, input=token + '\n', text=True, capture_output=True,

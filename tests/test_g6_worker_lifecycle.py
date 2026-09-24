@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop.live import worker as worker_module
+from reproof.live import worker as worker_module
 from tests import test_g6_transfer_http as http_fixture
 
 

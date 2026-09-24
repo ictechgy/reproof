@@ -8,7 +8,7 @@ from __future__ import annotations
 import copy
 import re
 
-from reproloop.contracts.versions import (
+from reproof.contracts.versions import (
     bounded_int,
     bounded_list,
     bounded_text,

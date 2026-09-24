@@ -7,11 +7,11 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.live import artifact_transfer
-from reproloop.live.artifact_transfer import ArtifactTransferStore
-from reproloop.live.disk_budget import DiskBudget
-from reproloop.live.evidence_store import EvidenceStore
-from reproloop.live.model import LiveError
+from reproof.live import artifact_transfer
+from reproof.live.artifact_transfer import ArtifactTransferStore
+from reproof.live.disk_budget import DiskBudget
+from reproof.live.evidence_store import EvidenceStore
+from reproof.live.model import LiveError
 from tests.test_g6_transfer_process import HOST, open_stores, close_stores
 
 

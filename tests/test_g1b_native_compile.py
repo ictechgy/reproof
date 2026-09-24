@@ -79,9 +79,11 @@ private struct AuthorityGrant {
 private struct Command { let id = "operation-one"; let action = "authority_cleanup"; let authority: AuthorityGrant? = nil }
 private struct Envelope { let stop: Bool; let command: Command? }
 private struct CleanupTerminationEvidence {}
+private struct NetworkCounterEvidence {}
 private struct Result {
  let ok = true; let error: String? = nil
  let cleanupEvidence: CleanupTerminationEvidence? = nil
+ let networkEvidence: NetworkCounterEvidence? = nil
 }
 private class Target {
  enum State { case runningForeground }
@@ -113,7 +115,7 @@ private class Bridge {
   }
   return Envelope(stop: true, command: nil)
  }
- func ack(id: String, ok: Bool, error: String?, timing: String, authority: AuthorityGrant?, cleanupEvidence: CleanupTerminationEvidence?) throws { acknowledgements += 1 }
+ func ack(id: String, ok: Bool, error: String?, timing: String, authority: AuthorityGrant?, cleanupEvidence: CleanupTerminationEvidence?, networkEvidence: NetworkCounterEvidence?) throws { acknowledgements += 1 }
 }
 private class Probe {
  let targetApplication: Target
@@ -162,7 +164,7 @@ print(String(data: try JSONSerialization.data(withJSONObject: results), encoding
             self.assertEqual(json.loads(executed.stdout),[[1,1,1,0],[1,1,1,1],[1,1,1,1],[2,0,1,1]])
 
     def test_android_stop_revokes_old_effect_before_waiting_for_input_lock(self):
-        source=(ROOT/"android/live/src/main/java/io/reproloop/live/LiveInstrumentation.kt").read_text()
+        source=(ROOT/"android/live/src/main/java/io/reproof/live/LiveInstrumentation.kt").read_text()
         effect=source[source.index("    private fun effectAuthorized("):source.index("    private fun targetAppVisible(")]
         stop=source[source.index("    private fun stopFromServer("):source.index("    private fun cleanupAndFinish(")]
         grant=source[source.index("    private data class AuthorityGrant("):source.index("    private data class LiveCommand(")]

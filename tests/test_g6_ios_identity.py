@@ -3,9 +3,9 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from reproloop.ios_profile import validate_ios_profile
-from reproloop.live.iphone import PhysicalIosProvider
-from reproloop.live.model import LiveError
+from reproof.ios_profile import validate_ios_profile
+from reproof.live.iphone import PhysicalIosProvider
+from reproof.live.model import LiveError
 from tests.test_worker_profiles import physical_ios_document
 
 
@@ -36,11 +36,11 @@ class InstalledIosIdentityTests(unittest.TestCase):
         provider.start = start
         transport = Mock()
         transport.call.return_value = {"activated": True, "authority": {"proof": "synthetic"}}
-        with patch("reproloop.live.iphone._devicectl", side_effect=[{}, {"apps": apps}]) as query, \
-                patch("reproloop.live.iphone.validate_signed_products"), \
-                patch("reproloop.live.iphone.select_iphone", return_value=provider.device), \
-                patch("reproloop.live.iphone.public_device_status", return_value={"ready": True}), \
-                patch("reproloop.live.iphone.TunnelClient", return_value=transport):
+        with patch("reproof.live.iphone._devicectl", side_effect=[{}, {"apps": apps}]) as query, \
+                patch("reproof.live.iphone.validate_signed_products"), \
+                patch("reproof.live.iphone.select_iphone", return_value=provider.device), \
+                patch("reproof.live.iphone.public_device_status", return_value={"ready": True}), \
+                patch("reproof.live.iphone.TunnelClient", return_value=transport):
             value = provider.start_authorized({}, object(), object())
         return value, query.call_args_list
 

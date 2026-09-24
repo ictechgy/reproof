@@ -3,16 +3,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from reproloop.android_profile import validate_app_profile
-from reproloop.live.android_live import AndroidLiveProvider, android_live_device
-from reproloop.live.model import LiveError
+from reproof.android_profile import validate_app_profile
+from reproof.live.android_live import AndroidLiveProvider, android_live_device
+from reproof.live.model import LiveError
 
 
 def profile_document():
     return {
         'schemaVersion': 1,
         'id': 'inventory',
-        'package': 'io.reproloop.inventory',
+        'package': 'io.reproof.inventory',
         'activity': '.MainActivity',
         'fixture': {'id': 'empty_inventory', 'version': 1, 'inputs': {}},
         'startState': {'screen': 'inventory', 'nodes': {'quantity': '0', 'label': ''}},
@@ -52,10 +52,10 @@ class AndroidLiveProfileTests(unittest.TestCase):
             sample = Path(directory) / 'inventory.apk'
             helper.write_bytes(b'helper')
             sample.write_bytes(b'inventory')
-            with patch('reproloop.live.android_live.AdbDevice', return_value=_Device()):
+            with patch('reproof.live.android_live.AdbDevice', return_value=_Device()):
                 provider = AndroidLiveProvider('serial', helper, sample, app_profile=self.profile)
-            self.assertEqual(provider.target_package, 'io.reproloop.inventory')
-            self.assertEqual(provider._component_name(), 'io.reproloop.inventory/.MainActivity')
+            self.assertEqual(provider.target_package, 'io.reproof.inventory')
+            self.assertEqual(provider._component_name(), 'io.reproof.inventory/.MainActivity')
             self.assertEqual(provider.identity['appProfileDigest'], self.profile.digest)
             self.assertEqual(provider.fixture, 'inventory')
             self.assertEqual(provider.fixture_spec['id'], 'empty_inventory')
@@ -86,7 +86,7 @@ class AndroidLiveProfileTests(unittest.TestCase):
             sample = Path(directory) / 'sample.apk'
             helper.write_bytes(b'helper')
             sample.write_bytes(b'sample')
-            with patch('reproloop.live.android_live.AdbDevice', return_value=_Device()):
+            with patch('reproof.live.android_live.AdbDevice', return_value=_Device()):
                 device = android_live_device('serial', helper, sample)
             self.assertEqual(device['capabilities']['resetContract'], 'sample-counter-fixture-v1')
             self.assertNotIn('appProfileDigest', device['capabilities']['applicationIdentity'])

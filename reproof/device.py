@@ -16,7 +16,7 @@ import uuid
 from .core import ContractError, identifier, require
 from .storage import PACKAGE, Lease, sha_file
 
-DRIVER = "io.reproloop.driver"
+DRIVER = "io.reproof.driver"
 SAFE_NODES = {"name", "count", "add", "list", "bottom", "next", "back", "report", "title"}
 
 
@@ -314,8 +314,8 @@ class AdbDevice:
     @_leased_effect
     def request_sdk_export(self):
         if self._receiver_capture():
-            result = self.shell('am', 'broadcast', '--receiver-foreground', '-a', 'io.reproloop.EXPORT_CAPTURE',
-                                '-n', self.package + '/io.reproloop.autotrace.AutoExportReceiver', timeout=15)
+            result = self.shell('am', 'broadcast', '--receiver-foreground', '-a', 'io.reproof.EXPORT_CAPTURE',
+                                '-n', self.package + '/io.reproof.autotrace.AutoExportReceiver', timeout=15)
             require(re.search(r'Broadcast completed: result=0(?:\D|$)', result) is not None,
                     'Debug instrumentation export was not accepted')
             return

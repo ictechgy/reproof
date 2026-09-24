@@ -1,7 +1,7 @@
-"""Versioned, non-executable release contracts for Repro Loop.
+"""Versioned, non-executable release contracts for Reproof.
 
 These validators only accept data; they never execute commands, resolve URLs,
-or grant authority.  Legacy capture/bundle APIs remain in :mod:`reproloop.core`.
+or grant authority.  Legacy capture/bundle APIs remain in :mod:`reproof.core`.
 """
 from .versions import (CONTRACT_VERSION, ContractError, digest, validate_id, validate_version,
                        bounded_int, bounded_number, validate_digest)

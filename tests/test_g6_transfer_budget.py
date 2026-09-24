@@ -7,10 +7,10 @@ import tempfile
 import time
 import unittest
 
-from reproloop.live.artifact_transfer import ArtifactTransferStore
-from reproloop.live.disk_budget import DiskBudget
-from reproloop.live.evidence_store import EvidenceStore
-from reproloop.live.model import LiveError
+from reproof.live.artifact_transfer import ArtifactTransferStore
+from reproof.live.disk_budget import DiskBudget
+from reproof.live.evidence_store import EvidenceStore
+from reproof.live.model import LiveError
 
 
 def probe():

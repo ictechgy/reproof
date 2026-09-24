@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 
-from reproloop.core import ContractError
+from reproof.core import ContractError
 
 
 MAX_NS = 2 ** 63 - 1

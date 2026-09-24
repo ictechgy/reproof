@@ -4,7 +4,7 @@
 
 ## Delivered boundary
 
-`reproloop.live.authority.HostAuthority` is the process-local composition root
+`reproof.live.authority.HostAuthority` is the process-local composition root
 for one durable SQLite authority journal and any canonical devices currently
 owned by that process. It provides durable admission, generation fencing,
 absolute parent-grant deadlines, monotonic renewal sequences, persisted replay
@@ -83,7 +83,7 @@ namespace exactly as current providers do:
 
 Changing an authority-state path or display alias therefore cannot create a
 second physical lock. Production processes must use the same OS service account
-and the default `tempfile.gettempdir()/reproloop-leases-{uid}` lock directory.
+and the default `tempfile.gettempdir()/reproof-leases-{uid}` lock directory.
 Per-user `flock` namespaces do not coordinate multiple service accounts.
 
 G1b must stop the old standalone controller before shared-service cutover, then
@@ -235,7 +235,7 @@ require `not-dispatched`.
 ## Store format and bounded state
 
 The dedicated default store is
-`tempfile.gettempdir()/reproloop-authority-{uid}/authority.sqlite3`, separate
+`tempfile.gettempdir()/reproof-authority-{uid}/authority.sqlite3`, separate
 from legacy output roots. SQLite uses WAL, foreign keys, `synchronous=FULL`,
 `BEGIN IMMEDIATE` state transitions, and a verified per-connection page limit.
 Schema format, minimum reader, and minimum writer are explicitly version 3.

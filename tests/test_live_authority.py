@@ -6,11 +6,11 @@ import tempfile
 import threading
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.live.authority import HostAuthority, ProviderResult
-from reproloop.live.clock_sync import ClockReading
-from reproloop.live.state_store import FORMAT_VERSION, READER_VERSION, WRITER_VERSION, StateStore
-from reproloop.storage import Lease
+from reproof.core import ContractError
+from reproof.live.authority import HostAuthority, ProviderResult
+from reproof.live.clock_sync import ClockReading
+from reproof.live.state_store import FORMAT_VERSION, READER_VERSION, WRITER_VERSION, StateStore
+from reproof.storage import Lease
 
 
 DIGEST_A = "a" * 64

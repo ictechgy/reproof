@@ -6,15 +6,15 @@ from pathlib import Path
 import sys
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from reproloop.android_profile import validate_app_profile
-from reproloop.storage import read_json,write_json
+from reproof.android_profile import validate_app_profile
+from reproof.storage import read_json,write_json
 
 
 def prepare(output):
     module_spec=importlib.util.spec_from_file_location('plain_fixture',ROOT/'scripts/prepare-instrumentation-fixture.py')
     module=importlib.util.module_from_spec(module_spec);module_spec.loader.exec_module(module)
     module.prepare(output);output=Path(output);source=output/'source'
-    (source/'sample/src/main/java/io/reproloop/sample/MainActivity.kt').write_text('''package io.reproloop.plain
+    (source/'sample/src/main/java/io/reproof/sample/MainActivity.kt').write_text('''package io.reproof.plain
 
 import android.app.Activity
 import android.content.Intent

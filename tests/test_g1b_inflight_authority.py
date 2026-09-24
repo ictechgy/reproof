@@ -6,11 +6,11 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from reproloop.core import ContractError
-from reproloop.live.authority import HostAuthority, ProviderResult, issue_local_parent_grant
-from reproloop.live.clock_sync import ClockReading
-from reproloop.live.model import Lab, LiveError
-from reproloop.storage import Lease
+from reproof.core import ContractError
+from reproof.live.authority import HostAuthority, ProviderResult, issue_local_parent_grant
+from reproof.live.clock_sync import ClockReading
+from reproof.live.model import Lab, LiveError
+from reproof.storage import Lease
 
 
 class Clock:

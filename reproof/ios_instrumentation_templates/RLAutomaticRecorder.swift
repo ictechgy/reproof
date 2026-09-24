@@ -33,8 +33,8 @@ struct RLAppLogRetryPolicy {
 /// are separate contracts; neither interprets policies supplied by the host.
 @objc(RLAutomaticRecorder)
 public final class RLAutomaticRecorder: NSObject {
-    private static let supportedApplicationID = "io.reproloop.sample.ios"
-    private static let supportedProject = "ReproLoop.xcodeproj"
+    private static let supportedApplicationID = "io.reproof.sample.ios"
+    private static let supportedProject = "Reproof.xcodeproj"
     private static let supportedTarget = "ReproSample"
     private static let supportedKind = "uikit-runtime-v1"
     private static let maxActions = 500
@@ -148,8 +148,8 @@ public final class RLAutomaticRecorder: NSObject {
 
     private static let shared = RLAutomaticRecorder()
 
-    private let ioQueue = DispatchQueue(label: "io.reproloop.auto-recorder.io", qos: .utility)
-    private let appLogIOQueue = DispatchQueue(label: "io.reproloop.app-log.io", qos: .utility)
+    private let ioQueue = DispatchQueue(label: "io.reproof.auto-recorder.io", qos: .utility)
+    private let appLogIOQueue = DispatchQueue(label: "io.reproof.app-log.io", qos: .utility)
     private var profile: Profile?
     private var applicationID = ""
     private var runID = ""
@@ -421,7 +421,7 @@ public final class RLAutomaticRecorder: NSObject {
               CFGetTypeID(version) != CFBooleanGetTypeID(), version.doubleValue == 2,
               let applicationID = document["applicationId"] as? String, applicationID.count <= 180,
               matches(applicationID, "^[A-Za-z][A-Za-z0-9-]*(\\.[A-Za-z][A-Za-z0-9-]*)+$"),
-              !["io.reproloop.live", "io.reproloop.driver"].contains(applicationID),
+              !["io.reproof.live", "io.reproof.driver"].contains(applicationID),
               let project = document["project"] as? String, project.hasSuffix(".xcodeproj"), inputPath(project),
               let target = document["target"] as? String, buildName(target),
               let build = document["build"] as? [String: String],
@@ -605,7 +605,7 @@ public final class RLAutomaticRecorder: NSObject {
             return
         }
         captureEnabled = true
-        postDarwin(name: "io.reproloop.auto.ready.\(runID)")
+        postDarwin(name: "io.reproof.auto.ready.\(runID)")
     }
 
     private func abortBeforeReady(removeMarker: Bool) {
@@ -622,13 +622,13 @@ public final class RLAutomaticRecorder: NSObject {
         let runID = self.runID
         let base = baseDirectory
         guard removeMarker, let base else {
-            postDarwin(name: "io.reproloop.auto.invalid.\(runID)")
+            postDarwin(name: "io.reproof.auto.invalid.\(runID)")
             return
         }
         ioQueue.async { [weak self] in
             try? FileManager.default.removeItem(at: base.appendingPathComponent("auto-session.json"))
             DispatchQueue.main.async {
-                self?.postDarwin(name: "io.reproloop.auto.invalid.\(runID)")
+                self?.postDarwin(name: "io.reproof.auto.invalid.\(runID)")
             }
         }
     }
@@ -1027,7 +1027,7 @@ public final class RLAutomaticRecorder: NSObject {
     private func installDarwinRequestObserver() {
         guard !requestObserverInstalled else { return }
         requestObserverInstalled = true
-        let name = "io.reproloop.auto.freeze.\(runID)" as CFString
+        let name = "io.reproof.auto.freeze.\(runID)" as CFString
         let observer = Unmanaged.passUnretained(self).toOpaque()
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer,
                                          { _, rawObserver, _, _, _ in
@@ -1157,7 +1157,7 @@ public final class RLAutomaticRecorder: NSObject {
                              sessionID: String,
                              endSequence: Int) -> Bool {
         guard let sessionURL, let baseURL, events.count <= Self.maxActions else {
-            postDarwin(name: "io.reproloop.auto.invalid.\(runID)")
+            postDarwin(name: "io.reproof.auto.invalid.\(runID)")
             return false
         }
 
@@ -1192,7 +1192,7 @@ public final class RLAutomaticRecorder: NSObject {
             let totalBytes = eventData.count + captureData.count * 2 + diagnosticsData.count * 2
             guard totalBytes <= Self.maxCaptureBytes,
                   diagnosticsData.count <= Self.maxDiagnosticsBytes else {
-                postDarwin(name: "io.reproloop.auto.invalid.\(runID)")
+                postDarwin(name: "io.reproof.auto.invalid.\(runID)")
                 return false
             }
 
@@ -1205,7 +1205,7 @@ public final class RLAutomaticRecorder: NSObject {
             guard valid else {
                 let marker: [String: Any] = ["finalized": false, "endSequence": endSequence]
                 try writeDurably(jsonData(marker), to: sessionURL.appendingPathComponent("finalized.json"))
-                postDarwin(name: "io.reproloop.auto.invalid.\(runID)")
+                postDarwin(name: "io.reproof.auto.invalid.\(runID)")
                 return false
             }
 
@@ -1227,10 +1227,10 @@ public final class RLAutomaticRecorder: NSObject {
                 "endSequence": endSequence
             ]
             try writeDurably(jsonData(sessionMarker), to: baseURL.appendingPathComponent("auto-session.json"))
-            postDarwin(name: "io.reproloop.auto.finalized.\(runID)")
+            postDarwin(name: "io.reproof.auto.finalized.\(runID)")
             return true
         } catch {
-            postDarwin(name: "io.reproloop.auto.invalid.\(runID)")
+            postDarwin(name: "io.reproof.auto.invalid.\(runID)")
             return false
         }
     }
@@ -1260,7 +1260,7 @@ public final class RLAutomaticRecorder: NSObject {
         guard requestObserverInstalled else { return }
         let observer = Unmanaged.passUnretained(self).toOpaque()
         CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer,
-                                           CFNotificationName("io.reproloop.auto.freeze.\(runID)" as CFString), nil)
+                                           CFNotificationName("io.reproof.auto.freeze.\(runID)" as CFString), nil)
         requestObserverInstalled = false
     }
 
@@ -1586,7 +1586,7 @@ public final class RLAutomaticRecorder: NSObject {
 
     private func applicationSupportDirectory() -> URL {
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return root.appendingPathComponent("ReproLoop", isDirectory: true)
+        return root.appendingPathComponent("Reproof", isDirectory: true)
     }
 
     private func publishRuntimeIdentity(startedAtMs: Int) {

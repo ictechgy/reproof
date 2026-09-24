@@ -3,10 +3,10 @@ from dataclasses import replace
 import threading
 import unittest
 
-from reproloop import contracts
-from reproloop.execution.journal import RunStore
-from reproloop.qualification import QualificationError
-from reproloop.repair_execution import RepairExecutionError
+from reproof import contracts
+from reproof.execution.journal import RunStore
+from reproof.qualification import QualificationError
+from reproof.repair_execution import RepairExecutionError
 from tests.g9_support import RepairEnvironment
 from tests.g9_execution_support import SyntheticRepairExecution
 

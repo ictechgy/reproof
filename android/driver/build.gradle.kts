@@ -8,13 +8,13 @@ plugins {
 apply(plugin = "org.jetbrains.kotlin.android")
 
 android {
-    namespace = "io.reproloop.driver"
+    namespace = "io.reproof.driver"
     compileSdk = 35
 
     sourceSets.getByName("main").java.srcDir("../native-common/src/main/java")
 
     defaultConfig {
-        applicationId = "io.reproloop.driver"
+        applicationId = "io.reproof.driver"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

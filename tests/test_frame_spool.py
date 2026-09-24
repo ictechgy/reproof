@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from reproloop.live.disk_budget import DiskBudget, DiskBudgetError
-from reproloop.live.frame_spool import FrameSpool, FrameSpoolError, SpoolToken
+from reproof.live.disk_budget import DiskBudget, DiskBudgetError
+from reproof.live.frame_spool import FrameSpool, FrameSpoolError, SpoolToken
 
 
 def _budget(root, capacity=8 * 1024 * 1024):

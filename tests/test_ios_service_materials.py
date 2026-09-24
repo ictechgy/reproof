@@ -7,16 +7,16 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from reproloop.execution.wire import canonical
-from reproloop.ios_signing_inputs import IOSSigningMaterialResolver, IOSSigningIdentity
-from reproloop.protected_signing_inputs import IOSSigningDefinitionInputs
-from reproloop.protected_service import PreparedProtectedServiceInputs
-from reproloop.protected_service_materials import (
+from reproof.execution.wire import canonical
+from reproof.ios_signing_inputs import IOSSigningMaterialResolver, IOSSigningIdentity
+from reproof.protected_signing_inputs import IOSSigningDefinitionInputs
+from reproof.protected_service import PreparedProtectedServiceInputs
+from reproof.protected_service_materials import (
     ProtectedServiceMaterials, ProtectedServiceMaterialsError, bind_service_materials,
     compose_service_from_material_stream,
 )
-from reproloop.protected_validation import ValidationSecretRegistry
-from reproloop.repair_composition import ProtectedRepairComposition
+from reproof.protected_validation import ValidationSecretRegistry
+from reproof.repair_composition import ProtectedRepairComposition
 
 
 class IOSServiceMaterialTests(unittest.TestCase):
@@ -117,11 +117,11 @@ class IOSServiceMaterialTests(unittest.TestCase):
             document={"profiles": [{"id": "ios-profile", "platform": "ios",
                                     "mobile": {"route": {"backendId": "ios", "environmentDigest": "1" * 64}},
                                     "signing": {"policy": {"id": "ios-policy"}}}]})
-        with patch("reproloop.protected_service.load_protected_service_inputs",
+        with patch("reproof.protected_service.load_protected_service_inputs",
                    return_value=self.prepared), \
-             patch("reproloop.protected_service_materials.read_service_materials",
+             patch("reproof.protected_service_materials.read_service_materials",
                    return_value=bindings), \
-             patch("reproloop.protected_service.compose_ios_protected_service",
+             patch("reproof.protected_service.compose_ios_protected_service",
                    return_value="ios-composed") as compose, \
              patch.object(owner.authority, "require_qualification"):
             result = compose_service_from_material_stream(
@@ -138,7 +138,7 @@ class IOSServiceMaterialTests(unittest.TestCase):
                 {"id": "android-profile", "platform": "android", "mobile": {"route": {"backendId": "android"}},
                  "signing": {"policy": {"id": "android-policy"}}},
             ]})
-        with patch("reproloop.protected_service.load_protected_service_inputs",
+        with patch("reproof.protected_service.load_protected_service_inputs",
                    return_value=self.prepared):
             with self.assertRaises(ProtectedServiceMaterialsError):
                 compose_service_from_material_stream(

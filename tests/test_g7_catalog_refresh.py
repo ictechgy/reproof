@@ -7,7 +7,7 @@ import time
 import unittest
 import uuid
 
-from reproloop.live.server import LiveServer
+from reproof.live.server import LiveServer
 from tests import test_issue_workflow as support
 
 

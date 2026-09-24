@@ -5,7 +5,7 @@ import re
 from .core import ContractError,compile_capture,digest,require
 from .ios_cases import case_from_fixture,case_spec
 
-APPLICATION_ID='io.reproloop.sample.ios'
+APPLICATION_ID='io.reproof.sample.ios'
 EVIDENCE_KIND='ios-simulator-install-receipt-runtime-id'
 PHYSICAL_EVIDENCE_KIND='ios-physical-install-receipt-runtime-id'
 IOS_IDS={f'counter.{name}':name for name in ('name','count','add','next','back','list','bottom','reset')}

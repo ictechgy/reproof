@@ -13,7 +13,7 @@ from .core import ContractError, compile_capture, digest, require
 
 MAX_JSON = 20 * 1024 * 1024
 MAX_APK = 150 * 1024 * 1024
-PACKAGE = "io.reproloop.sample"
+PACKAGE = "io.reproof.sample"
 AUTHORITY_MARKER_VERSION = 1
 _AUTHORITY_STATES = frozenset({"shared", "rollback-blocked", "legacy-allowed"})
 
@@ -154,7 +154,7 @@ def load_bundle(path, app_profile=None):
 class Lease:
     """Kernel-backed local lease; crashes release the lock without stale-lock takeover."""
     def __init__(self, serial, directory=None, *, authority_root=None):
-        self.directory = Path(directory or (Path(tempfile.gettempdir()) / f"reproloop-leases-{os.getuid()}"))
+        self.directory = Path(directory or (Path(tempfile.gettempdir()) / f"reproof-leases-{os.getuid()}"))
         self.key = hashlib.sha256(serial.encode()).hexdigest()
         require(authority_root is None or (isinstance(authority_root, str)
                 and re.fullmatch(r"[0-9a-f]{64}", authority_root)),

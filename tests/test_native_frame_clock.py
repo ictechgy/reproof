@@ -1,17 +1,17 @@
 """Measured native/host clock boundaries, without a native process."""
 import copy
 
-from reproloop.core import ContractError
-from reproloop.live.authority import HELPER_VERSION, NATIVE_PROTOCOL_VERSION
-from reproloop.live.clock_sync import RecordingTimeAnchor
-from reproloop.live.model import LiveError
+from reproof.core import ContractError
+from reproof.live.authority import HELPER_VERSION, NATIVE_PROTOCOL_VERSION
+from reproof.live.clock_sync import RecordingTimeAnchor
+from reproof.live.model import LiveError
 from tests.test_live_authority import AuthorityTestCase, DIGEST_A
 
 
 class NativeFrameClockTests(AuthorityTestCase):
     def setUp(self):
         super().setUp()
-        from reproloop.live.native_frame_clock import NativeFrameClock
+        from reproof.live.native_frame_clock import NativeFrameClock
         self.clock.advance(10_000_000_000)
         self.device = self.claim(parent_grant=self.grant(lifetime_ns=180_000_000_000))
         admission = self.device.admit_operation(

@@ -1,7 +1,7 @@
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.kotlin_instrumenter import instrument_kotlin
+from reproof.core import ContractError
+from reproof.kotlin_instrumenter import instrument_kotlin
 
 
 SOURCE = '''package demo

@@ -25,8 +25,8 @@ from ..android_profile import (AndroidAppProfile, AndroidRuntimeProfile,
                                validate_android_runtime_profile)
 from .authority import HELPER_VERSION,NATIVE_PROTOCOL_VERSION
 
-HELPER='io.reproloop.live'
-SAMPLE='io.reproloop.sample'
+HELPER='io.reproof.live'
+SAMPLE='io.reproof.sample'
 REJECTED_CODES={'editable_required','stale_geometry','invalid_bounds','invalid_pointer_id','pointer_missing','pointer_exists','raw_pointer_active','invalid_duration','secure_input','text_too_long','invalid_text','unsupported_action','target_unavailable','authority_expired'}
 ACTIONS=['tap','long_press','swipe','text','home','reset','pointer']
 

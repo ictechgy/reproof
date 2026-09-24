@@ -9,8 +9,8 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from reproloop.core import ContractError
-from reproloop import ios_artifact_transfer as transfer
+from reproof.core import ContractError
+from reproof import ios_artifact_transfer as transfer
 from tests.test_ios_artifact_transfer import MACHO64_ARM64, _app_info, _zip_file
 
 

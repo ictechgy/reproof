@@ -38,7 +38,7 @@ UIKit은 [v2 관찰 프로필](IOS-APP-OBSERVATIONS.md)의 명시적 앱·프로
 해시 검사도 적용했다. UIKit 구현이 회사 앱·물리 iPhone·전체 제품 수용 검사를
 대신하지는 않는다.
 
-UIKit 단계의 [D1 wheel](../artifacts/product-delivery/d1-package-r1/repro_loop-0.1.0-py3-none-any.whl)은
+UIKit 단계의 [D1 wheel](../artifacts/product-delivery/d1-package-r1/reproof-0.1.0-py3-none-any.whl)은
 새 가상 환경에서 일반 UIKit 준비·빌드·공유 서비스 실행까지 확인했다. D0 이후
 Python 코드 캐시 검사도 보완했으며, UIKit 관련 고유 검사 98개가 통과했다.
 
@@ -49,7 +49,7 @@ Android는 [명시적 공개 입력](ANDROID-APP-PROFILES.md#빌드-입력과-�
 다운로드 없이 복구했다. 이 Android v1 경로에는 fixture·숫자식 oracle·수정 제약이 남아 있으며,
 일반 런타임에는 아래의 별도 Views 관찰 프로필을 사용한다.
 
-이 단계의 [Android 공개 입력 wheel](../artifacts/product-delivery/d1-android-package-r1/repro_loop-0.1.0-py3-none-any.whl)은
+이 단계의 [Android 공개 입력 wheel](../artifacts/product-delivery/d1-android-package-r1/reproof-0.1.0-py3-none-any.whl)은
 이 변경까지 포함한다. [새 설치 검증](../artifacts/product-delivery/d1-android-package-r1/acceptance.json)에서
 일반 CLI의 준비와 실제 Android 보호 빌드를 확인했다. 물리 기기·회사 QA 검증은 아니다.
 
@@ -60,7 +60,7 @@ Android는 [명시적 공개 입력](ANDROID-APP-PROFILES.md#빌드-입력과-�
 시작·버튼 조작·재시작 화면도 비교했다. 이 과정에서 드러난 helper의 JSON 배열,
 일반 관찰 응답, 첫 실행의 준비 교착과 첫 화면 경합을 수정했다.
 
-D1 [Views wheel](../artifacts/product-delivery/d1-android-views-package-r2/repro_loop-0.1.0-py3-none-any.whl)은
+D1 [Views wheel](../artifacts/product-delivery/d1-android-views-package-r2/reproof-0.1.0-py3-none-any.whl)은
 일반 관찰 준비·실제 빌드·공유 세션을 개발 폴더 밖의 새 설치에서 실행한다.
 [설치 검증](../artifacts/product-delivery/d1-android-views-package-r2/acceptance.json)에 근거를 기록한다.
 자동 관찰 로그는 진단 증거이며, 실행 가능한 행동 기록·시작 조건·보호 검증은
@@ -72,11 +72,11 @@ D1 [Views wheel](../artifacts/product-delivery/d1-android-views-package-r2/repro
 삭제·만료·권한 검사, 실제 HTTP·CLI 진단 내보내기를 묶는다. 앱·AI·미디어 일부는
 명시적인 테스트 대역이며 실제 회사 수용 근거로 사용하지 않는다.
 
-[D2 wheel](../artifacts/product-delivery/d2-diagnostics-package-r1/repro_loop-0.1.0-py3-none-any.whl)의
+[D2 wheel](../artifacts/product-delivery/d2-diagnostics-package-r1/reproof-0.1.0-py3-none-any.whl)의
 [새 설치 검사](../artifacts/product-delivery/d2-diagnostics-package-r1/acceptance.json)는
 진단 모듈·CLI와 리소스 구성을 확인한 단계의 이력이다.
 
-현재 [D3 wheel](../artifacts/product-delivery/d3-issue-flow-package-r3/repro_loop-0.1.0-py3-none-any.whl)은
+현재 [D3 wheel](../artifacts/product-delivery/d3-issue-flow-package-r3/reproof-0.1.0-py3-none-any.whl)은
 [새 설치 검증](../artifacts/product-delivery/d3-issue-flow-package-r3/acceptance.json)에서 일반 Android 앱의
 기록·조건·같은 원본 3회 재현·로컬 제안과 내보내기를 통과했다.
 [D3 기록](../artifacts/product-delivery/d3-issue-flow-r1/acceptance.json)은 별도 실제 10분 자동 종료와

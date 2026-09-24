@@ -1,8 +1,8 @@
 from pathlib import Path
 import tempfile
 import unittest
-from reproloop.storage import create_bundle
-from reproloop.replay import replay_suite, write_report
+from reproof.storage import create_bundle
+from reproof.replay import replay_suite, write_report
 from tests.test_core import capture, oracle
 
 

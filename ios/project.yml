@@ -1,4 +1,4 @@
-name: ReproLoop
+name: Reproof
 options:
   deploymentTarget:
     iOS: "16.0"
@@ -21,7 +21,7 @@ targets:
       - path: Recorder
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.reproloop.sample.ios
+        PRODUCT_BUNDLE_IDENTIFIER: io.reproof.sample.ios
         INFOPLIST_FILE: Sample/Info.plist
         REPRO_BUILD_ID: ios-mvp-1
         PRODUCT_NAME: ReproSample
@@ -36,7 +36,7 @@ targets:
       - target: ReproSample
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.reproloop.sample.ios.logic
+        PRODUCT_BUNDLE_IDENTIFIER: io.reproof.sample.ios.logic
         GENERATE_INFOPLIST_FILE: true
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/ReproSample.app/ReproSample"
         BUNDLE_LOADER: "$(TEST_HOST)"
@@ -50,7 +50,7 @@ targets:
       - target: ReproSample
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.reproloop.sample.ios.replay
+        PRODUCT_BUNDLE_IDENTIFIER: io.reproof.sample.ios.replay
         GENERATE_INFOPLIST_FILE: true
         TEST_TARGET_NAME: ReproSample
         PRODUCT_NAME: ReproReplayTests

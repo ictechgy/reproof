@@ -14,20 +14,20 @@ import unittest
 import zipfile
 from unittest.mock import patch
 
-from reproloop import contracts
-from reproloop.ios_device_tools import IOSDeviceToolError
-from reproloop.live.authority import ProviderResult
+from reproof import contracts
+from reproof.ios_device_tools import IOSDeviceToolError
+from reproof.live.authority import ProviderResult
 from tests import test_ios_device_guardian as guardians
 
 
 def guarded_install_child(root, body, udid, tool, guardian_path):
     import hashlib
-    from reproloop.execution.artifacts import BlobSet
-    from reproloop.execution.journal import RunStore
-    from reproloop.ios_device_guardian import IOSDeviceGuardianTools
-    from reproloop.ios_device_tools import IOSDeviceTools, IOSDeviceQueryDefinition
-    from reproloop.ios_mobile_operation import IOSMobileOperationStore
-    from reproloop.live.authority import HostAuthority, issue_local_parent_grant
+    from reproof.execution.artifacts import BlobSet
+    from reproof.execution.journal import RunStore
+    from reproof.ios_device_guardian import IOSDeviceGuardianTools
+    from reproof.ios_device_tools import IOSDeviceTools, IOSDeviceQueryDefinition
+    from reproof.ios_mobile_operation import IOSMobileOperationStore
+    from reproof.live.authority import HostAuthority, issue_local_parent_grant
     root=Path(root);work=root/'queries';work.mkdir(mode=0o700)
     guardian=IOSDeviceGuardianTools(Path(guardian_path),hashlib.sha256(Path(guardian_path).read_bytes()).hexdigest())
     definition=IOSDeviceQueryDefinition(IOSDeviceTools(Path(tool),hashlib.sha256(Path(tool).read_bytes()).hexdigest()),
@@ -71,7 +71,7 @@ EXTRA'''.replace('KIND', "('install-candidate' if app.parent.name=='candidate' e
         self.configure()
 
     def configure(self, extra='pass'):
-        from reproloop.ios_mobile_operation import IOSMobileOperationStore
+        from reproof.ios_mobile_operation import IOSMobileOperationStore
         self.g.write_tool(extra)
         selected = replace(self.g.c.selected, query_definition_digest=self.g.definition().definition_digest)
         self.g.operations = IOSMobileOperationStore(self.g.c.runs, selected,
@@ -107,7 +107,7 @@ EXTRA'''.replace('KIND', "('install-candidate' if app.parent.name=='candidate' e
         return [json.loads(row) for row in path.read_text().splitlines()] if path.exists() else []
 
     def test_install_and_original_restore_use_fixed_role_and_journal_before_effect(self):
-        from reproloop.execution.artifacts import BlobSet
+        from reproof.execution.artifacts import BlobSet
         stream=io.BytesIO(self.g.c.body)
         with zipfile.ZipFile(stream,'a') as archive:
             guardians.native.preparation.fixtures._zip_file(archive,
@@ -177,7 +177,7 @@ EXTRA'''.replace('KIND', "('install-candidate' if app.parent.name=='candidate' e
             self.assertEqual(self.calls(),[])
 
     def test_changed_prepared_app_and_rewritten_state_cannot_replace_bound_input(self):
-        from reproloop.ios_artifact_transfer import parse_ios_artifact
+        from reproof.ios_artifact_transfer import parse_ios_artifact
         with self.installed_owner() as (_, installer):
             permit=self.permit(installer)
             root=self.record().parent.parent
@@ -272,7 +272,7 @@ EXTRA'''.replace('KIND', "('install-candidate' if app.parent.name=='candidate' e
             self.assertEqual(self.g.n.device.status,'quarantined')
 
     def test_legacy_native_binding_remains_readable_without_install_authority(self):
-        from reproloop.repair_android_operation import _read_json_at, _replace_at
+        from reproof.repair_android_operation import _read_json_at, _replace_at
         with self.g.owned():pass
         with self.g.operations._directory(self.g.c.context.operation_id) as directory:
             record=_read_json_at(directory,'native.json')
@@ -299,7 +299,7 @@ EXTRA'''.replace('KIND', "('install-candidate' if app.parent.name=='candidate' e
             args=(root,self.g.c.body,udid,self.g.q.tool,self.g.guardian().path))
         try:
             worker.start();self.g.wait_for(lambda:marker.exists() and marker.stat().st_size>0)
-            from reproloop.live.authority import canonical_device_fingerprint
+            from reproof.live.authority import canonical_device_fingerprint
             locks=(root/'operations/operations/mobile-one/producer.lock',
                 root/'device-leases'/(canonical_device_fingerprint('ios-physical',udid)+'.lock'))
             self.assertTrue(all(not self.g.lock_available(path) for path in (*locks,sentinel)))

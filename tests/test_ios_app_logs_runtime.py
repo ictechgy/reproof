@@ -6,14 +6,14 @@ import shutil
 import subprocess
 import unittest
 
-from reproloop.core import digest
-from reproloop.app_logs import validate_app_log
+from reproof.core import digest
+from reproof.app_logs import validate_app_log
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATES = ROOT / "reproloop" / "ios_instrumentation_templates"
+TEMPLATES = ROOT / "reproof" / "ios_instrumentation_templates"
 FIXTURE = ROOT / "tests" / "fixtures" / "ios-app-logs"
-XCODE_DEVELOPER = Path("/Applications/Xcode-27.0.0-beta.app/Contents/Developer")
+XCODE_DEVELOPER = Path(os.environ.get("DEVELOPER_DIR") or subprocess.run(["xcode-select","-p"],capture_output=True,text=True,check=True).stdout.strip())
 
 
 def _available():

@@ -17,7 +17,7 @@ from .execution.artifacts import ArtifactError, open_regular
 from .storage import MAX_APK, _unique_object
 
 KIND = 'views-observation-v2'
-APK_PROFILE = 'assets/reproloop-observation.json'
+APK_PROFILE = 'assets/reproof-observation.json'
 MAX_PROFILE = 256 * 1024
 _ID = re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,127}\Z')
 
@@ -57,7 +57,7 @@ def validate_observation_profile(document):
     package, activity = document['package'], document['activity']
     require(type(package) is str and len(package) <= 180
         and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+', package)
-        and package not in {'io.reproloop.live', 'io.reproloop.driver'}, 'Invalid Views application identity')
+        and package not in {'io.reproof.live', 'io.reproof.driver'}, 'Invalid Views application identity')
     require(type(activity) is str and len(activity) <= 240
         and re.fullmatch(r'\.?[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*', activity),
         'Invalid Views activity')
@@ -104,8 +104,8 @@ def validate_observation_profile(document):
         require(len(ids) == len(targets) == len(lines) == len(taps) and len(paths) == 1,
                 'Ambiguous Views source sites')
     else:
-        require(not any('reproloop-instrumentation' in name.split('/') or
-            'reproloop-build-logic' in name.split('/') or name.endswith('/' + APK_PROFILE)
+        require(not any('reproof-instrumentation' in name.split('/') or
+            'reproof-build-logic' in name.split('/') or name.endswith('/' + APK_PROFILE)
             for name in inputs), 'Reserved Views instrumentation input')
     raw = json.dumps(document, sort_keys=True, separators=(',', ':'), allow_nan=False)
     require(len(json.dumps(document, indent=2).encode()) + 1 <= MAX_PROFILE, 'Views profile size limit exceeded')
@@ -156,7 +156,7 @@ def profile_from_apk(apk):
 def render_runtime_config(profile, sites):
     def literal(value):
         return json.dumps(value, ensure_ascii=False).replace('$', '\\$')
-    return ('package io.reproloop.autotrace\n\ninternal object ReproConfig {\n'
+    return ('package io.reproof.autotrace\n\ninternal object ReproConfig {\n'
         '    const val RECORD_MODE = "observe"\n'
         f'    const val APPLICATION_ID = {literal(profile.data["package"])}\n'
         f'    const val PROFILE_DIGEST = "{profile.digest}"\n'
@@ -226,7 +226,7 @@ def cli_main(argv):
     from .build_instrumentation import prepare_build_instrumentation
     from .repair import CommandError
     from .resources import ResourceError
-    parser = argparse.ArgumentParser(prog='reproloop', description='Configured Android Views observations')
+    parser = argparse.ArgumentParser(prog='reproof', description='Configured Android Views observations')
     parser.add_argument('command', choices=['android-instrument', 'android-app-build'])
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)

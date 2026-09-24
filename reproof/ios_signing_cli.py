@@ -39,7 +39,7 @@ def _build_tools(arguments):
 
 
 def main(argv=None):
-    parser = _ArgumentParser(prog='reproloop ios-signing',
+    parser = _ArgumentParser(prog='reproof ios-signing',
         description='Build fixed iOS signing tools, inspect or recover an existing operation')
     commands = parser.add_subparsers(dest='action', required=True)
     build = commands.add_parser('build-tools')

@@ -8,12 +8,12 @@ import sys
 import tempfile
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.live.access import AccessError, AccessStore
-from reproloop.live.clock_sync import ClockSynchronizer
-from reproloop.live.configuration import compose_shared_access, load_shared_configuration
-from reproloop.live.model import Lab
-from reproloop.live.providers import demo_device
+from reproof.core import ContractError
+from reproof.live.access import AccessError, AccessStore
+from reproof.live.clock_sync import ClockSynchronizer
+from reproof.live.configuration import compose_shared_access, load_shared_configuration
+from reproof.live.model import Lab
+from reproof.live.providers import demo_device
 from tests.test_clock_sync import FakeClock
 from tests.test_fixture_allocations import collection_policy, project_document
 
@@ -80,7 +80,7 @@ class ReleaseMigrationTests(unittest.TestCase):
         administrator_credential = self.root / "administrator-credential.json"
         credential = self.root / "credential.json"
         init = subprocess.run(
-            [sys.executable, "-m", "reproloop", "live-admin", "init",
+            [sys.executable, "-m", "reproof", "live-admin", "init",
              "--state-root", str(state), "--administrator", "admin",
              "--lifetime-seconds", "300", "--output",
              str(administrator_credential)],
@@ -93,7 +93,7 @@ class ReleaseMigrationTests(unittest.TestCase):
         self.assertEqual(
             os.stat(administrator_credential).st_mode & 0o777, 0o600)
         issue = subprocess.run(
-            [sys.executable, "-m", "reproloop", "live-admin", "credential-issue",
+            [sys.executable, "-m", "reproof", "live-admin", "credential-issue",
              "--state-root", str(state), "--credential-stdin", "--identity", "admin",
              "--lifetime-seconds", "300", "--output", str(credential)],
             input=administrator_credential.read_text(), text=True,
@@ -110,7 +110,7 @@ class ReleaseMigrationTests(unittest.TestCase):
         finally:
             store.close()
         refused = subprocess.run(
-            [sys.executable, "-m", "reproloop", "live-admin", "credential-issue",
+            [sys.executable, "-m", "reproof", "live-admin", "credential-issue",
              "--state-root", str(state), "--credential-stdin", "--identity", "admin",
              "--lifetime-seconds", "300", "--output", str(credential)],
             input=administrator_credential.read_text(), text=True,
@@ -126,7 +126,7 @@ class ReleaseMigrationTests(unittest.TestCase):
         state = self.root / "coordinator-v2"
         output = self.root / "invalid-bootstrap.json"
         refused = subprocess.run(
-            [sys.executable, "-m", "reproloop", "live-admin", "init",
+            [sys.executable, "-m", "reproof", "live-admin", "init",
              "--state-root", str(state), "--administrator", "admin",
              "--lifetime-seconds", "1", "--output", str(output)],
             text=True, capture_output=True, timeout=10)
@@ -150,7 +150,7 @@ class ReleaseMigrationTests(unittest.TestCase):
 
         def execute(*arguments):
             result = subprocess.run(
-                [sys.executable, "-m", "reproloop", "live-admin", *arguments,
+                [sys.executable, "-m", "reproof", "live-admin", *arguments,
                  "--state-root", str(state), "--credential-stdin"],
                 input=admin_file.read_text(), text=True,
                 capture_output=True, timeout=10)
@@ -160,7 +160,7 @@ class ReleaseMigrationTests(unittest.TestCase):
             return result
 
         initialized = subprocess.run(
-            [sys.executable, "-m", "reproloop", "live-admin", "init",
+            [sys.executable, "-m", "reproof", "live-admin", "init",
              "--state-root", str(state), "--administrator", "admin",
              "--lifetime-seconds", "300", "--output", str(admin_file)],
             text=True, capture_output=True, timeout=10)
@@ -199,7 +199,7 @@ class ReleaseMigrationTests(unittest.TestCase):
         config = self.root / "shared.json"
         value = {
             "schemaVersion": 2,
-            "kind": "reproloop-shared-coordinator",
+            "kind": "reproof-shared-coordinator",
             "stateRoot": str(self.root / "coordinator-v2"),
             "listen": {
                 "host": "127.0.0.1", "port": 9443,
@@ -241,7 +241,7 @@ class ReleaseMigrationTests(unittest.TestCase):
         config = self.root / "shared.json"
         config.write_text(json.dumps({
             "schemaVersion": 2,
-            "kind": "reproloop-shared-coordinator",
+            "kind": "reproof-shared-coordinator",
             "stateRoot": str(self.root / "coordinator-v2"),
             "listen": {
                 "host": "127.0.0.1", "port": 9443,

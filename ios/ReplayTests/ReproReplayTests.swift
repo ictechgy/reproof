@@ -78,7 +78,7 @@ final class ReproReplayTests: XCTestCase {
         }
         try validate(scenario)
 
-        let app = XCUIApplication(bundleIdentifier: "io.reproloop.sample.ios")
+        let app = XCUIApplication(bundleIdentifier: "io.reproof.sample.ios")
         app.launchEnvironment["REPRO_MODE"] = scenario.mode
         app.launchEnvironment["REPRO_FIXTURE_RESET"] = "1"
         app.launchEnvironment["REPRO_RUN_ID"] = scenario.runId
@@ -298,9 +298,9 @@ private final class DarwinAutoCapture {
     private var outcome: String?
 
     private init(runID: String) {
-        request = "io.reproloop.auto.freeze.\(runID.lowercased())"
-        finalized = "io.reproloop.auto.finalized.\(runID.lowercased())"
-        invalid = "io.reproloop.auto.invalid.\(runID.lowercased())"
+        request = "io.reproof.auto.freeze.\(runID.lowercased())"
+        finalized = "io.reproof.auto.finalized.\(runID.lowercased())"
+        invalid = "io.reproof.auto.invalid.\(runID.lowercased())"
         CFNotificationCenterAddObserver(center, observer, { _, observer, name, _, _ in
             guard let observer, let name else { return }
             let waiter = Unmanaged<DarwinAutoCapture>.fromOpaque(UnsafeMutableRawPointer(mutating: observer)).takeUnretainedValue()
@@ -352,7 +352,7 @@ private final class DarwinAutoReadyWaiter {
     private var received = false
 
     init(runID: String) {
-        name = "io.reproloop.auto.ready.\(runID.lowercased())"
+        name = "io.reproof.auto.ready.\(runID.lowercased())"
         CFNotificationCenterAddObserver(center, observer, { _, observer, _, _, _ in
             guard let observer else { return }
             let waiter = Unmanaged<DarwinAutoReadyWaiter>.fromOpaque(UnsafeMutableRawPointer(mutating: observer)).takeUnretainedValue()

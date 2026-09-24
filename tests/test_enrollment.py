@@ -3,11 +3,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from reproloop.core import ContractError
-from reproloop.live.access import AccessError, AccessStore
-from reproloop.live.authority import HostAuthority
-from reproloop.live.clock_sync import ClockReading
-from reproloop.live.configuration import issue_bounded_project_grant
+from reproof.core import ContractError
+from reproof.live.access import AccessError, AccessStore
+from reproof.live.authority import HostAuthority
+from reproof.live.clock_sync import ClockReading
+from reproof.live.configuration import issue_bounded_project_grant
 from tests.test_fixture_allocations import project_document
 
 

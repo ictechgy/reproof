@@ -15,7 +15,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.ios_artifact_transfer import parse_ios_artifact
+from reproof.ios_artifact_transfer import parse_ios_artifact
 
 
 SOURCE = Path(__file__).resolve().parents[1] / (
@@ -30,14 +30,14 @@ def sha(path):
 class IOSCodeSignatureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from reproloop.resources import read_resource
+        from reproof.resources import read_resource
         temporary = tempfile.TemporaryDirectory(prefix='owned-ios-code-verifier-')
         cls.addClassCleanup(temporary.cleanup)
         root = Path(temporary.name).resolve()
         source = root / 'main.c'
         source.write_bytes(read_resource('native/ios-code-verifier/main.c'))
         cls.verifier = root / 'code-verifier'
-        sdk = '/Applications/Xcode-27.0.0-beta.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk'
+        sdk = subprocess.run(['xcrun','--sdk','macosx','--show-sdk-path'],capture_output=True,text=True,check=True).stdout.strip()
         result = subprocess.run(['/usr/bin/clang', '-Wall', '-Wextra', '-Werror', '-isysroot', sdk,
             str(source), '-framework', 'Security', '-framework', 'CoreFoundation', '-o', str(cls.verifier)],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
@@ -46,7 +46,7 @@ class IOSCodeSignatureTests(unittest.TestCase):
             raise RuntimeError('owned_code_verifier_build_failed')
 
     def setUp(self):
-        from reproloop.ios_code_signature import IOSCodeSignatureTools, IOSCodeSignatureInspector
+        from reproof.ios_code_signature import IOSCodeSignatureTools, IOSCodeSignatureInspector
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         self.app = self.root / 'Inventory.app'
@@ -106,7 +106,7 @@ class IOSCodeSignatureTests(unittest.TestCase):
         self.assertEqual(self.inspector.active_processes, 0)
 
     def test_certificate_mode_cannot_accept_an_adhoc_signature(self):
-        from reproloop.ios_code_signature import IOSCodeSignatureInspector
+        from reproof.ios_code_signature import IOSCodeSignatureInspector
         tools = replace(self.tools, verifier=self.verifier, verifier_sha256=sha(self.verifier))
         owner = IOSCodeSignatureInspector(tools, self.root / 'identity-inspect',
             signature_kind='identity', expected_certificate_sha256='0' * 64,
@@ -118,7 +118,7 @@ class IOSCodeSignatureTests(unittest.TestCase):
             self.assertTrue(owner.close(deadline_monotonic=time.monotonic() + 5))
 
     def test_identity_configuration_requires_a_pinned_offline_verifier(self):
-        from reproloop.ios_code_signature import IOSCodeSignatureError, IOSCodeSignatureInspector
+        from reproof.ios_code_signature import IOSCodeSignatureError, IOSCodeSignatureInspector
         with self.assertRaises(IOSCodeSignatureError) as caught:
             IOSCodeSignatureInspector(self.tools, self.root / 'missing-verifier',
                 signature_kind='identity', expected_certificate_sha256='0' * 64,
@@ -128,7 +128,7 @@ class IOSCodeSignatureTests(unittest.TestCase):
 
     def test_fixed_offline_verifier_checks_covered_code_and_resource_changes(self):
         tools = replace(self.tools, verifier=self.verifier, verifier_sha256=sha(self.verifier))
-        from reproloop.ios_code_signature import IOSCodeSignatureInspector
+        from reproof.ios_code_signature import IOSCodeSignatureInspector
         owner = IOSCodeSignatureInspector(tools, self.root / 'offline-inspect',
             signature_kind='identity', expected_certificate_sha256='0' * 64,
             expected_team_id='OWNTEAM001', bundle_policies=self.policy)
@@ -153,7 +153,7 @@ class IOSCodeSignatureTests(unittest.TestCase):
         self.assertEqual(owner.active_processes, 0)
 
     def test_changed_offline_verifier_and_missing_protocol_output_are_rejected(self):
-        from reproloop.ios_code_signature import IOSCodeSignatureError, IOSCodeSignatureInspector
+        from reproof.ios_code_signature import IOSCodeSignatureError, IOSCodeSignatureInspector
         binary = self.root / 'copied-verifier'
         shutil.copyfile(self.verifier, binary); binary.chmod(0o700)
         tools = replace(self.tools, verifier=binary, verifier_sha256=sha(binary))
@@ -175,7 +175,7 @@ class IOSCodeSignatureTests(unittest.TestCase):
             self.inspect(inspector=owner2)
 
     def test_wrong_entitlements_and_incomplete_bundle_inventory_are_rejected(self):
-        from reproloop.ios_code_signature import IOSCodeSignatureInspector
+        from reproof.ios_code_signature import IOSCodeSignatureInspector
         wrong = {'.': {'bundleId': self.info['CFBundleIdentifier'], 'entitlements': {}}}
         owner = IOSCodeSignatureInspector(self.tools, self.root / 'wrong-policy',
             signature_kind='adhoc-simulator', bundle_policies=wrong)
@@ -208,7 +208,7 @@ class IOSCodeSignatureTests(unittest.TestCase):
             self.inspect()
 
     def test_close_waits_for_staging_and_blocks_late_native_dispatch(self):
-        from reproloop import ios_code_signature as module
+        from reproof import ios_code_signature as module
         entered, release = threading.Event(), threading.Event()
         actual = module.stage_ios_artifact
         failures = []
@@ -233,7 +233,7 @@ class IOSCodeSignatureTests(unittest.TestCase):
         self.assertEqual(list(self.inspector.work_root.iterdir()), [])
 
     def test_stopped_native_process_is_collected_on_timeout(self):
-        from reproloop.ios_code_signature import IOSCodeSignatureError
+        from reproof.ios_code_signature import IOSCodeSignatureError
         actual = subprocess.Popen
         started = threading.Event()
         def popen(*args, **kwargs):
@@ -241,7 +241,7 @@ class IOSCodeSignatureTests(unittest.TestCase):
             if process.poll() is None:
                 os.kill(process.pid, signal.SIGSTOP); started.set()
             return process
-        with patch('reproloop.repair_android_signing.subprocess.Popen', side_effect=popen):
+        with patch('reproof.repair_android_signing.subprocess.Popen', side_effect=popen):
             with self.assertRaises(IOSCodeSignatureError) as caught:
                 self.inspect(deadline_monotonic=time.monotonic() + .25)
         self.assertTrue(started.is_set())
@@ -268,7 +268,7 @@ class IOSCodeSignatureTests(unittest.TestCase):
         self.assertEqual(denied, [True])
 
     def test_cleanup_does_not_delete_a_replacement_directory_after_its_identity_check(self):
-        from reproloop import ios_code_signature as module
+        from reproof import ios_code_signature as module
         borrowed = self.root / 'unrelated-owned-content'; borrowed.mkdir()
         (borrowed / 'marker').write_bytes(b'preserve this unrelated test content')
         active = {'work': None, 'swapped': False}

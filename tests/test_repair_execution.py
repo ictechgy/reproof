@@ -7,12 +7,12 @@ import time
 import unittest
 from unittest import mock
 
-from reproloop.contracts import digest
-from reproloop.execution.artifacts import ArtifactValidationAuthority, BlobSet
-from reproloop.execution.backend import QualificationAuthority, REQUIRED_PROBES
-from reproloop.execution.journal import RunStore
-from reproloop.execution.resources import provision
-from reproloop.execution.runtime import MacOSVirtualizationBackend
+from reproof.contracts import digest
+from reproof.execution.artifacts import ArtifactValidationAuthority, BlobSet
+from reproof.execution.backend import QualificationAuthority, REQUIRED_PROBES
+from reproof.execution.journal import RunStore
+from reproof.execution.resources import provision
+from reproof.execution.runtime import MacOSVirtualizationBackend
 from tests.test_execution_resources import resource_inputs
 from tests.test_execution_runtime import VMDouble
 from tests.test_execution_protocol import build_route, validation_plan
@@ -45,11 +45,11 @@ class ProtectedRepairBuildTests(unittest.TestCase):
         self.source = BlobSet((('src/Checkout.swift', b'candidate product logic'),))
         VMDouble.instances = []; VMDouble.stop_confirmed = True; VMDouble.wait_for_cancel = False
         VMDouble.started_recipe = threading.Event()
-        patch = mock.patch('reproloop.execution.runtime.NativeVM', VMDouble)
+        patch = mock.patch('reproof.execution.runtime.NativeVM', VMDouble)
         patch.start(); self.addCleanup(patch.stop)
 
     def supervisor(self, qualification='configured'):
-        from reproloop.repair_execution import ProtectedBuildSupervisor
+        from reproof.repair_execution import ProtectedBuildSupervisor
         return ProtectedBuildSupervisor(self.backend, qualification=self.qualification if qualification == 'configured' else None,
             route=self.route, validation_plan=self.plan, artifact_authority=self.artifacts,
             application_id='ios_app', artifact_identity='file-sha256')
@@ -59,7 +59,7 @@ class ProtectedRepairBuildTests(unittest.TestCase):
                                 cancellation=cancellation or threading.Event())
 
     def test_completed_guest_build_issues_bound_provenance_but_not_verified(self):
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_execution import RepairExecutionError
         supervisor = self.supervisor(); proof = self.build(supervisor)
         self.assertFalse(proof.public()['verified'])
         self.assertEqual(proof.public()['sourceDigest'], self.source.digest)
@@ -73,7 +73,7 @@ class ProtectedRepairBuildTests(unittest.TestCase):
             supervisor.require_build(proof.public(), source_digest=self.source.digest, repair_plan_digest='b' * 64)
 
     def test_missing_qualification_and_revocation_prevent_guest_start(self):
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_execution import RepairExecutionError
         with self.assertRaises(RepairExecutionError): self.build(self.supervisor(None))
         self.assertEqual(VMDouble.instances, [])
         self.authority.revoke_backend('apple-vm', 'build-guest', self.bundle.environment_digest)
@@ -81,14 +81,14 @@ class ProtectedRepairBuildTests(unittest.TestCase):
         self.assertEqual(VMDouble.instances, [])
 
     def test_unconfirmed_vm_stop_hides_artifacts_and_retains_quarantine(self):
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_execution import RepairExecutionError
         VMDouble.stop_confirmed = False
         with self.assertRaises(RepairExecutionError) as caught: self.build(self.supervisor())
         self.assertEqual(caught.exception.code, 'build_quarantined')
         self.assertEqual(self.store.status('candidate_build')['state'], 'quarantined')
 
     def test_job_cancellation_reaches_the_guest_journal_and_discards_outputs(self):
-        from reproloop.repair_execution import RepairExecutionError
+        from reproof.repair_execution import RepairExecutionError
         VMDouble.wait_for_cancel = True
         cancelled = threading.Event(); errors = []
         def build():

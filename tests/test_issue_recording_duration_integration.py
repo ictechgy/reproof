@@ -41,7 +41,7 @@ class IssueDurationIntegrationTests(unittest.TestCase):
         self.assertEqual(final['issue']['state'], 'complete')
         self.assertIsNone(final['issue']['reason'])
         self.assertEqual(calls, ['terminal-log-snapshot'])
-        self.assertTrue(any(item['mimeType'] == 'application/vnd.reproloop.app-log+json'
+        self.assertTrue(any(item['mimeType'] == 'application/vnd.reproof.app-log+json'
                             for item in final['recording']['original']['observations']))
         self.assertEqual(recorder.store._recording_row(recorder.recording_id)['barrier_offset_ms'], 600_000)
         self.assertEqual(final['lifecycle']['deviceCleanup'], 'complete')

@@ -6,10 +6,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from reproloop.android_profile import sample_app_profile, validate_app_profile
-from reproloop.core import require
-from reproloop.repair import copy_source
-from reproloop.storage import write_json
+from reproof.android_profile import sample_app_profile, validate_app_profile
+from reproof.core import require
+from reproof.repair import copy_source
+from reproof.storage import write_json
 
 
 def prepare(output):
@@ -20,8 +20,8 @@ def prepare(output):
     copy_source(ROOT / 'android', source)
     for path in (source / 'sample').rglob('*'):
         if path.is_file():
-            path.write_text(path.read_text().replace('io.reproloop.sample', 'io.reproloop.plain'))
-    activity = source / 'sample/src/main/java/io/reproloop/sample/MainActivity.kt'
+            path.write_text(path.read_text().replace('io.reproof.sample', 'io.reproof.plain'))
+    activity = source / 'sample/src/main/java/io/reproof/sample/MainActivity.kt'
     activity.write_text((ROOT / 'tests/fixtures/plain_activity.kt').read_text())
     build = source / 'sample/build.gradle.kts'
     text = build.read_text()
@@ -36,9 +36,9 @@ def prepare(output):
     (source / 'sample/src/main/res/values/ids.xml').write_text(
         '<resources>\n' + ''.join(f'    <item type="id" name="{name}" />\n' for name in ('name','count','add','crash')) + '</resources>\n')
     strings = source / 'sample/src/main/res/values/strings.xml'
-    strings.write_text(strings.read_text().replace('Repro Loop Sample', 'Plain Instrumentation Fixture'))
+    strings.write_text(strings.read_text().replace('Reproof Sample', 'Plain Instrumentation Fixture'))
     config = sample_app_profile().data
-    config.update(id='plain', package='io.reproloop.plain')
+    config.update(id='plain', package='io.reproof.plain')
     config['targets']['tap'] = ['add', 'crash']
     config['targets']['scroll'] = {}
     profile = validate_app_profile(config)

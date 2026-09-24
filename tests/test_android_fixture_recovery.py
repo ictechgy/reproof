@@ -20,7 +20,7 @@ class AndroidFixtureRecoveryTests(unittest.TestCase):
         self.f.seed_fixture=True;self.f.setUp()
 
     def recover(self):
-        from reproloop.android_recovery import recover_android_resources
+        from reproof.android_recovery import recover_android_resources
         f=self.f
         with f.operations.native_recovery(f.operation.operation_id,f.operation.request_digest,
             device=f.device,snapshot=f.snapshot,parent_grant=f.grant) as recovery:
@@ -75,7 +75,7 @@ class AndroidUnstartedFixtureRecoveryTests(unittest.TestCase):
         finally:instance.doCleanups()
 
     def recover(self,f):
-        from reproloop.android_recovery import recover_android_resources
+        from reproof.android_recovery import recover_android_resources
         started=time.monotonic()
         with f.operations.native_recovery(f.operation.operation_id,f.operation.request_digest,
             device=f.device,snapshot=f.snapshot,parent_grant=f.grant) as recovery:

@@ -4,7 +4,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from reproloop.live.model import LiveError
+from reproof.live.model import LiveError
 from tests import test_issue_workflow as support
 
 

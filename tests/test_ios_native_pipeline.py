@@ -18,16 +18,16 @@ import unittest
 from unittest import mock
 import zipfile
 
-from reproloop import contracts
-from reproloop.execution.artifacts import BlobSet
-from reproloop.execution.journal import RunStore, TERMINAL
-from reproloop.ios_provisioning_cms import IOSCmsTools, IOSCmsTrust
-from reproloop.ios_provisioning_policy import decoded_profile_digest
-from reproloop.ios_signing_inputs import (IOSSigningDefinition, IOSSigningIdentity, IOSSigningMaterialResolver,
+from reproof import contracts
+from reproof.execution.artifacts import BlobSet
+from reproof.execution.journal import RunStore, TERMINAL
+from reproof.ios_provisioning_cms import IOSCmsTools, IOSCmsTrust
+from reproof.ios_provisioning_policy import decoded_profile_digest
+from reproof.ios_signing_inputs import (IOSSigningDefinition, IOSSigningIdentity, IOSSigningMaterialResolver,
     IOSSigningOwnerTools, IOSSigningProvisioning)
-from reproloop.ios_signing_operation import IOSSigningOperationStore
-from reproloop.repair_signing import SigningContext, SigningObservation, SignatureObservation, SigningFailureObservation
-from reproloop.resources import read_resource
+from reproof.ios_signing_operation import IOSSigningOperationStore
+from reproof.repair_signing import SigningContext, SigningObservation, SignatureObservation, SigningFailureObservation
+from reproof.resources import read_resource
 from tests import test_ios_provisioning_cms as cms_fixture
 
 
@@ -48,7 +48,7 @@ class IOSNativePipelineTests(unittest.TestCase):
                      'ios-process-guardian/main.c', 'ios-code-verifier/main.c'):
             path = source_root/name; path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(read_resource('native/'+name))
-        sdk = '/Applications/Xcode-27.0.0-beta.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk'
+        sdk = subprocess.run(['xcrun','--sdk','macosx','--show-sdk-path'],capture_output=True,text=True,check=True).stdout.strip()
         paths = {}
         for name, source in (('signer','ios-signing-owner/main.c'),('guardian','ios-process-guardian/main.c'),
                              ('verifier','ios-code-verifier/main.c')):
@@ -164,7 +164,7 @@ class IOSNativePipelineTests(unittest.TestCase):
         self.assertEqual(self.store.status(self.identifier)['reservedBytes'],0)
 
     def test_prepared_app_change_after_profile_verification_cannot_reach_the_key(self):
-        from reproloop import ios_signing_execution as execution
+        from reproof import ios_signing_execution as execution
         original = execution._verify_profiles
         def changed(*args, **kwargs):
             result = original(*args, **kwargs)
@@ -246,9 +246,9 @@ class IOSNativePipelineTests(unittest.TestCase):
 
     def test_service_composition_uses_the_fixed_signer_and_inspector_under_the_supervisor(self):
         from tests import test_repair_execution as build_fixture
-        from reproloop.execution.artifacts import ArtifactValidationAuthority
-        from reproloop.execution.wire import MAX_TRANSFER_BYTES
-        from reproloop.repair_composition import ProtectedRepairComposition
+        from reproof.execution.artifacts import ArtifactValidationAuthority
+        from reproof.execution.wire import MAX_TRANSFER_BYTES
+        from reproof.repair_composition import ProtectedRepairComposition
         fixture = build_fixture.ProtectedRepairBuildTests(methodName='runTest')
         original_inputs = build_fixture.resource_inputs
         def resources(root):
@@ -286,8 +286,8 @@ class IOSNativePipelineTests(unittest.TestCase):
     def test_interrupted_factory_closes_partial_ios_signing_owners(self):
         from tests import test_repair_execution as build_fixture
         from tests.signing_factory_support import check_interrupted_factory
-        from reproloop.repair_composition import ProtectedRepairComposition
-        from reproloop.repair_ios_signing_owner import IOSSigningOwnerSigner, IOSSigningOwnerInspector
+        from reproof.repair_composition import ProtectedRepairComposition
+        from reproof.repair_ios_signing_owner import IOSSigningOwnerSigner, IOSSigningOwnerInspector
         fixture = build_fixture.ProtectedRepairBuildTests(methodName='runTest')
         self.addCleanup(fixture.doCleanups)
         fixture.setUp()
@@ -354,7 +354,7 @@ class IOSNativePipelineTests(unittest.TestCase):
             stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=10)
         self.assertEqual((probe.returncode,probe.stdout,probe.stderr),(0,b'',b''))
         def command(action, *extra):
-            ran = subprocess.run([*prefix,sys.executable,'-m','reproloop','ios-signing',action,
+            ran = subprocess.run([*prefix,sys.executable,'-m','reproof','ios-signing',action,
                 '--config',str(reference),'--operation',self.identifier,*extra],cwd=checkout,
                 stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=10)
             self.assertEqual(ran.stderr,b'')

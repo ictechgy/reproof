@@ -1,7 +1,7 @@
 """Conservative recording timestamp probes against production clock APIs."""
 import unittest
 
-from reproloop.live.clock_sync import ClockSynchronizer, RecordingClockError, RecordingTimeAnchor
+from reproof.live.clock_sync import ClockSynchronizer, RecordingClockError, RecordingTimeAnchor
 from tests.test_clock_sync import FakeClock
 
 

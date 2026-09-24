@@ -4,13 +4,13 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from reproloop.core import digest
-from reproloop.live.model import Lab, LiveError
-from reproloop.live.providers import DemoProvider, demo_device
-from reproloop.live.repair_jobs import LiveRepairJobs
-from reproloop.orchestrator import PRODUCT_FILE
-from reproloop.repair import snapshot_source
-from reproloop.storage import load_bundle, read_json, sha_file, write_json
+from reproof.core import digest
+from reproof.live.model import Lab, LiveError
+from reproof.live.providers import DemoProvider, demo_device
+from reproof.live.repair_jobs import LiveRepairJobs
+from reproof.orchestrator import PRODUCT_FILE
+from reproof.repair import snapshot_source
+from reproof.storage import load_bundle, read_json, sha_file, write_json
 from tests.test_core import capture, run
 
 
@@ -48,7 +48,7 @@ class AndroidLiveRepairTests(unittest.TestCase):
         self.receipt['driverProof'] = dict(self.receipt, apkSha256=self.receipt['driverSha256'],
                                           buildTask=':driver:assembleDebug')
         write_json(self.build / 'receipt.json', self.receipt)
-        self.identity = {'bundle': 'io.reproloop.sample', 'artifactDigest': self.receipt['apkSha256']}
+        self.identity = {'bundle': 'io.reproof.sample', 'artifactDigest': self.receipt['apkSha256']}
         self.phone = Mock()
         self.phone.serial = 'synthetic'
         self.phone.identity = 'synthetic-hash'
@@ -155,7 +155,7 @@ class AndroidLiveRepairTests(unittest.TestCase):
             return process
         def interrupt(*args): process.returncode = 130
         self.repairs.runner_factory = start
-        with patch('reproloop.live.repair_jobs.os.killpg', side_effect=interrupt):
+        with patch('reproof.live.repair_jobs.os.killpg', side_effect=interrupt):
             job = self.finished()
         self.assertEqual(job['state'], 'cancelled')
         self.assertEqual(self.lab.list_devices()[0]['state'], 'available')
@@ -181,7 +181,7 @@ class AndroidLiveRepairTests(unittest.TestCase):
         product = candidate_source / PRODUCT_FILE
         product.parent.mkdir(parents=True)
         product.write_text('fun increment() = 1')
-        from reproloop.orchestrator import APK_RELATIVE
+        from reproof.orchestrator import APK_RELATIVE
         self.candidate_apk = candidate_source / APK_RELATIVE
         self.candidate_apk.parent.mkdir(parents=True)
         self.candidate_apk.write_bytes(b'patched')
@@ -216,7 +216,7 @@ class AndroidLiveRepairTests(unittest.TestCase):
     def test_verified_candidate_opens_as_a_new_session_and_rejects_changed_apk(self):
         self.repairs.runner_factory = self.verified_process
         candidate_provider = DemoProvider()
-        with patch('reproloop.live.android_live.AndroidLiveProvider', return_value=candidate_provider):
+        with patch('reproof.live.android_live.AndroidLiveProvider', return_value=candidate_provider):
             job = self.finished()
             self.assertEqual(job['state'], 'verified')
             self.assertEqual((job['baselineRuns'], job['verifiedRuns']), (3, 3))

@@ -9,8 +9,8 @@ import threading
 import time
 import unittest
 
-from reproloop.adb_endpoint import ScopedAdbClient
-from reproloop.repair_android_operation import AndroidOperationStore, AndroidOperationError
+from reproof.adb_endpoint import ScopedAdbClient
+from reproof.repair_android_operation import AndroidOperationStore, AndroidOperationError
 from tests import test_android_native_call_storage as support
 from tests.test_adb_endpoint import ADB, sha
 from tests.test_android_process_guardian import SDK, ROOT
@@ -49,12 +49,12 @@ class AndroidNativeProcessTests(unittest.TestCase):
         return client
 
     def guardian(self):
-        from reproloop.android_native_process import AndroidGuardianTools
+        from reproof.android_native_process import AndroidGuardianTools
         return AndroidGuardianTools(self.guardian_path, sha(self.guardian_path))
 
     def test_sdk_result_gateway_collection_and_slot_reuse_are_bound_to_the_live_phase(self):
-        from reproloop.android_native_process import run_native_adb
-        from reproloop.android_native_calls import validate_workspace
+        from reproof.android_native_process import run_native_adb
+        from reproof.android_native_calls import validate_workspace
         with self.operations.admit(self.f.context, self.fixture.fixture.blobs) as operation:
             client = self.client(operation)
             with self.fixture.phase(operation) as (phase, descriptors):
@@ -77,7 +77,7 @@ class AndroidNativeProcessTests(unittest.TestCase):
                 self.operations.complete_phase(phase, 'a' * 64)
 
     def test_expired_call_starts_no_gateway_or_guardian(self):
-        from reproloop.android_native_process import run_native_adb
+        from reproof.android_native_process import run_native_adb
         with self.operations.admit(self.f.context, self.fixture.fixture.blobs) as operation:
             client = self.client(operation)
             with self.fixture.phase(operation) as (phase, descriptors):
@@ -91,7 +91,7 @@ class AndroidNativeProcessTests(unittest.TestCase):
                 self.operations.complete_phase(phase, 'a' * 64)
 
     def test_cancellation_collects_actual_sdk_and_preserves_unknown_device_outcome(self):
-        from reproloop.android_native_process import run_native_adb
+        from reproof.android_native_process import run_native_adb
         entered = threading.Event()
         release = threading.Event()
         self.addCleanup(release.set)
@@ -128,13 +128,13 @@ class AndroidNativeProcessTests(unittest.TestCase):
         release.set()
 
     def test_changed_guardian_is_rejected(self):
-        from reproloop.android_native_process import AndroidGuardianTools
+        from reproof.android_native_process import AndroidGuardianTools
         with self.assertRaises(AndroidOperationError):
             AndroidGuardianTools(self.guardian_path, '0' * 64)
 
     def test_explicit_dispatcher_runs_pinned_device_commands_on_a_callback_thread(self):
-        from reproloop.android_native_process import native_dispatcher
-        from reproloop.repair_android import PinnedAdbDevice
+        from reproof.android_native_process import native_dispatcher
+        from reproof.repair_android import PinnedAdbDevice
         with self.operations.admit(self.f.context, self.fixture.fixture.blobs) as operation:
             with self.fixture.phase(operation) as (phase, descriptors):
                 with native_dispatcher(self.operations, descriptors, self.guardian()) as dispatcher:
@@ -163,9 +163,9 @@ class AndroidNativeProcessTests(unittest.TestCase):
                         cancellation=threading.Event(), deadline_monotonic=time.monotonic()+1)
 
     def test_pinned_instrumentation_is_collected_through_its_native_dispatcher(self):
-        from reproloop.android_native_process import native_dispatcher
-        from reproloop.repair_android import PinnedAdbDevice
-        from reproloop.live.android_live import HELPER
+        from reproof.android_native_process import native_dispatcher
+        from reproof.repair_android import PinnedAdbDevice
+        from reproof.live.android_live import HELPER
         with self.operations.admit(self.f.context, self.fixture.fixture.blobs) as operation:
             with self.fixture.phase(operation) as (phase, descriptors):
                 with native_dispatcher(self.operations, descriptors, self.guardian()) as dispatcher:
@@ -184,8 +184,8 @@ class AndroidNativeProcessTests(unittest.TestCase):
                     self.operations.complete_phase(phase, 'a'*64)
 
     def test_configured_mobile_adapter_issues_its_dispatcher_from_the_actual_phase(self):
-        from reproloop.repair_android import AndroidTrustedMobileAdapter
-        from reproloop.device import DeviceError
+        from reproof.repair_android import AndroidTrustedMobileAdapter
+        from reproof.device import DeviceError
         config = replace(self.config, native_guardian=self.guardian())
         operations = AndroidOperationStore(self.fixture.runs, config, self.f.root/'configured-native-operations')
         self.addCleanup(lambda: operations.close(deadline_monotonic=time.monotonic()+2))
@@ -238,9 +238,9 @@ class AndroidNativeProcessTests(unittest.TestCase):
         self.assertGreater(self.fixture.runs.status(operation.operation_id)['reservedBytes'],0)
 
     def test_closing_live_instrumentation_collects_sdk_and_keeps_device_outcome_unresolved(self):
-        from reproloop.android_native_process import native_dispatcher
-        from reproloop.repair_android import PinnedAdbDevice
-        from reproloop.live.android_live import HELPER
+        from reproof.android_native_process import native_dispatcher
+        from reproof.repair_android import PinnedAdbDevice
+        from reproof.live.android_live import HELPER
         entered, release = threading.Event(), threading.Event()
         self.addCleanup(release.set)
         original = self.fixture.server.request
@@ -272,7 +272,7 @@ class AndroidNativeProcessTests(unittest.TestCase):
         release.set()
 
     def test_phase_dispatcher_close_collects_an_inflight_callback(self):
-        from reproloop.android_native_process import native_dispatcher
+        from reproof.android_native_process import native_dispatcher
         entered, release = threading.Event(), threading.Event()
         self.addCleanup(release.set)
         original = self.fixture.server.request
@@ -304,9 +304,9 @@ class AndroidNativeProcessTests(unittest.TestCase):
         release.set()
 
     def test_helper_requests_require_a_live_phase_even_after_sdk_work_has_ended(self):
-        from reproloop.android_native_process import native_dispatcher
-        from reproloop.repair_android import PinnedAdbDevice
-        from reproloop.device import DeviceError
+        from reproof.android_native_process import native_dispatcher
+        from reproof.repair_android import PinnedAdbDevice
+        from reproof.device import DeviceError
         with self.operations.admit(self.f.context, self.fixture.fixture.blobs) as operation:
             with self.fixture.phase(operation) as (phase, descriptors):
                 with native_dispatcher(self.operations, descriptors, self.guardian()) as dispatcher:
@@ -323,9 +323,9 @@ class AndroidNativeProcessTests(unittest.TestCase):
             self.assertEqual(len(self.fixture.server.requests), before)
 
     def test_phase_close_revokes_an_inflight_helper_callback(self):
-        from reproloop.android_native_process import native_dispatcher
-        from reproloop.repair_android import PinnedAdbDevice
-        from reproloop.device import DeviceError
+        from reproof.android_native_process import native_dispatcher
+        from reproof.repair_android import PinnedAdbDevice
+        from reproof.device import DeviceError
         entered, release = threading.Event(), threading.Event()
         self.addCleanup(release.set)
         original = self.fixture.server.request

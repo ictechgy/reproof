@@ -8,8 +8,8 @@ import sys
 import time
 import uuid
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from reproloop.live.client import Client
-from reproloop.storage import read_json,write_json
+from reproof.live.client import Client
+from reproof.storage import read_json,write_json
 
 p=argparse.ArgumentParser();p.add_argument('--server',default='http://127.0.0.1:8765');p.add_argument('--device',required=True)
 p.add_argument('--recording',type=Path,required=True);p.add_argument('--output',type=Path,required=True)

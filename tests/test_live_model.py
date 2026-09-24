@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 import unittest
-from reproloop.live.model import Lab,LiveError
+from reproof.live.model import Lab,LiveError
 
 
 class Provider:

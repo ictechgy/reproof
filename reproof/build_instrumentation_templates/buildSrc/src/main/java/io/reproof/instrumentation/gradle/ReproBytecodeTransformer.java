@@ -1,4 +1,4 @@
-package io.reproloop.instrumentation.gradle;
+package io.reproof.instrumentation.gradle;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -21,7 +21,7 @@ import org.objectweb.asm.tree.VarInsnNode;
 
 /** A deliberately narrow ASM transform for one selected Android activity. */
 public final class ReproBytecodeTransformer {
-    public static final String HOOK_OWNER = "io/reproloop/autotrace/ReproHooks";
+    public static final String HOOK_OWNER = "io/reproof/autotrace/ReproHooks";
     public static final String INSTALL_DESCRIPTOR =
             "(Landroid/view/View;Landroid/view/View$OnClickListener;Ljava/lang/String;)V";
     private static final String SET_ON_CLICK_DESCRIPTOR =

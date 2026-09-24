@@ -140,7 +140,7 @@ Android 재생 중 확인하지 못한 동작을 포함한 기존 quarantine은 
 CLI로 구성·복구할 수 있다. 고정 Android 어댑터의 실제 전용 AVD 원본 대조 후보
 3회 재생·원본 복원 근거도 보존했지만 mobile isolation qualification은 발급하지 않았다.
 
-현재 개발 wheel은 `d4-foundation-package-r9/dist/repro_loop-0.1.0-py3-none-any.whl`이며
+현재 개발 wheel은 `d4-foundation-package-r9/dist/reproof-0.1.0-py3-none-any.whl`이며
 SHA-256은 `2d05c0ca3e23dd7b55a972e386d4db050eacdcb422c9c7b51ee77bd5719064fd`다.
 코드 139개·공개 리소스 107개를 별도 설치에서 대조했다. r9는 실제 SDK ADB로 scoped
 기기 조회·shell v2·APK 전송·helper 직접 연결과 OS 차단을 확인했다. upstream server는
@@ -979,7 +979,7 @@ G9 브라우저 증거는 `g9-protected-browser-r4/result.json`과 같은 폴더
 
 G8b/G9 실제 환경 gate는 각각 `g8b-environment-r1/result.json`, `g9-environment-r1/result.json`에 `environment-not-supplied`를 기록했다. 회사 앱·QA·fixture, 소유 VM 이미지/오프라인 toolchain, 실제 signer/inspector와 기기 격리 provider, 독립 관찰, AI 전송 정책, 두 Mac 입력이 남아 있다. 특히 모바일 provider는 설치부터 마지막 sanitation까지 배타적 소유권을 유지해야 한다. 기존 Lab의 개별 replay 예약만으로 이 조건을 충족하지 않는다. 실제 `.app` provisioning 처리 및 signing/mobile quarantine의 운영 복구 CLI도 별도 통합 항목이다. 전체 제품 acceptance는 미완료다.
 
-핵심 소스는 `reproloop/project_repair.py`, `repair_{execution,signing,mobile,verification,journal}.py`, `validation.py`, `live/project_repair_jobs.py`다. G4는 로컬 candidate capability를 임시로 발급하며 원본 project/specification은 변경하지 않는다. 위조된 결과나 정리 불명확 상태로 `verified`를 발급하지 않는다. 서명·기기 scope의 영속 quarantine은 새 디렉터리로 우회할 수 없다. 반복 SQLite 읽기 경쟁으로 발생하던 명세·원본 recording·campaign 누락도 회귀 검사 후 잠금으로 수정했다.
+핵심 소스는 `reproof/project_repair.py`, `repair_{execution,signing,mobile,verification,journal}.py`, `validation.py`, `live/project_repair_jobs.py`다. G4는 로컬 candidate capability를 임시로 발급하며 원본 project/specification은 변경하지 않는다. 위조된 결과나 정리 불명확 상태로 `verified`를 발급하지 않는다. 서명·기기 scope의 영속 quarantine은 새 디렉터리로 우회할 수 없다. 반복 SQLite 읽기 경쟁으로 발생하던 명세·원본 recording·campaign 누락도 회귀 검사 후 잠금으로 수정했다.
 
 최종 변경 검토와 채택 근거는 `artifacts/qa-delivery/g9-parent-review.md`, `g9-acceptance.json`에 있다. 공개 소스 사본/해시는 `g9-parent-source.tar.gz`/`g9-parent-source.json`으로 고정한다. 이전 실패 시도도 보존하며 독립 worker 승인이나 실제 환경 완료를 만들어내지 않는다.
 
@@ -1044,22 +1044,22 @@ G6 인벤토리 v2는 G1의 실제 소유권 저널·세대와 별도 hold를 �
 
 ```bash
 python3 scripts/prepare-ios-instrumentation-fixture.py --output artifacts/NEW_IOS_PLAIN
-python3 -m reproloop ios-instrument --source artifacts/NEW_IOS_PLAIN/source --output artifacts/NEW_IOS_PREPARED
-python3 -m reproloop ios-build --source artifacts/NEW_IOS_PREPARED/source --output artifacts/NEW_IOS_BUILD --simulator "$REPRO_SIMULATOR_ID"
-python3 -m reproloop ios-record --build artifacts/NEW_IOS_BUILD --case counter --output artifacts/NEW_IOS_RECORD --simulator "$REPRO_SIMULATOR_ID"
+python3 -m reproof ios-instrument --source artifacts/NEW_IOS_PLAIN/source --output artifacts/NEW_IOS_PREPARED
+python3 -m reproof ios-build --source artifacts/NEW_IOS_PREPARED/source --output artifacts/NEW_IOS_BUILD --simulator "$REPRO_SIMULATOR_ID"
+python3 -m reproof ios-record --build artifacts/NEW_IOS_BUILD --case counter --output artifacts/NEW_IOS_RECORD --simulator "$REPRO_SIMULATOR_ID"
 ```
 
 첫 명령은 검증용 합성 앱 생성이다. 실제 계측이 기존 SDK 호출을 삭제하는 것은 아니다. 출력은 항상 새 경로를 사용한다. Live helper는 현재 `live-ios` 소스로 빌드하고, 동일 preparation의 source/build를 전달한다.
 
 ## Key Files / Contracts
 
-- `reproloop/ios_instrumentation.py`: 고정 profile, 별도 준비 복사본, PBX 프로젝트 연결, Debug/Release 설정, provenance 및 capture 진단 validator.
-- `reproloop/ios_instrumentation_templates/{RLAutomaticRecorder.swift,RLAutoBootstrap.m}`: 앱 시작 후 자동 bootstrap, 실제 UIApplication `sendAction`의 저장된 IMP 호출, 입력 완료/탭/뒤로 이동 전후 숫자·화면 수집. 제품 callback은 같은 인자로 한 번 호출하고 BOOL·같은 Objective-C 예외를 보존한다. collector 오류는 제품 동작에 전달하지 않는다.
-- `reproloop/{ios_build,ios_storage}.py`: preparation/source/embedded profile/build/product 연결. bundle 진단을 scenario digest에 포함한다. Release는 런타임 소스와 profile 제외.
-- `reproloop/{ios_runner,ios_device}.py`: 실행 UUID·profile·build·fixture·session·endSequence를 고정해 컨테이너 자료를 수집한다. 처음 검증한 marker 전체를 수집 후에도 비교한다.
+- `reproof/ios_instrumentation.py`: 고정 profile, 별도 준비 복사본, PBX 프로젝트 연결, Debug/Release 설정, provenance 및 capture 진단 validator.
+- `reproof/ios_instrumentation_templates/{RLAutomaticRecorder.swift,RLAutoBootstrap.m}`: 앱 시작 후 자동 bootstrap, 실제 UIApplication `sendAction`의 저장된 IMP 호출, 입력 완료/탭/뒤로 이동 전후 숫자·화면 수집. 제품 callback은 같은 인자로 한 번 호출하고 BOOL·같은 Objective-C 예외를 보존한다. collector 오류는 제품 동작에 전달하지 않는다.
+- `reproof/{ios_build,ios_storage}.py`: preparation/source/embedded profile/build/product 연결. bundle 진단을 scenario digest에 포함한다. Release는 런타임 소스와 profile 제외.
+- `reproof/{ios_runner,ios_device}.py`: 실행 UUID·profile·build·fixture·session·endSequence를 고정해 컨테이너 자료를 수집한다. 처음 검증한 marker 전체를 수집 후에도 비교한다.
 - `ios/ReplayTests/ReproReplayTests.swift`, `live-ios/Tests/LiveControlTests.swift`: 준비 완료 후 입력하고 Darwin notification으로 자동 수집을 확정한다. 기존 Report 버튼 경로는 수동 SDK에 유지한다.
-- `reproloop/live/{providers,iphone,cli,repair_jobs}.py`: Simulator/물리 기기의 자동 수집 연결, 실제 AI 진단 전달, 후보의 보호 소스·프로필·반복 검증 확인.
-- `reproloop/live/model.py`: `close_session(..., reserve_for_repair=True)`는 provider 종료 동안 lab.lock을 놓고 기기를 busy로 유지한다. 종료 확인 후 repairing으로 원자적으로 전환하므로 native HTTP bridge가 끝나면서도 기기 재할당 틈이 생기지 않는다.
+- `reproof/live/{providers,iphone,cli,repair_jobs}.py`: Simulator/물리 기기의 자동 수집 연결, 실제 AI 진단 전달, 후보의 보호 소스·프로필·반복 검증 확인.
+- `reproof/live/model.py`: `close_session(..., reserve_for_repair=True)`는 provider 종료 동안 lab.lock을 놓고 기기를 busy로 유지한다. 종료 확인 후 repairing으로 원자적으로 전환하므로 native HTTP bridge가 끝나면서도 기기 재할당 틈이 생기지 않는다.
 - `tests/test_ios_auto_*.py`, `tests/test_ios_instrumentation.py`: 컴파일·실제 Objective-C dispatch/예외 harness, 준비/빌드/수집의 거절 경로. `tests/test_live_repair.py`는 다른 스레드의 마지막 bridge 요청과 기기 예약/취소를 검증한다.
 
 수집은 Debug + record + 일치하는 UUID/고정 profile/fixture/build에서만 시작한다. 빈 값/QA/Test와 9자리 이하 숫자만 기록하며 임의 인자·예외 메시지를 수집하지 않는다. 한 active key window와 지정한 UIControl의 단일 target/action/touchUpInside를 요구한다. 최대 500 events/actions, 20MiB, 10분이다. background·지원하지 않는 상태는 완전한 capture로 내보내지 않는다.

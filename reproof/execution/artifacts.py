@@ -9,8 +9,8 @@ from pathlib import Path
 import stat
 import threading
 
-from reproloop.contracts.versions import bounded_int, digest, require, safe_relative_path, validate_digest, validate_id
-from reproloop.core import ContractError
+from reproof.contracts.versions import bounded_int, digest, require, safe_relative_path, validate_digest, validate_id
+from reproof.core import ContractError
 from .wire import (CHUNK_BYTES, MAX_TRANSFER_BYTES, ProtocolError,
                    canonical, decode_chunk, safe_transfer_path, validate_manifest)
 
