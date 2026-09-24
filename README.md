@@ -1,5 +1,8 @@
 # Reproof
 
+[![PyPI](https://img.shields.io/pypi/v/reproof-qa)](https://pypi.org/project/reproof-qa/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 [한국어](README.ko.md)
 
 Reproof is a self-hosted mobile QA platform with no STF dependency. It
@@ -7,7 +10,8 @@ records QA issues as video, user actions, and initial conditions; replays them
 deterministically on Android and iOS; applies AI-generated repairs; and
 re-verifies a repaired candidate against the same approved original recording.
 
-For wheel installation and running outside a development checkout, see the
+Install the CLI from PyPI (`pip install reproof-qa`); for wheel installation
+details and running outside a development checkout, see the
 [installation guide](docs/INSTALLATION.md). Progress on the general-app product
 path is tracked in the [current execution plan](docs/PRODUCT-DELIVERY-PLAN.md)
 (the plan document is at r51; see [HANDOFF.md](HANDOFF.md) for physical-device

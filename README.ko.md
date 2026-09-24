@@ -1,5 +1,8 @@
 # Reproof
 
+[![PyPI](https://img.shields.io/pypi/v/reproof-qa)](https://pypi.org/project/reproof-qa/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 [English](README.md)
 
 Reproof는 STF에 의존하지 않는 self-hosted 모바일 QA 플랫폼입니다. 회사 QA
@@ -7,7 +10,8 @@ Reproof는 STF에 의존하지 않는 self-hosted 모바일 QA 플랫폼입니�
 재현하며, AI가 생성한 수정을 적용하고, 같은 승인 원본으로 수정 후보를 다시
 검증합니다.
 
-wheel 설치와 개발 폴더 밖에서의 로컬 실행은 [설치 가이드](docs/INSTALLATION.md)를
+CLI는 PyPI에서 설치합니다(`pip install reproof-qa`). wheel 설치와 개발 폴더
+밖에서의 로컬 실행은 [설치 가이드](docs/INSTALLATION.md)를
 따릅니다. 일반 앱 제품 경로의 진행 상태는
 [현재 실행 계획](docs/PRODUCT-DELIVERY-PLAN.md)에 있습니다(계획 문서는 r51
 기준이며 실기기 진행분은 [HANDOFF.md](HANDOFF.md)를 참고하세요).
