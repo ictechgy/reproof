@@ -10,7 +10,7 @@ Use JDK 17 and the cached Android SDK. From this directory:
 
 ```sh
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
-export ANDROID_HOME=/Users/repro/Library/Android/sdk
+export ANDROID_HOME="$HOME/Library/Android/sdk"
 ./gradlew --offline assembleBuggyDebug assembleFixedDebug :driver:assembleDebug
 ```
 

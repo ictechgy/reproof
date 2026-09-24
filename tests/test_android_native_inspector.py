@@ -2,6 +2,7 @@
 from dataclasses import replace
 import hashlib
 import json
+import os
 from pathlib import Path
 import socket
 import subprocess
@@ -15,7 +16,9 @@ from reproloop.repair_android import PinnedAdbDevice
 from reproloop.repair_android_operation import AndroidOperationStore, AndroidOperationError
 from tests import test_android_native_process as support
 
-AAPT=Path('/Users/repro/Library/Android/sdk/build-tools/36.0.0/aapt')
+_SDK_HOME=Path(os.environ.get('ANDROID_HOME', Path.home()/'Library/Android/sdk'))
+AAPT=Path(os.environ['AAPT_PATH']) if os.environ.get('AAPT_PATH') else \
+    next(iter(sorted(_SDK_HOME.glob('build-tools/*/aapt'))), _SDK_HOME/'build-tools'/'aapt')
 APK=Path(__file__).resolve().parents[1]/'artifacts/product-delivery/d1-android-package-r1/built/original.apk'
 
 
