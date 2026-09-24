@@ -145,7 +145,7 @@ def validate_signed_products(products,app,profile=None,ipa=None):
         check(verified.returncode==0,'signing_required','iPhone product signature is invalid',400)
     with (app/'Info.plist').open('rb') as stream:info=plistlib.load(stream)
     if profile is None:
-        check(info.get('CFBundleIdentifier')=='io.reproloop.sample.ios','unsupported_app','The physical fixture currently supports the Repro Loop sample only',400)
+        check(info.get('CFBundleIdentifier')=='io.reproof.sample.ios','unsupported_app','The physical fixture currently supports the Reproof sample only',400)
         return {'bundle':info['CFBundleIdentifier'],'artifactDigest':digest(tree_manifest(app))}
     manifest,size=_tree_bytes(app);data=profile.data;artifact=data['artifact']
     check(info.get('CFBundleIdentifier')==data['bundle']
@@ -362,10 +362,11 @@ class PhysicalIosProvider(IosProvider):
                 frame=self.transport.call('/frame')
         except LiveError as exc:
             # helper는 첫 프레임 버퍼링 전에 ready를 보고한다. 버퍼는 채워진 뒤
-            # 비지 않으므로 frame_unavailable은 "커서보다 새 프레임이 아직 없음"만
-            # 뜻한다 — 다음 폴 주기에 다시 읽는다. 나머지 브리지 거절은 그대로 실패시킨다.
+            # 비지 않으므로 frame_unavailable은 "아직 첫 프레임이 없음"만 뜻한다 —
+            # 다음 폴 주기에 다시 읽는다. 첫 프레임 이후의 빈 버퍼와 나머지 브리지
+            # 거절은 그대로 실패시킨다.
             # 첫 프레임이 계속 없으면 세션은 connecting에 머물러 발급 측 데드라인이 종료한다.
-            if exc.code=='frame_unavailable':return
+            if exc.code=='frame_unavailable' and self.last_native_frame==0:return
             raise
         require_runtime_frame(self.profile,frame.get('width'),frame.get('height'),frame.get('orientation'))
         frame_id=frame.get('nativeFrameId')
@@ -522,7 +523,7 @@ class PhysicalIosProvider(IosProvider):
             destination=Path(directory)/'auto-session.json'
             _devicectl('device','copy','from','--device',self.device.identifier,
                 '--domain-type','appDataContainer','--domain-identifier',self.bundle,
-                '--source','Library/Application Support/ReproLoop/auto-session.json',
+                '--source','Library/Application Support/Reproof/auto-session.json',
                 '--destination',str(destination),timeout=30)
             check(destination.is_file() and destination.stat().st_size<=1024*1024,
                   'capture_invalid','Automatic iOS session marker is unavailable')
@@ -642,7 +643,7 @@ def prepare_iphone_build(output,team=None,provision=False):
     build_id=sources['ios'][:32]
     signing=['CODE_SIGNING_ALLOWED=NO','CODE_SIGNING_REQUIRED=NO'] if team is None else ['CODE_SIGN_STYLE=Automatic','DEVELOPMENT_TEAM='+team]
     paths={}
-    for name,project,scheme in [('runner','live-ios/ReproLive.xcodeproj','ReproLive'),('sample','ios/ReproLoop.xcodeproj','ReproReplay')]:
+    for name,project,scheme in [('runner','live-ios/ReproLive.xcodeproj','ReproLive'),('sample','ios/Reproof.xcodeproj','ReproReplay')]:
         derived=output/name
         command=['/usr/bin/xcodebuild','build-for-testing','-project',str(root/project),'-scheme',scheme,
             '-configuration','Debug','-sdk','iphoneos','-destination','generic/platform=iOS',
@@ -665,7 +666,7 @@ def prepare_iphone_build(output,team=None,provision=False):
 def main(argv=None):
     import argparse
     from ..core import ContractError
-    parser=argparse.ArgumentParser(prog='reproloop')
+    parser=argparse.ArgumentParser(prog='reproof')
     subs=parser.add_subparsers(dest='command',required=True)
     subs.add_parser('live-device-doctor')
     build=subs.add_parser('live-iphone-build');build.add_argument('--output',type=Path,required=True)
