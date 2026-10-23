@@ -373,5 +373,35 @@ class IOSNativeFixtureHarnessTests(unittest.TestCase):
         self.assertEqual(diagnostics.snapshot(), before)
 
 
+class NativeBudgetEvidenceTests(unittest.TestCase):
+    def check_log(self, text):
+        script = (ROOT / "scripts/ci/ios-runtime.sh").read_text()
+        parser = script.split("<<'PYTEST'\n", 1)[1].split("\nPYTEST", 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "xctest.log"
+            path.write_text(text)
+            with patch("sys.argv", ["check", str(path)]):
+                exec(compile(parser, "native-budget-evidence", "exec"), {})
+
+    def valid_log(self):
+        names = ("testSimulatorStartupBudgetRejectsInvalidDeadlines",
+                 "testSimulatorStartupBudgetUsesOneShrinkingDeadline",
+                 "testSimulatorStartupBudgetBoundsTransportWaits")
+        return "\n".join(f"Test Case '-[ReproLiveTests.LiveControlTests {name}]' passed (0.001 seconds)."
+                         for name in names) + "\nExecuted 3 tests, with 0 failures (0 unexpected) in 0.003 seconds\n"
+
+    def test_requires_all_three_native_tests(self):
+        self.check_log(self.valid_log())
+
+    def test_rejects_empty_skipped_partial_or_failed_evidence(self):
+        valid = self.valid_log()
+        for invalid in ("** TEST SUCCEEDED **", "Executed 0 tests, with 0 failures",
+                        valid.replace(" passed ", " skipped ", 1),
+                        valid.replace(" passed ", " failed ", 1),
+                        valid.split("\n", 1)[1], valid.replace("0 failures", "1 failures")):
+            with self.subTest(log=invalid), self.assertRaises(AssertionError):
+                self.check_log(invalid)
+
+
 if __name__ == "__main__":
     unittest.main()

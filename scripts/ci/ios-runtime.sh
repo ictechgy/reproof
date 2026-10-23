@@ -37,6 +37,27 @@ xcodebuild build-for-testing -project live-ios/ReproLive.xcodeproj -scheme Repro
   -disableAutomaticPackageResolution -skipPackageUpdates \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO COMPILER_INDEX_STORE_ENABLE=NO \
   > "$RUNNER_TEMP/reproof-runtime-evidence/ios-helper-build.log" 2>&1
+# Pure startup-budget regressions only: no control session, bridge, app input or authority.
+xcodebuild test-without-building -project live-ios/ReproLive.xcodeproj -scheme ReproLive \
+  -configuration Debug -sdk iphonesimulator -destination "id=$simulator" \
+  -derivedDataPath "$RUNNER_TEMP/reproof-ios-helper" -parallel-testing-enabled NO \
+  -only-testing:ReproLiveTests/LiveControlTests/testSimulatorStartupBudgetRejectsInvalidDeadlines \
+  -only-testing:ReproLiveTests/LiveControlTests/testSimulatorStartupBudgetUsesOneShrinkingDeadline \
+  -only-testing:ReproLiveTests/LiveControlTests/testSimulatorStartupBudgetBoundsTransportWaits \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+  > "$RUNNER_TEMP/reproof-runtime-evidence/ios-startup-budget-tests.log" 2>&1
+# Xcode can exit successfully when a selector matches no tests. Require all three results.
+python - "$RUNNER_TEMP/reproof-runtime-evidence/ios-startup-budget-tests.log" <<'PYTEST'
+import re, sys
+from pathlib import Path
+log = Path(sys.argv[1]).read_text(errors="replace")
+expected = {"testSimulatorStartupBudgetRejectsInvalidDeadlines",
+            "testSimulatorStartupBudgetUsesOneShrinkingDeadline",
+            "testSimulatorStartupBudgetBoundsTransportWaits"}
+passed = set(re.findall(r"Test Case '-\[ReproLiveTests\.LiveControlTests ([A-Za-z0-9_]+)\]' passed", log))
+assert passed == expected, "Native startup-budget test evidence is missing or unexpected"
+assert re.search(r"Executed 3 tests, with 0 failures", log), "Native startup-budget summary is incomplete"
+PYTEST
 python scripts/ios-native-fixture-qa.py --simulator "$simulator" --owned-simulator-name "$name" \
   --helper-products "$RUNNER_TEMP/reproof-ios-helper/Build/Products" \
   --output "$RUNNER_TEMP/reproof-runtime-evidence/ios"
