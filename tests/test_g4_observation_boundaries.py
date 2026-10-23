@@ -218,31 +218,69 @@ class ObservationBoundaryTests(unittest.TestCase):
 
     def test_unreturned_input_is_bounded_and_retains_both_allocations(self):
         entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+        expired, replay_finished = threading.Event(), threading.Event()
+        approved = self.approve()
+        outcome = {}
         original = ScenarioProvider.execute_operation
         def slow(provider, *args, **kwargs):
-            entered.set();release.wait(.5)
+            outcome["input_thread"] = threading.current_thread()
+            entered.set()
             try:
+                release.wait()
                 return original(provider, *args, **kwargs)
             finally:
                 finished.set()
-        try:
-            with patch.object(ScenarioProvider, "execute_operation", slow):
-                started = time.monotonic()
-                result = self.replay(self.approve(), timeout_seconds=.1)
-            self.assertTrue(entered.is_set())
-            self.assertLess(time.monotonic() - started, .35)
-            self.assertEqual(result.verdict, "quarantined")
-            self.assertFalse(result.valid)
-            self.assertEqual(self.env.lab.list_devices()[0]["state"], "quarantined")
-            with self.assertRaises(FixtureError):
-                self.env.fixtures.reserve(self.env.plan, owner="next", device_id="second")
-            issue = next(item for item in self.env.service.list()
-                         if item.get("recordingDigest") == result.attempt_recording_digest)
-            recording = self.env.lab.release_recording(issue["recordingId"], "owner")
-            self.assertEqual(len(recording["original"]["events"]), 1)
-            self.assertEqual(recording["original"]["events"][0]["dispatch"], "unknown")
-        finally:
-            release.set();finished.wait(2)
+        def replay():
+            try:
+                outcome["result"] = self.replay(approved, timeout_seconds=.1)
+            except Exception as error:
+                outcome["error"] = error
+            finally:
+                replay_finished.set()
+        # Expire the runner only after input dispatch. Approval, fixture startup
+        # and durable cleanup are not part of its callback deadline. Event waits
+        # below are deadlock watchdogs, not host-speed assertions.
+        clock = lambda: 1.0 if expired.is_set() else 0.0
+        with patch.object(ScenarioProvider, "execute_operation", slow), \
+                patch.object(self.env.runner, "monotonic", clock):
+            replay_thread = threading.Thread(target=replay, daemon=True)
+            replay_thread.start()
+            try:
+                self.assertTrue(entered.wait(5), "Replay never reached input dispatch")
+                self.assertFalse(replay_finished.is_set())
+                expired.set()
+                self.assertTrue(replay_finished.wait(5),
+                                "Replay waited for input despite its expired deadline")
+                if "error" in outcome:
+                    raise outcome["error"]
+                self.assertFalse(finished.is_set(), "Input returned before replay finished")
+                self.assertFalse(release.is_set())
+                result = outcome["result"]
+                self.assertEqual(result.verdict, "quarantined")
+                self.assertFalse(result.valid)
+                self.assertEqual(result.cleanup, "failed")
+                self.assertEqual(self.env.lab.list_devices()[0]["state"], "quarantined")
+                with self.assertRaises(FixtureError) as blocked:
+                    self.env.fixtures.reserve(self.env.plan, owner="next", device_id="second")
+                self.assertEqual(blocked.exception.code, "fixture_busy")
+                issue = next(item for item in self.env.service.list()
+                             if item.get("recordingDigest") == result.attempt_recording_digest)
+                self.assertEqual(issue["reason"], "cleanup_incomplete")
+                self.assertEqual(issue["deviceCleanup"], "unknown")
+                self.assertEqual([item["status"] for item in issue["cleanup"]], ["unknown"])
+                recording = self.env.lab.release_recording(issue["recordingId"], "owner")
+                self.assertEqual(len(recording["original"]["events"]), 1)
+                self.assertEqual(recording["original"]["events"][0]["dispatch"], "unknown")
+            finally:
+                expired.set()
+                release.set()
+                replay_thread.join(5)
+                input_thread = outcome.get("input_thread")
+                if input_thread is not None:
+                    input_thread.join(5)
+                self.assertFalse(replay_thread.is_alive(), "Replay thread did not stop")
+                if input_thread is not None:
+                    self.assertFalse(input_thread.is_alive(), "Input thread did not stop")
 
 
 if __name__ == "__main__":
