@@ -6,6 +6,7 @@ from .model import Lab
 from .providers import demo_device,ios_device
 from .server import LiveServer
 from ..resources import resource_root
+from ..core import ContractError
 
 ROOT=resource_root()
 
@@ -54,6 +55,13 @@ def main(argv=None):
     parser.add_argument('--media-validator',type=Path,
                         help='Owned native media validator executable for package import/export')
     args=parser.parse_args(argv)
+    # Reject pure option errors before loading state, creating providers or output.
+    if not 0<=args.port<=65535:parser.error('Port must be 0–65535')
+    if not 1<=args.demo_count<=8:parser.error('Demo device count must be 1–8')
+    if not 10<=args.idle_timeout<=3600:parser.error('Idle timeout must be 10–3600 seconds')
+    if not args.idle_timeout<=args.max_session_seconds<=7200:
+        parser.error('Session lifetime must be at least the idle timeout and at most 7200 seconds')
+    if not 1<=args.job_concurrency<=64:parser.error('Job concurrency must be 1–64')
     if args.issue_config and not args.shared_config:
         parser.error('--issue-config requires --shared-config')
     if args.protected_recovery_config and not (args.shared_config and args.issue_config):
@@ -106,22 +114,36 @@ def main(argv=None):
         if sum(bool(value) for value in (args.simulator,args.iphone)) != 1 or args.repair_agent:
             parser.error('--ios-profile requires one iOS device kind and the general issue repair workflow')
         from ..ios_profile import load_ios_profile
-        ios_profile=load_ios_profile(args.ios_profile)
+        try:
+            ios_profile=load_ios_profile(args.ios_profile)
+        except ContractError as exc:
+            parser.error('Invalid iOS runtime profile: ' + str(exc))
+        except OSError:
+            parser.error('Cannot read iOS runtime profile')
         if args.app_logs and ios_profile.data['capabilities']['logAdapter'] is None:
             parser.error('--app-logs requires the declared iOS observation adapter')
     if args.app_profile:
         if not args.android or not args.android_helper or not args.android_app or args.iphone:
             parser.error('App profiles require an Android Live helper and APK')
         from ..android_profile import load_app_profile
-        app_profile=load_app_profile(args.app_profile)
+        try:
+            app_profile=load_app_profile(args.app_profile)
+        except ContractError as exc:
+            parser.error('Invalid Android app profile: ' + str(exc))
+        except OSError:
+            parser.error('Cannot read Android app profile')
     if args.android_profile:
         if not (args.android and args.android_helper and args.android_app) or args.app_profile or args.repair_agent:
             parser.error('--android-profile requires an Android helper and APK, with the general issue repair workflow')
         from ..android_profile import load_android_runtime_profile
-        android_profile=load_android_runtime_profile(args.android_profile)
+        try:
+            android_profile=load_android_runtime_profile(args.android_profile)
+        except ContractError as exc:
+            parser.error('Invalid Android runtime profile: ' + str(exc))
+        except OSError:
+            parser.error('Cannot read Android runtime profile')
         if args.app_logs and android_profile.data['capabilities']['logAdapter'] is None:
             parser.error('--app-logs requires the declared Android observation adapter')
-    if not 0<=args.port<=65535:parser.error('Port must be 0–65535')
     repair_options=[args.repair_source,args.repair_build,args.repair_agent]
     if any(repair_options):
         if not all(repair_options) or sum(bool(value) for value in (args.iphone,args.android,args.simulator)) != 1:
@@ -188,7 +210,6 @@ def main(argv=None):
                                                 runtime_profile=android_profile,
                                                 authority_mode=args.authority_mode))
         else:devices.append(android_device(android_serial,authority_mode=args.authority_mode))
-    if not 1<=args.demo_count<=8:parser.error('Demo device count must be 1–8')
     if args.iphone:
         if args.iphone_products is None or args.iphone_app is None:parser.error('Physical iPhone needs --iphone-products and --iphone-app from a signed build')
         from .iphone import iphone_device

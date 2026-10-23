@@ -1119,7 +1119,8 @@
             "tests.test_cli_validation",
             "tests.test_storage",
             "tests.test_core",
-            "tests.test_android_profile"
+            "tests.test_android_profile",
+            "tests.test_live_cli_preflight"
           ],
           "environment": "local-python-standard-library",
           "effects": [

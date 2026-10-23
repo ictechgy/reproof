@@ -151,3 +151,8 @@ without initializing device adapters. Decoder nesting/integer-limit failures
 become `ContractError` and a structured `blocked` CLI response with exit 2;
 input files remain unchanged. Duplicate-key and non-finite-number diagnostics
 are preserved. I/O errors and interrupts retain their separate handling.
+
+Live CLI preflight tests use mocked provider/server boundaries: invalid numeric
+options fail before configuration, providers, or output creation; invalid
+profiles produce concise usage errors instead of tracebacks. Valid numeric
+boundaries are preserved, and profile I/O errors do not expose OS details.
