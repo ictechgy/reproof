@@ -2,6 +2,7 @@
 from contextlib import ExitStack
 from pathlib import Path
 import plistlib
+import re
 import tempfile
 import threading
 from types import SimpleNamespace
@@ -352,6 +353,27 @@ class IOSStartupBudgetTests(unittest.TestCase):
         value['ReproLiveSimulatorStartupBudgetVersion'] = 1
         info.write_bytes(plistlib.dumps(value))
         providers.require_ios_helper_v2(document, simulator_startup_budget=True)
+
+
+class IOSStartupBudgetNativeSourceTests(unittest.TestCase):
+    def test_native_completion_semaphores_use_zero_initial_count(self):
+        # This is a source regression guard, not a native execution claim.
+        source = (Path(__file__).resolve().parents[1] /
+                  'live-ios/Tests/LiveControlTests.swift').read_text()
+        begin = source.index('    private func completedStartupResponseSemaphore()')
+        end = source.index('    func testCaptureFormats()', begin)
+        pure_tests = source[begin:end]
+        self.assertEqual(re.findall(r'DispatchSemaphore\s*\(\s*value\s*:\s*([^)]+)\)',
+                                    pure_tests), ['0', '0'])
+        helper = pure_tests[:pure_tests.index('    func testSimulatorStartupBudget')]
+        self.assertRegex(helper, r'(?s)let semaphore = DispatchSemaphore\(value: 0\).*'
+                                 r'semaphore\.signal\(\).*return semaphore')
+        self.assertEqual(pure_tests.count('= completedStartupResponseSemaphore()'), 3)
+        for assertion in (
+                'completedResponse.wait(timeout: .now()), .timedOut',
+                'lateResponse.wait(timeout: .now()), .timedOut',
+                'unconsumedResponse.wait(timeout: .now()), .success'):
+            self.assertIn(assertion, pure_tests)
 
 
 if __name__ == '__main__':
