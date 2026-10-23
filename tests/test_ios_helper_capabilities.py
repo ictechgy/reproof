@@ -7,6 +7,7 @@ import copy
 from pathlib import Path
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -49,7 +50,10 @@ class IOSHelperCapabilitiesTests(unittest.TestCase):
             app=Path('/tmp/synthetic-app'), profile=profile)
         provider.device_authority = Mock()
         provider.device_authority.native_grant.return_value.wire.return_value = {'synthetic': True}
-        provider._startup_permit = object()
+        provider._startup_permit = SimpleNamespace(host_incarnation='synthetic_host')
+        # This module isolates capability admission; the separate startup
+        # budget suite exercises real authority and continuous-clock limits.
+        provider._startup_remaining_timeout = Mock(return_value=10)
         provider._startup_accepting = True
         provider._startup_deadline = time.monotonic() + 10
         provider._pending_install_identity = {'synthetic': 'selected-app'}

@@ -77,6 +77,10 @@ def _provider(clock, *, event, process=None, check_permit=None):
     value.process = process or _Process()
     value._check_permit = check_permit or (lambda permit: None)
     value.start = lambda session, lab, permit=None: None
+    # This module isolates the polling loop. Real authority/continuous-clock
+    # entry and budget checks are covered by test_ios_startup_budget.
+    value._capture_startup_clock = lambda lab: None
+    value._initialize_startup_budget = lambda permit: None
     return value
 
 
