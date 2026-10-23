@@ -1106,6 +1106,31 @@
           "gate": "software"
         }
       ]
+    },
+    "CLI": {
+      "available": true,
+      "checks": [
+        {
+          "id": "cli-read-only-validation",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_cli_validation",
+            "tests.test_storage",
+            "tests.test_core",
+            "tests.test_android_profile"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }
