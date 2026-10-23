@@ -20,6 +20,7 @@ from ..contracts.versions import exact
 from ..issue_package import IssuePackageStore, PackageError, PackageReader, canonical, _json
 from ..qualification import QualificationEngine
 from .issue_sessions import FixturePreparation, IssueSessionService
+from .locator_proposals import LocatorProposalMixin
 from .model import Lab, LiveError, check, public_id
 from .recording_session import TrustedProjectRegistration
 
@@ -68,7 +69,7 @@ class RecordingDurationReached(RuntimeError):
     code = "recording_duration_reached"
 
 
-class IssueWorkflow:
+class IssueWorkflow(LocatorProposalMixin):
     """Durable selections/revisions and bounded asynchronous preparation/replay.
 
     The SQLite index has a fixed 8 MiB page ceiling and an upfront G2 charge

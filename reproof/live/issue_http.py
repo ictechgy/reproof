@@ -135,6 +135,8 @@ def dispatch(handler,principal,parts):
             contracts.validate_id(issue_id)
             if len(route)==2 and method=='GET':
                 return handler.respond(200,workflow.get(principal,issue_id))
+            if len(route)==3 and route[2]=='locator-proposals' and method=='GET':
+                return handler.respond(200,workflow.locator_proposals(principal,issue_id))
             if len(route)==4 and route[2]=='media' and method=='GET':
                 with workflow.open_media(principal,issue_id,route[3]) as (reader,mime):
                     return _stream(handler,reader,mime)
@@ -147,7 +149,9 @@ def dispatch(handler,principal,parts):
                             else workflow.stop(principal,issue_id,cancel=action=='cancel'))
                     return handler.respond(200 if action=='export' else 202,result)
                 methods={'input':workflow.input,'specifications':workflow.save_specification,
-                         'approve':workflow.approve,'replay':workflow.replay}
+                         'approve':workflow.approve,'replay':workflow.replay,
+                         'locator-proposals':workflow.propose_locator,
+                         'locator-decisions':workflow.decide_locator}
                 if action in methods:
                     return handler.respond(202 if action=='replay' else 200,methods[action](principal,issue_id,body))
         raise LiveError('not_found','Issue route was not found',404)

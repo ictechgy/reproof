@@ -34,3 +34,5 @@ jobs:
         run: python scripts/release-check.py --goal RUNTIME --effects filesystem,process
       - name: Run read-only CLI validation checks
         run: python scripts/release-check.py --goal CLI --effects filesystem,process
+      - name: Run review-only locator proposal checks
+        run: python scripts/release-check.py --goal LOCATOR --effects filesystem,process,loopback
