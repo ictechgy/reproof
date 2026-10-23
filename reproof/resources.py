@@ -72,10 +72,20 @@ def _read(root, name, *, maximum=2 * 1024 * 1024):
         os.close(directory)
 
 
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ResourceError()
+        result[key] = value
+    return result
+
+
 def _manifest(root, *, installed):
     try:
         name = 'manifest.json' if installed else 'distribution-resources.json'
-        document = json.loads(_read(root, name, maximum=512 * 1024))
+        document = json.loads(_read(root, name, maximum=512 * 1024),
+                              object_pairs_hook=_unique_object)
         expected = {'schemaVersion', 'files'} | ({'sha256'} if installed else set())
         if (type(document) is not dict or set(document) != expected
                 or type(document['schemaVersion']) is not int or document['schemaVersion'] != 1
