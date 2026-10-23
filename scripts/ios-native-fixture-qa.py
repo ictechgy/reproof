@@ -49,6 +49,15 @@ def save(path, value):
     Path(path).write_text(json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + "\n")
 
 
+def owned_temporary_root(temporary):
+    # macOS commonly returns /var/folders/... while /var aliases /private/var.
+    # Resolve only our newly created directory, before passing new child outputs
+    # into the production artifact boundary, which still rejects symlink paths.
+    path = Path(temporary.name)
+    require(path.is_dir() and not path.is_symlink(), "owned_temporary_root_required")
+    return path.resolve(strict=True)
+
+
 def command(argv, *, timeout=30):
     result = subprocess.run(argv, cwd=ROOT, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -325,8 +334,8 @@ def main(argv=None):
     # Build products, authority journals and native/session state stay outside the
     # artifact directory. Only explicit synthetic evidence files are published.
     temporary = tempfile.TemporaryDirectory(prefix="reproof-ios-native-private-")
-    work = Path(temporary.name)
     try:
+        work = owned_temporary_root(temporary)
         source = ROOT / "ios-native-fixture"
         profile = load_observation_profile(source / "observation-profile.json")
         preparation = prepare_ios_instrumentation(source, work / "prepared", profile=profile)

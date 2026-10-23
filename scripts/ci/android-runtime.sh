@@ -4,6 +4,7 @@ set -euo pipefail
 [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted && "${GITHUB_REPOSITORY:-}" == ictechgy/reproof ]]
 [[ "$(uname -s)" == Linux && -n "${RUNNER_TEMP:-}" ]]
 [[ "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ && "${GITHUB_RUN_ATTEMPT:-}" =~ ^[0-9]+$ ]]
+export HOME="$RUNNER_TEMP/reproof-build-home"
 export JAVA_HOME="$JAVA_HOME_17_X64"
 export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 export ANDROID_USER_HOME="$RUNNER_TEMP/reproof-android-home"
@@ -11,7 +12,7 @@ export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
 export GRADLE_USER_HOME="$RUNNER_TEMP/reproof-gradle"
 export ANDROID_SERIAL=emulator-5554
 export REPROOF_OWNED_ANDROID_EMULATOR=1
-mkdir -p "$ANDROID_AVD_HOME" "$RUNNER_TEMP/reproof-runtime-evidence"
+mkdir -p "$HOME" "$ANDROID_AVD_HOME" "$RUNNER_TEMP/reproof-runtime-evidence"
 name="reproof-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 image='system-images;android-35;default;x86_64'
 sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
@@ -41,7 +42,7 @@ trap 'exit 143' TERM
 # Use existing KVM access when available; do not change device/security permissions.
 acceleration=off
 if [[ -r /dev/kvm && -w /dev/kvm ]]; then acceleration=on; fi
-"$ANDROID_HOME/emulator/emulator" -avd "$name" -port 5554 -no-window -no-audio -no-snapshot \
+"$ANDROID_HOME/emulator/emulator" -avd "$name" -port 5554 -no-window -no-audio -no-snapshot -no-metrics \
   -no-boot-anim -gpu swiftshader_indirect -accel "$acceleration" \
   > "$RUNNER_TEMP/reproof-runtime-evidence/emulator.log" 2>&1 &
 pid=$!

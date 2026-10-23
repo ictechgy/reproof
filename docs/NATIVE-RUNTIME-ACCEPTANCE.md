@@ -47,6 +47,12 @@ An expected rejection of that unsupported path is recorded separately from succe
 gesture execution. Local OCR is an oracle for fixed fixture text, not a locator
 healing mechanism; uncertainty is not permission to pass or approximate an assertion.
 
+Android startup diagnostics observe original instance calls without replacing the
+provider type or changing arguments, return values, exceptions, deadlines, or
+authority admission. Startup observers are removed after startup succeeds; frame
+and input dispatch methods are not wrapped. Only allowlisted failure enums,
+bounded state metadata, and repository-relative traceback locations are retained.
+
 Runtime artifacts are retained for seven days and must contain only fixture-owned
 screenshots, redacted results, and build/runtime diagnostics. Private authority
 material, tokens, signing keys, and user data must never enter artifacts. Review

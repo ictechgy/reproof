@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from reproof.core import ContractError
 from reproof.ios_instrumentation import prepare_ios_instrumentation, validate_ios_preparation
 from reproof.ios_observation import load_observation_profile
 
@@ -82,7 +83,7 @@ class IOSNativeFixtureHarnessTests(unittest.TestCase):
         profile = load_observation_profile(source / "observation-profile.json")
         before = {name: (source / name).read_bytes() for name in profile.data["sourceInputs"]}
         with tempfile.TemporaryDirectory() as temporary:
-            result = prepare_ios_instrumentation(source, Path(temporary) / "prepared", profile=profile)
+            result = prepare_ios_instrumentation(source, Path(temporary).resolve(strict=True) / "prepared", profile=profile)
             receipt = validate_ios_preparation(result["source"])
             self.assertTrue(receipt["productSourcesUnchanged"])
             self.assertFalse(receipt["behaviorVerified"])
@@ -94,6 +95,39 @@ class IOSNativeFixtureHarnessTests(unittest.TestCase):
         self.assertNotIn("Recorder.shared", product)
         self.assertNotIn("CounterLogic", product)
         self.assertIn("NAME REQUIRED", product)
+
+    def test_owned_symlink_parent_is_canonicalized_without_weakening_artifact_boundary(self):
+        source = ROOT / "ios-native-fixture"
+        profile = load_observation_profile(source / "observation-profile.json")
+        before = {name: (source / name).read_bytes() for name in profile.data["sourceInputs"]}
+        with tempfile.TemporaryDirectory() as outer:
+            root = Path(outer).resolve(strict=True)
+            real_parent = root / "private-var"
+            real_parent.mkdir()
+            alias = root / "var"
+            alias.symlink_to(real_parent, target_is_directory=True)
+            with tempfile.TemporaryDirectory(prefix="owned-ci-", dir=alias) as name:
+                # Reproduce the macOS /var -> /private/var boundary rejection.
+                lexical_root = Path(name)
+                with self.assertRaisesRegex(ContractError, "real existing parent directories"):
+                    prepare_ios_instrumentation(source, lexical_root / "prepared", profile=profile)
+                self.assertFalse((lexical_root / "prepared").exists())
+                # Use the same helper as main with an owner-created directory.
+                from types import SimpleNamespace
+                canonical = HARNESS.owned_temporary_root(SimpleNamespace(name=name))
+                self.assertEqual(canonical.parent, real_parent)
+                self.assertNotEqual(canonical, lexical_root)
+                result = prepare_ios_instrumentation(source, canonical / "prepared", profile=profile)
+                receipt = validate_ios_preparation(result["source"])
+                self.assertTrue(receipt["productSourcesUnchanged"])
+                self.assertFalse(receipt["behaviorVerified"])
+                for filename, body in before.items():
+                    self.assertEqual((source / filename).read_bytes(), body)
+                    if not filename.endswith("project.pbxproj"):
+                        self.assertEqual((Path(result["source"]) / filename).read_bytes(), body)
+                # The production rejection is retained after successful preparation.
+                with self.assertRaisesRegex(ContractError, "real existing parent directories"):
+                    prepare_ios_instrumentation(source, lexical_root / "another", profile=profile)
 
     def test_log_gate_rejects_missing_screen_or_lost_events(self):
         events = [{"type": "click", "name": phase, "target": target}
