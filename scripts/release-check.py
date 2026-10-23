@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT = ROOT / "tests/release_inventory.json"
 MAX_OUTPUT = 200000
 MAX_INVENTORY = 1024 * 1024
+TEST_COUNT = r"[0-9]{1,9}"
 EFFECTS = {"filesystem", "process", "loopback", "native-compile", "browser", "owned-device", "owned-vm"}
 FIELDS = {"id", "command", "environment", "effects", "timeoutSeconds", "evidence", "gate"}
 
@@ -38,13 +39,21 @@ def valid_command(command):
                     for item in command[3:]))
 
 
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        require(key not in result, "Duplicate release inventory member")
+        result[key] = value
+    return result
+
+
 def load_inventory(path):
     try:
         with path.open("rb") as source:
             raw = source.read(MAX_INVENTORY + 1)
         require(len(raw) <= MAX_INVENTORY, "Release inventory size limit exceeded")
-        value = json.loads(raw)
-    except (OSError, ValueError, UnicodeError):
+        value = json.loads(raw, object_pairs_hook=unique_object)
+    except (OSError, ValueError, UnicodeError, RecursionError):
         raise InvalidInventory("Malformed release inventory") from None
     require(type(value) is dict and set(value) == {"version", "goals"}
             and type(value["version"]) is int and value["version"] == 1,
@@ -143,12 +152,13 @@ def run_check(check):
         stop_group(process)
         process.stdout.close()
     text = bytes(output[:MAX_OUTPUT]).decode("utf-8", "replace")
-    matches = re.findall(r"^Ran ([0-9]+) tests?(?: in [^\n]+)?$", text, flags=re.MULTILINE)
+    # Bound numeric evidence before int(), independent of Python digit limits.
+    matches = re.findall(rf"^Ran ({TEST_COUNT}) tests?(?: in [^\n]+)?$", text, flags=re.MULTILINE)
     count = int(matches[-1]) if matches else 0
     # unittest exits successfully even when every test is skipped or expected
     # to fail. Required release checks need the complete, clean success footer,
     # not just a nonzero testsRun count (which includes those outcomes).
-    complete = re.search(r"^Ran [0-9]+ tests? in [0-9]+(?:\.[0-9]+)?s\n\nOK\n?\Z",
+    complete = re.search(rf"^Ran {TEST_COUNT} tests? in [0-9]+(?:\.[0-9]+)?s\n\nOK\n?\Z",
                          text, flags=re.MULTILINE) is not None
     passed = process.returncode == 0 and count > 0 and complete and reason is None
     item = {"id": check["id"], "gate": check["gate"], "environment": check["environment"],

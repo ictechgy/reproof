@@ -11,7 +11,7 @@ ROOT = Path(__file__).parents[1]
 
 
 class ReleaseHarnessTests(unittest.TestCase):
-    def invoke(self, case, *, timeout=5):
+    def invoke(self, case, *, timeout=5, transform=None):
         inventory = {"version": 1, "goals": {"X": {"available": True, "checks": [{
             "id": "isolated-check", "command": ["python3", "-m", "unittest",
                 "tests.fixtures.release.harness_cases." + case],
@@ -19,7 +19,8 @@ class ReleaseHarnessTests(unittest.TestCase):
             "evidence": "unittest-summary", "gate": "software"}]}}}
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "inventory.json"
-            path.write_text(json.dumps(inventory))
+            raw = json.dumps(inventory)
+            path.write_text(transform(raw) if transform else raw)
             process = subprocess.run([sys.executable, "scripts/release-check.py", "--inventory",
                                       str(path), "--goal", "X", "--effects", "process"],
                                      cwd=ROOT, capture_output=True, text=True, timeout=15)
@@ -49,6 +50,36 @@ class ReleaseHarnessTests(unittest.TestCase):
                 self.assertEqual(check["testsRun"], count)
                 self.assertEqual(check["status"], "fail")
                 self.assertEqual(check["reason"], "missing_test_evidence")
+
+    def test_oversized_summary_count_is_reported_as_failed_evidence(self):
+        for case in ("Cases.test_count_above_bound", "Cases.test_oversized_count"):
+            with self.subTest(case=case):
+                process, report = self.invoke(case)
+                self.assertEqual(process.returncode, 2)
+                self.assertEqual(report["checks"][0]["testsRun"], 0)
+                self.assertEqual(report["checks"][0]["reason"], "missing_test_evidence")
+
+    def test_duplicate_inventory_members_block_before_running_checks(self):
+        mutations = (
+            lambda raw: raw.replace('"version": 1', '"version": 2, "version": 1'),
+            lambda raw: raw.replace('"X": {', '"X": {"available": false, "reason": "blocked"}, "X": {'),
+            lambda raw: raw.replace('"effects": ["process"]', '"effects": ["owned-device"], "effects": ["process"]'),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                process, report = self.invoke("Cases.test_pass", transform=mutate)
+                self.assertEqual(process.returncode, 2)
+                self.assertEqual(report["status"], "blocked")
+                self.assertEqual(report["reason"], "Malformed release inventory")
+                self.assertNotIn("checks", report)
+
+    def test_deep_inventory_is_a_structured_block_not_a_traceback(self):
+        process, report = self.invoke("Cases.test_pass",
+                                      transform=lambda _: "[" * 10000 + "0" + "]" * 10000)
+        self.assertEqual(process.returncode, 2)
+        self.assertEqual(report["status"], "blocked")
+        self.assertEqual(report["reason"], "Malformed release inventory")
+        self.assertNotIn("Traceback", process.stderr)
 
     def test_normal_stdout_does_not_hide_final_summary(self):
         process, report = self.invoke("Cases.test_stdout")
