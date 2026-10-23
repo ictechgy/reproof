@@ -177,7 +177,10 @@ or runtime readiness; see [shared preflight](SHARED-PREFLIGHT.md).
 
 LOCATOR uses temporary stores, a simulated provider and a loopback fixture service
 to test review-only proposals, authorization, immutable originals/oracles, stale
-and concurrent decisions, atomic publication and revert. It proves neither
+and concurrent decisions, atomic publication and revert. It also checks unsupported
+locator declarations versus uncertain observation failures, freshness, authority
+revocation, cancellation, and observation deadlines without device transport.
+It proves neither
 actual-app selector quality nor autonomous self-healing. Applying a proposal
 requires a new approval and original qualification before verification. See
 [locator proposals](LOCATOR-PROPOSALS.md).

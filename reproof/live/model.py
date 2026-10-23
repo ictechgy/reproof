@@ -1381,6 +1381,15 @@ class Lab:
         try:
             self._authorize_effect(s,'locator')
             try:result=resolver(copy.deepcopy(target))
+            except LiveError as error:
+                # A declared provider may reject a locator shape/registration
+                # before observation. Keep that deterministic capability refusal
+                # consistent with the missing-capability checks above, without
+                # exposing provider messages (which may contain private data).
+                if error.code == 'unsupported_operation':
+                    raise LiveError('unsupported_operation',
+                                    'Provider does not support this locator',400) from None
+                raise LiveError('observation_failed','Locator observation failed') from None
             except Exception:
                 raise LiveError('observation_failed','Locator observation failed') from None
             self._authorize_effect(s,'locator')
