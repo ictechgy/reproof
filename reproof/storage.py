@@ -41,7 +41,12 @@ def read_json(path):
     try:
         return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_object,
                           parse_constant=lambda _: (_ for _ in ()).throw(ContractError("Non-finite JSON number")))
-    except (UnicodeError, json.JSONDecodeError) as exc:
+    except ContractError:
+        # Preserve explicit duplicate-key/non-finite-number diagnostics.
+        raise
+    except (ValueError, RecursionError) as exc:
+        # JSONDecodeError and UnicodeError are ValueError subclasses; decoder
+        # integer and nesting guards must obey the same artifact contract.
         raise ContractError("Malformed JSON artifact") from exc
 
 

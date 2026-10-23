@@ -32,3 +32,5 @@ jobs:
         run: python scripts/release-check.py --goal G0 --effects filesystem,process
       - name: Run portable runtime-resource checks
         run: python scripts/release-check.py --goal RUNTIME --effects filesystem,process
+      - name: Run read-only CLI validation checks
+        run: python scripts/release-check.py --goal CLI --effects filesystem,process
