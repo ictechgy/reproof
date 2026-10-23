@@ -144,6 +144,7 @@ class IosProvider:
         self.native_handshake=None;self.handshake_ready=None;self._startup_permit=None
         self._startup_lock=threading.RLock();self._startup_accepting=False;self._startup_deadline=0.0
         self.frame_clock=None;self.last_native_frame=0
+        self._owned_process=None;self._abort_lock=threading.Lock()
     def bind_authority(self,device_authority,provider_incarnation):
         self.device_authority=device_authority;self.provider_incarnation=provider_incarnation
         self.lease=device_authority.borrowed_lease()
@@ -288,8 +289,15 @@ class IosProvider:
                  '-resultBundlePath',str(Path(self.temp.name)/'result.xcresult'),'-parallel-testing-enabled','NO',
                  '-only-testing:ReproLiveTests/LiveControlTests/testControlSession']
         if self.device_authority is not None:self._check_permit(permit)
-        self.process=subprocess.Popen(command,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+        self._start_runner(command)
         self.monitor=threading.Thread(target=self._monitor,daemon=True);self.monitor.start()
+    def _start_runner(self,command):
+        default_reaping=signal.getsignal(signal.SIGCHLD)==signal.SIG_DFL
+        self._owned_process=None
+        self.process=subprocess.Popen(command,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+        if default_reaping and signal.getsignal(signal.SIGCHLD)==signal.SIG_DFL:
+            self._owned_process=(self.process,self.process.pid)
+
     def _monitor(self):
         started=time.monotonic()
         with self._startup_lock:
@@ -537,6 +545,55 @@ class IosProvider:
             if type(native_frame_id) is int and native_frame_id>0:self.last_native_frame=native_frame_id
             return {'ok':True}
         raise LiveError('not_found','Bridge operation not found',404)
+    def _signal_owned_process(self,process,pid,signum):
+        # POSIX Popen polls/waits (including the monitor thread) reap under this
+        # lock. Keep an unreaped child PID reserved until killpg completes: a
+        # poll-then-kill sequence alone could signal a reused process group.
+        check(os.name=='posix' and isinstance(process,subprocess.Popen)
+              and type(pid) is int and pid>1,
+              'cleanup_uncertain','Owned runner identity is unsupported')
+        reap_lock=getattr(process,'_waitpid_lock',None)
+        check(reap_lock is not None,'cleanup_uncertain','Owned runner identity cannot be guarded')
+        with reap_lock:
+            # Custom/ignored SIGCHLD handlers can reap outside Popen's lock.
+            # Ownership also requires no external waitpid on this child.
+            check(signal.getsignal(signal.SIGCHLD)==signal.SIG_DFL,
+                  'cleanup_uncertain','Owned runner reaping policy is unsupported')
+            check(self.process is process and process.pid==pid,
+                  'cleanup_uncertain','Owned runner identity changed')
+            if process.returncode is not None:return
+            try:
+                check(os.getpgid(pid)==pid and os.getsid(pid)==pid,
+                      'cleanup_uncertain','Owned runner process group changed')
+                os.killpg(pid,signum)
+            except ProcessLookupError:pass
+
+    def abort(self):
+        """Cancel only our local runner; this is not native cleanup evidence.
+
+        No permit dispatch, device command, authority change, or lease release
+        is allowed here. Lab keeps the failed session/device quarantined. Keep
+        private temporary evidence intact even when local cancellation succeeds.
+        """
+        self._abort_startup()
+        self.token=''
+        with self._abort_lock:
+            try:
+                owned=self._owned_process
+                if owned is None:
+                    check(self.process is None,'cleanup_uncertain','Runner ownership is unconfirmed')
+                    return
+                process,pid=owned
+                check(self.process is process and process.pid==pid,
+                      'cleanup_uncertain','Owned runner identity changed')
+                self._signal_owned_process(process,pid,signal.SIGTERM)
+                try:process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._signal_owned_process(process,pid,signal.SIGKILL)
+                    process.wait(timeout=5)
+            finally:
+                if self.frame_clock is not None:self.frame_clock.close()
+
     def close_authorized(self,permit):
         self._check_permit(permit)
         result=self.execute_authorized('authority_cleanup',{},permit)

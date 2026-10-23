@@ -10,11 +10,14 @@ from __future__ import annotations
 import argparse
 import base64
 import copy
+import functools
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
 import platform
+import plistlib
 import re
 import subprocess
 import sys
@@ -30,9 +33,11 @@ from reproof.core import digest
 from reproof.ios_instrumentation import prepare_ios_instrumentation
 from reproof.ios_observation import build_observation_app, load_observation_profile
 from reproof.ios_profile import validate_ios_profile
+from reproof.ios_runner import prepare_xctestrun, _targets
 from reproof.live.authority import HostAuthority, issue_local_parent_grant
 from reproof.live.model import Lab, LiveError
-from reproof.live.providers import ios_device
+from reproof.live import providers as ios_providers
+from reproof.live.providers import IosProvider, ios_device, require_ios_helper_v2
 from reproof.live.server import LiveServer
 
 
@@ -147,6 +152,283 @@ def verify_app_logs(snapshot):
             "declaredClickAndScreenCoverage": True}
 
 
+def helper_preflight(products, work):
+    """Exercise the actual template gates without publishing the private template."""
+    config = prepare_xctestrun(products, "ReproLiveTests", work / "helper-preflight.xctestrun")
+    with config.open("rb") as stream:
+        document = plistlib.load(stream)
+    require_ios_helper_v2(document)
+    target = next(target for _, target in _targets(document))
+    return {"fixedTargetCount": 1, "helperProtocolVersion": 2, "helperVersion": 2,
+            "artifactPaths": {key: bool(target.get(key)) and Path(target[key]).exists()
+                              for key in ("TestHostPath", "TestBundlePath", "UITargetAppPath")}}
+
+
+class StartupDiagnostics:
+    """Transparent startup-only observation; never saves native output or values.
+
+    Only the exact provider-owned xcodebuild command changes DEVNULL to a pipe.
+    A continuously draining thread classifies bounded lines, then discards them.
+    After startup it only drains, without inspecting frame/input/cleanup paths.
+    """
+    ERROR_TYPES = frozenset({"LiveError", "ContractError", "GateFailure", "RuntimeError", "ValueError",
+                             "TimeoutError", "TimeoutExpired", "OSError", "FileNotFoundError", "PermissionError"})
+    ERROR_CODES = frozenset({"authority_required", "authority_rejected", "authority_expired", "authority_unavailable",
+        "startup_rejected", "startup_unknown", "native_protocol_mismatch", "native_profile_mismatch",
+        "native_timing_invalid", "app_changed", "app_unavailable", "app_log_unavailable", "cleanup_uncertain"})
+    REASONS = {"Provider could not start": "provider_start_failed",
+        "Native driver startup timed out": "driver_startup_timeout",
+        "Native driver stopped; close and reopen the session": "driver_stopped",
+        "Native driver stopped before startup": "driver_stopped_before_startup",
+        "iOS helper startup window is closed": "startup_window_closed",
+        "iOS helper handshake did not complete": "handshake_incomplete",
+        "Operation authority expired": "operation_authority_expired",
+        "Dispatch authority was revoked": "dispatch_authority_revoked",
+        "Dispatch permit is not current": "dispatch_permit_not_current"}
+    APPLE_DOMAINS = frozenset({"IDETestOperationsObserverErrorDomain", "IDEProfileErrorDomain", "IDELaunchErrorDomain",
+        "FBSOpenApplicationServiceErrorDomain", "FBSOpenApplicationErrorDomain", "RBSRequestErrorDomain",
+        "IXUserPresentableErrorDomain", "MIInstallerErrorDomain", "NSPOSIXErrorDomain", "NSOSStatusErrorDomain"})
+    NATIVE_FAILURES = frozenset({"bridge_configuration_invalid", "bridge_request_failed", "authority_expired",
+                                 "target_unavailable", "general_profile_invalid"})
+    MAX_LINE_BYTES = 4096
+
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.started = time.monotonic()
+        self.originals = []
+        self.provider = None
+        self.finished = False
+        self.drainer = None
+        self.data = {"observer": "ios-startup-call-through-v1", "productionClassCodeUnchanged": True,
+            "startupObserversRemoved": False, "events": [], "failures": [],
+            "xctest": {"stages": [], "nativeFailureCategories": [], "appleErrors": [],
+                       "unclassifiedLines": 0, "oversizedLines": 0, "rawOutputPublished": False}}
+
+    @classmethod
+    def error(cls, error):
+        result = {"type": type(error).__name__ if type(error).__name__ in cls.ERROR_TYPES else "Exception"}
+        if isinstance(error, LiveError) and error.code in cls.ERROR_CODES:
+            result["code"] = error.code
+        if len(error.args) == 1 and type(error.args[0]) is str and error.args[0] in cls.REASONS:
+            result["reason"] = cls.REASONS[error.args[0]]
+        trace, current = [], error.__traceback__
+        while current is not None:
+            try:
+                relative = Path(current.tb_frame.f_code.co_filename).resolve().relative_to(ROOT).as_posix()
+            except (ValueError, OSError):
+                relative = ""
+            if relative.startswith("reproof/") or relative == "scripts/ios-native-fixture-qa.py":
+                trace.append({"file": relative, "line": current.tb_lineno})
+            current = current.tb_next
+        if trace:
+            result["trace"] = trace[-8:]
+        return result
+
+    def event(self, phase, outcome, duration=None):
+        row = {"phase": phase, "outcome": outcome,
+               "sinceStartMs": max(0, round((time.monotonic() - self.started) * 1000))}
+        if duration is not None:
+            row["durationMs"] = max(0, round(duration * 1000))
+        with self.lock:
+            if len(self.data["events"]) < 32:
+                self.data["events"].append(row)
+
+    def call(self, phase, original, *args, **kwargs):
+        self.event(phase, "entered")
+        started = time.monotonic()
+        try:
+            result = original(*args, **kwargs)
+        except Exception as error:
+            with self.lock:
+                if len(self.data["failures"]) < 8:
+                    self.data["failures"].append(dict(self.error(error), phase=phase))
+            self.event(phase, "raised", time.monotonic() - started)
+            raise
+        self.event(phase, "returned", time.monotonic() - started)
+        return result
+
+    def classify_line(self, raw):
+        with self.lock:
+            if self.finished:
+                return
+            output = self.data["xctest"]
+            if len(raw) > self.MAX_LINE_BYTES:
+                output["oversizedLines"] = min(1_000_000, output["oversizedLines"] + 1)
+                return
+            line = raw.decode("utf-8", errors="replace").strip()
+            recognized = False
+            stages = {"Testing started": "testing_started", "** TEST FAILED **": "testing_failed",
+                      "** TEST SUCCEEDED **": "testing_succeeded"}
+            stage = stages.get(line)
+            if re.fullmatch(r"Test Case '-\[ReproLiveTests\.LiveControlTests testControlSession\]' started\.", line):
+                stage = "control_test_started"
+            if stage:
+                if stage not in output["stages"]:
+                    output["stages"].append(stage)
+                recognized = True
+            # Exact known XCTest assertion suffix, never arbitrary sanitized prose.
+            marker = re.search(r"error: -\[ReproLiveTests\.LiveControlTests testControlSession\] : (?:failed - |XCTAssertFalse failed - )([a-z_]+)$", line)
+            if marker and marker[1] in self.NATIVE_FAILURES:
+                if marker[1] not in output["nativeFailureCategories"]:
+                    output["nativeFailureCategories"].append(marker[1])
+                recognized = True
+            for match in re.finditer(r"\bError Domain=([A-Za-z][A-Za-z0-9]+) Code=(-?[0-9]{1,6})(?=\s|$)", line):
+                if match[1] in self.APPLE_DOMAINS:
+                    row = {"domain": match[1], "code": int(match[2])}
+                    if row not in output["appleErrors"] and len(output["appleErrors"]) < 16:
+                        output["appleErrors"].append(row)
+                    recognized = True
+            if not recognized:
+                output["unclassifiedLines"] = min(1_000_000, output["unclassifiedLines"] + 1)
+
+    def drain(self, stream):
+        pending = b""
+        discarding = False
+        try:
+            while chunk := stream.read(8192):
+                if self.finished:
+                    pending = b""
+                    continue
+                for piece in chunk.splitlines(keepends=True):
+                    ended = piece.endswith(b"\n") or piece.endswith(b"\r")
+                    if not discarding:
+                        if len(pending) + len(piece) > self.MAX_LINE_BYTES:
+                            pending = b""
+                            discarding = True
+                            with self.lock:
+                                value = self.data["xctest"]["oversizedLines"]
+                                self.data["xctest"]["oversizedLines"] = min(1_000_000, value + 1)
+                        else:
+                            pending += piece
+                    if ended:
+                        if not discarding:
+                            self.classify_line(pending)
+                        pending, discarding = b"", False
+            if pending and not discarding:
+                self.classify_line(pending)
+        except Exception:
+            with self.lock:
+                self.data["xctest"]["drainFailed"] = True
+        finally:
+            stream.close()
+
+    def popen(self, original, *args, **kwargs):
+        provider = self.provider
+        if provider is None or provider.temp is None or self.finished:
+            return original(*args, **kwargs)
+        private = Path(provider.temp.name)
+        expected = ["/usr/bin/xcodebuild", "test-without-building", "-xctestrun", str(private / "live.xctestrun"),
+            "-destination", "id=" + provider.udid, "-resultBundlePath", str(private / "result.xcresult"),
+            "-parallel-testing-enabled", "NO", "-only-testing:ReproLiveTests/LiveControlTests/testControlSession"]
+        if len(args) != 1 or args[0] != expected or kwargs != {
+                "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "start_new_session": True}:
+            return original(*args, **kwargs)
+        # Start the drain before dispatch. If observation cannot start, retain
+        # the original DEVNULL behavior rather than risking a blocked child.
+        read_fd = write_fd = None
+        stream = None
+        try:
+            read_fd, write_fd = os.pipe()
+            stream = os.fdopen(read_fd, "rb", buffering=0)
+            read_fd = None
+            self.drainer = threading.Thread(target=self.drain, args=(stream,), daemon=True)
+            self.drainer.start()
+        except Exception:
+            if stream is not None:
+                stream.close()
+            if read_fd is not None:
+                os.close(read_fd)
+            if write_fd is not None:
+                os.close(write_fd)
+            self.data["xctest"]["captureUnavailable"] = True
+            return original(*args, **kwargs)
+        try:
+            # Popen itself and its stdout=None behavior stay unchanged. Only
+            # the exact child receives the private write fd, never its argv/env.
+            return self.call("xcodebuild_spawn", original, *args,
+                             **{**kwargs, "stdout": write_fd, "stderr": write_fd})
+        finally:
+            os.close(write_fd)
+
+    def observe_provider(self, provider):
+        require(type(provider) is IosProvider, "diagnostic_requires_real_ios_provider")
+        self.provider = provider
+        for name in ("start", "start_authorized", "bridge"):
+            original = getattr(provider, name)
+            self.originals.append((provider, name, original))
+            def wrap(original, name):
+                @functools.wraps(original)
+                def observed(*args, **kwargs):
+                    if name == "bridge":
+                        if not args or args[0] not in {"ready", "started"} or self.finished:
+                            return original(*args, **kwargs)
+                        return self.call("bridge_" + args[0], original, *args, **kwargs)
+                    try:
+                        return self.call(name, original, *args, **kwargs)
+                    finally:
+                        if name == "start_authorized":
+                            self.finish()
+                return observed
+            setattr(provider, name, wrap(original, name))
+        original_module = ios_providers.subprocess
+        self.originals.append((ios_providers, "subprocess", original_module))
+        observed_popen = functools.partial(self.popen, original_module.Popen)
+        class StartupSubprocess:
+            Popen = staticmethod(observed_popen)
+            def __getattr__(self, name):
+                return getattr(original_module, name)
+        # Scope to the provider module: all unrelated subprocess users retain
+        # the original Popen class. Restore before Lab can invoke abort/cleanup.
+        ios_providers.subprocess = StartupSubprocess()
+        return provider
+
+    def finish(self):
+        if self.finished:
+            return
+        state = None
+        complete = False
+        try:
+            provider = self.provider
+            if provider is not None:
+                process = provider.process
+                code = process.poll() if process is not None else None
+                # Only an already-exited child can have a short output-drain
+                # join. This occurs after startup, never renews its deadline.
+                if code is not None and self.drainer is not None:
+                    self.drainer.join(timeout=0.1)
+                    complete = not self.drainer.is_alive()
+                state = {
+                    "processCreated": process is not None, "processRunning": process is not None and code is None,
+                    "processReturnCode": code if type(code) is int and -255 <= code <= 255 else None,
+                    "nativeHandshakeBound": provider.native_handshake is not None,
+                    "startedAcknowledged": provider.handshake_ready is not None and provider.handshake_ready.is_set(),
+                    "installPending": getattr(provider, "_pending_install_identity", None) is not None,
+                    "cancelled": provider.stop.is_set()}
+        except Exception:
+            # A diagnostic snapshot failure must not mask the original startup
+            # exception or prevent Lab's normal quarantining/abort path.
+            self.data["snapshotUnavailable"] = True
+        with self.lock:
+            if self.finished:
+                return
+            if state is not None:
+                self.data["stateAtStartupEnd"] = state
+            self.data["xctest"]["completeAtStartupEnd"] = complete
+            self.finished = True
+            restored = True
+            for instance, name, original in reversed(self.originals):
+                try:
+                    setattr(instance, name, original)
+                except Exception:
+                    restored = False
+            self.originals.clear()
+            self.data["startupObserversRemoved"] = restored
+
+    def snapshot(self):
+        with self.lock:
+            return copy.deepcopy(self.data)
+
+
 def run_flow(args, build, observer, label, work, *, logs):
     # Recheck ownership immediately before installation/startup, not only at entry.
     verify_ci_simulator(args.simulator, args.owned_simulator_name)
@@ -161,6 +443,9 @@ def run_flow(args, build, observer, label, work, *, logs):
     private.mkdir()
     authority = HostAuthority(private / "authority.sqlite3", lease_directory=private / "leases")
     grant = issue_local_parent_grant(authority, lifetime_ns=600_000_000_000)
+    diagnostics = StartupDiagnostics()
+    factory = descriptor["factory"]
+    descriptor["factory"] = lambda: diagnostics.observe_provider(factory())
     lab = Lab([descriptor], private / "live", authority=authority, parent_grant=grant,
               idle_timeout=120, max_session_seconds=600)
     server = None
@@ -173,7 +458,19 @@ def run_flow(args, build, observer, label, work, *, logs):
         server = LiveServer(lab, port=0)
         thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.1}, daemon=True)
         thread.start()
+        connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        try:
+            connection.request("GET", "/api/mode")
+            response = connection.getresponse()
+            diagnostics.data["hostLoopbackReachable"] = response.status == 200 and len(response.read(4097)) <= 4096
+        except Exception as error:
+            diagnostics.data["hostLoopbackReachable"] = False
+            diagnostics.data["hostLoopbackError"] = diagnostics.error(error)
+        finally:
+            connection.close()
         session = lab.create_session(descriptor["id"], owner, controller)
+        diagnostics.data["sessionStateAfterStartup"] = session["state"]
+        diagnostics.data["sessionFailureReason"] = diagnostics.REASONS.get(session.get("error"), "none_or_unclassified")
         deadline = time.monotonic() + 95
         while session["state"] == "connecting" and time.monotonic() < deadline:
             time.sleep(0.2)
@@ -262,6 +559,8 @@ def run_flow(args, build, observer, label, work, *, logs):
             proof["appLogs"] = verify_app_logs(snapshot)
         proof["flowVerified"] = True
     finally:
+        diagnostics.finish()
+        proof["startupDiagnostics"] = diagnostics.snapshot()
         if session is not None:
             try:
                 closed = lab.close_session(session["id"], owner, require_finished_inputs=True)
@@ -338,6 +637,8 @@ def main(argv=None):
     temporary = tempfile.TemporaryDirectory(prefix="reproof-ios-native-private-")
     try:
         work = owned_temporary_root(temporary)
+        result["helperPreflight"] = helper_preflight(args.helper_products, work)
+        save(args.output / "result.json", result)
         source = ROOT / "ios-native-fixture"
         profile = load_observation_profile(source / "observation-profile.json")
         preparation = prepare_ios_instrumentation(source, work / "prepared", profile=profile)

@@ -1215,6 +1215,7 @@
             "-m",
             "unittest",
             "tests.test_ios_helper_capabilities",
+            "tests.test_ios_abort_cleanup",
             "tests.test_android_locator_geometry",
             "tests.test_worker_profiles",
             "tests.test_android_native_fixture_harness",
