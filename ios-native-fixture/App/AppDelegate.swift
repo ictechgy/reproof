@@ -94,7 +94,7 @@ final class InventoryController: UIViewController {
             _ = label("INVENTORY LIST", id: "inventory.title", at: 0.14)
             button("ADD ITEM", id: "inventory.add", at: 0.34, action: #selector(addItem))
             if items.isEmpty {
-                _ = label("NO ITEMS", id: "inventory.empty", at: 0.49)
+                _ = label("INVENTORY IS EMPTY", id: "inventory.empty", at: 0.49)
             } else {
                 for (index, item) in items.prefix(3).enumerated() {
                     button(item, id: "inventory.item." + String(index),

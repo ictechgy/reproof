@@ -80,17 +80,55 @@ class IOSNativeFixtureHarnessTests(unittest.TestCase):
             self.verify([DEVICE, DEVICE])
 
     def test_pixel_oracle_requires_exact_confident_strings_and_no_forbidden_state(self):
-        words = HARNESS.normalized_words({"observations": [
+        actual = {"observations": [
             {"text": "INVENTORY LIST", "confidence": 1.0},
             {"text": "ITEM TOTAL ONE", "confidence": 0.89},
-            {"text": "BLUE MUG", "confidence": 0.99}]})
-        self.assertEqual(words, {"INVENTORY LIST", "BLUE MUG"})
-        self.assertTrue(HARNESS.state_matches(words, ["INVENTORY LIST", "BLUE MUG"], ["NO ITEMS"]))
-        self.assertFalse(HARNESS.state_matches(words, ["ITEM TOTAL ONE"], []))
-        self.assertFalse(HARNESS.state_matches({"INVENTORY LIS7"}, ["INVENTORY LIST"], []))
-        self.assertFalse(HARNESS.state_matches({"BLUE MUG!"}, ["BLUE MUG"], []))
-        self.assertFalse(HARNESS.state_matches(words | {"NO ITEMS"}, ["BLUE MUG"], ["NO ITEMS"]))
-        self.assertFalse(HARNESS.state_matches(words, ["IMPOSSIBLE FIXTURE STATE"], []))
+            {"text": "BLUE MUG", "confidence": 0.99}]}
+        self.assertEqual(HARNESS.normalized_words(actual), {"INVENTORY LIST", "BLUE MUG"})
+        self.assertTrue(HARNESS.state_matches(actual, ["INVENTORY LIST", "BLUE MUG"], ["INVENTORY IS EMPTY"]))
+        self.assertFalse(HARNESS.state_matches(actual, ["ITEM TOTAL ONE"], []))
+        for wrong, required in (("INVENTORY LIS7", "INVENTORY LIST"), ("BLUE MUG!", "BLUE MUG")):
+            self.assertFalse(HARNESS.state_matches({"observations": [{"text": wrong, "confidence": 1}]},
+                                                  [required], []))
+        self.assertFalse(HARNESS.state_matches(actual, ["IMPOSSIBLE FIXTURE STATE"], []))
+
+    def test_uncertain_exact_forbidden_text_cannot_silently_pass(self):
+        required = ["INVENTORY LIST", "ITEM TOTAL ONE", "BLUE MUG"]
+        for forbidden in ("NO ITEMS", "INVENTORY IS EMPTY", "NAME REQUIRED"):
+            for confidence in (0, 0.5, 0.89, 0.9, 1):
+                with self.subTest(forbidden=forbidden, confidence=confidence):
+                    actual = {"observations": [{"text": text, "confidence": 1} for text in required]
+                              + [{"text": forbidden, "confidence": confidence}]}
+                    self.assertFalse(HARNESS.state_matches(actual, required, [forbidden]))
+
+    def test_recorded_low_confidence_empty_state_remains_unconfirmed(self):
+        recorded = {"observations": [
+            {"text": "INVENTORY LIST", "confidence": 1},
+            {"text": "ITEM TOTAL ZERO", "confidence": 1},
+            {"text": "ADD ITEM", "confidence": 1},
+            {"text": "NO ITEMS", "confidence": 0.5}]}
+        self.assertFalse(HARNESS.state_matches(recorded,
+            ["INVENTORY LIST", "ITEM TOTAL ZERO", "NO ITEMS"], ["BLUE MUG"]))
+
+    def test_pixel_oracle_rejects_malformed_confidence(self):
+        for invalid in (True, None, "1", float("nan"), float("inf"), -0.1, 1.1):
+            with self.subTest(invalid=invalid), self.assertRaises(HARNESS.GateFailure):
+                HARNESS.state_matches({"observations": [{"text": "INVENTORY IS EMPTY", "confidence": invalid}]},
+                                      ["INVENTORY IS EMPTY"], [])
+
+    def test_fixture_revision_preserves_exact_empty_semantics_and_threshold(self):
+        source = (ROOT / "ios-native-fixture/App/AppDelegate.swift").read_text()
+        self.assertIn('label("INVENTORY IS EMPTY", id: "inventory.empty", at: 0.49)', source)
+        self.assertNotIn('label("NO ITEMS"', source)
+        self.assertEqual(HARNESS.FIXTURE_REVISION, "inventory-empty-statement-v2")
+        required = ["INVENTORY LIST", "ITEM TOTAL ZERO", "INVENTORY IS EMPTY"]
+        for confidence, expected in ((0.5, False), (0.899, False), (0.9, True), (1, True)):
+            actual = {"observations": [{"text": text, "confidence": 1} for text in required[:-1]]
+                      + [{"text": required[-1], "confidence": confidence}]}
+            self.assertEqual(HARNESS.state_matches(actual, required, ["BLUE MUG"]), expected)
+        # Historical text is not silently accepted as an alternate new baseline.
+        actual["observations"][-1] = {"text": "NO ITEMS", "confidence": 1}
+        self.assertFalse(HARNESS.state_matches(actual, required, ["BLUE MUG"]))
 
     def test_configured_fixture_preparation_preserves_product_bytes(self):
         source = ROOT / "ios-native-fixture"
@@ -201,6 +239,8 @@ class IOSNativeFixtureHarnessTests(unittest.TestCase):
                     flow.assert_not_called()
                 result = json.loads((output / "result.json").read_text())
                 self.assertFalse(result["passed"])
+                self.assertEqual(result["fixtureRevision"], HARNESS.FIXTURE_REVISION)
+                self.assertEqual(result["pixelOracleRevision"], HARNESS.PIXEL_ORACLE_REVISION)
                 self.assertEqual(set(result["builds"]), {"original"} if fail_at == "second_build"
                                  else {"original", "instrumented", "release"})
                 self.assertTrue(all(row["buildCompleted"] for row in result["builds"].values()))

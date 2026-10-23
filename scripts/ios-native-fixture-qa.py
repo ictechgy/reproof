@@ -14,6 +14,7 @@ import functools
 import hashlib
 import http.client
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -25,6 +26,9 @@ import tempfile
 import threading
 import time
 import uuid
+
+FIXTURE_REVISION = "inventory-empty-statement-v2"
+PIXEL_ORACLE_REVISION = "exact-required-observed-forbidden-v2"
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -124,14 +128,21 @@ def runtime_profile(build, *, label, logs):
 
 def normalized_words(value):
     require(type(value) is dict and type(value.get("observations")) is list, "pixel_observer_invalid")
+    for row in value["observations"]:
+        require(type(row) is dict and type(row.get("text")) is str
+                and type(row.get("confidence")) in (int, float)
+                and math.isfinite(row["confidence"]) and 0 <= row["confidence"] <= 1,
+                "pixel_observer_invalid")
     return {" ".join(row["text"].upper().split())
-            for row in value["observations"]
-            if type(row) is dict and type(row.get("text")) is str
-            and type(row.get("confidence")) in (int, float) and row["confidence"] >= 0.9}
+            for row in value["observations"] if row["confidence"] >= 0.9}
 
 
-def state_matches(words, required, forbidden):
-    return set(required) <= words and not (set(forbidden) & words)
+def state_matches(value, required, forbidden):
+    # Required text must be exact and confident. An exact forbidden reading,
+    # even uncertain, cannot become evidence of absence by being filtered out.
+    words = normalized_words(value)
+    observed = {" ".join(row["text"].upper().split()) for row in value["observations"]}
+    return set(required) <= words and not (set(forbidden) & observed)
 
 
 def verify_app_logs(snapshot):
@@ -451,7 +462,8 @@ def run_flow(args, build, observer, label, work, *, logs):
     server = None
     thread = None
     session = None
-    proof = {"passed": False, "inputMode": "gesture-batch", "observer": "Apple Vision on real provider JPEG",
+    proof = {"passed": False, "fixtureRevision": FIXTURE_REVISION,
+             "pixelOracleRevision": PIXEL_ORACLE_REVISION, "inputMode": "gesture-batch", "observer": "Apple Vision on real provider JPEG",
              "semanticLocatorSupport": False, "targetBoundTyping": False, "states": [], "receipts": []}
     owner, controller = "ci-owner", "ci-controller"
     try:
@@ -510,13 +522,14 @@ def run_flow(args, build, observer, label, work, *, logs):
                 actual = json.loads(command([str(observer), str(path)], timeout=15))
                 last_words = normalized_words(actual)
                 save(output / (name + "-ocr.json"), actual)
-                if state_matches(last_words, required, forbidden):
+                if state_matches(actual, required, forbidden):
                     # Prove the very same oracle cannot silently accept a wrong state.
-                    require(not state_matches(last_words, ["IMPOSSIBLE FIXTURE STATE"], []),
+                    require(not state_matches(actual, ["IMPOSSIBLE FIXTURE STATE"], []),
                             "pixel_oracle_false_positive")
                     proof["states"].append({"name": name, "frameId": frame["id"],
                         "geometryVersion": frame["geometryVersion"], "imageSha256": hashlib.sha256(image).hexdigest(),
-                        "required": list(required), "forbidden": list(forbidden), "passed": True})
+                        "required": list(required), "forbidden": list(forbidden), "passed": True,
+                        "fixtureRevision": FIXTURE_REVISION, "pixelOracleRevision": PIXEL_ORACLE_REVISION})
                     return
                 time.sleep(0.2)
             raise GateFailure("pixel_state_unconfirmed_" + name + ": " + repr(sorted(last_words)))
@@ -536,7 +549,7 @@ def run_flow(args, build, observer, label, work, *, logs):
         def tap(y):
             send("tap", {"x": 0.5, "y": y})
 
-        observe("01-empty", ["INVENTORY LIST", "ITEM TOTAL ZERO", "NO ITEMS"], ["BLUE MUG"])
+        observe("01-empty", ["INVENTORY LIST", "ITEM TOTAL ZERO", "INVENTORY IS EMPTY"], ["BLUE MUG"])
         tap(0.34)
         observe("02-editor", ["CREATE ITEM", "ITEM TOTAL ZERO", "SAVE ITEM"])
         tap(0.44)
@@ -544,7 +557,7 @@ def run_flow(args, build, observer, label, work, *, logs):
         tap(0.32)
         send("text", {"value": "BLUE MUG"})
         tap(0.44)
-        observe("04-created", ["INVENTORY LIST", "ITEM TOTAL ONE", "BLUE MUG"], ["NO ITEMS", "NAME REQUIRED"])
+        observe("04-created", ["INVENTORY LIST", "ITEM TOTAL ONE", "BLUE MUG"], ["INVENTORY IS EMPTY", "NAME REQUIRED"])
         tap(0.49)
         observe("05-detail", ["ITEM DETAILS", "BLUE MUG", "BACK TO LIST"])
         tap(0.50)
@@ -629,6 +642,7 @@ def main(argv=None):
     args.output.mkdir(parents=True, mode=0o700)
     result = {"schemaVersion": 1, "kind": "configured-uikit-native-ci-proof", "passed": False, "builds": {},
               "executionEnvironment": "github-owned-ios-simulator", "ownership": ownership,
+              "fixtureRevision": FIXTURE_REVISION, "pixelOracleRevision": PIXEL_ORACLE_REVISION,
               "companyAppValidated": False, "physicalDeviceValidated": False,
               "semanticReplayValidated": False, "targetBoundTypingValidated": False,
               "scope": "independent offline UIKit fixture; real Reproof preparation, build, provider, authority, input, pixels and logs"}

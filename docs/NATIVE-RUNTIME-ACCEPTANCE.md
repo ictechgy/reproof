@@ -14,6 +14,33 @@ The iOS lane continues independently. Neither lane has yet established the full
 UI flow at the time this status was added; retain the draft until evidence supports
 a narrower verified claim.
 
+## iOS fixture and pixel-oracle revisions
+
+Run `39983909592` compiled the helper and passed all three native startup-budget
+unit tests. The original fixture reached authenticated startup, verified its
+installed digest, and produced an actual provider JPEG. It did not pass the first
+empty-state assertion: Apple Vision read `NO ITEMS` exactly but assigned confidence
+`0.5`, below the required `0.9`. The text was visibly unclipped and high contrast;
+this is not evidence of a layout defect. The failed result and quarantine outcome
+remain failures, not UI-flow or cleanup acceptance.
+
+Fixture revision `inventory-empty-statement-v2` changes only that displayed
+statement to `INVENTORY IS EMPTY` and its corresponding exact required/forbidden
+strings. The stable ID `inventory.empty`, font, layout, zero-item condition, and
+`BLUE MUG` absence assertion are unchanged. The wording adds context, but any OCR
+benefit remains unproven until a new native run. Results, per-flow proofs, and
+accepted state records identify the fixture revision; build receipts bind the new
+source and artifact digests. The older failure is not relabeled or reinterpreted.
+
+Pixel-oracle revision `exact-required-observed-forbidden-v2` retains the `0.9`
+threshold for required exact text. An exact forbidden reading at any confidence
+now prevents acceptance, rather than disappearing below the confidence threshold.
+Malformed or non-finite confidence values also fail closed. Portable tests
+reproduce the former low-confidence-forbidden false pass and reject it. These
+checks do not establish general OCR accuracy, detect every OCR misreading, or
+provide a semantic locator. No fuzzy matching, alternate accepted wording,
+threshold reduction, or dropped assertion is introduced.
+
 ## Isolation and execution
 
 `.github/workflows/native-runtime.yml` uses standard public GitHub-hosted
