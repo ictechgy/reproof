@@ -200,3 +200,8 @@ artifact. Record the source commit and actual delivered wheel hash, verify that
 wheel outside the checkout, and retain the check reports. The
 [company pilot runbook](COMPANY-PILOT.md) separates this preparation from approved
 company-environment acceptance.
+
+NATIVE_CONTRACTS exercises provider boundary code with synthetic helper replies.
+It checks declared iOS action compatibility before handshake, target installation
+and startup authority, without starting helpers or contacting devices. Passing
+this gate is not native compilation or real-device acceptance.

@@ -46,6 +46,13 @@ must advertise observation launch version 2. Control readiness is independent of
 the first frame; launch acknowledgement requires a fresh target frame. Pixel capture
 remains disabled until the authorized target launch succeeds.
 
+General iOS helpers must report an exact, unique list of the profile's declared
+actions. Simulator and physical adapters reject malformed, missing, extra, or
+duplicate actions before accepting the native handshake. In the authorized
+startup paths this also precedes selected-target installation and startup grants;
+the helper itself may already have started. Legacy sample behavior is unchanged.
+This compatibility check does not add semantic locators or target-bound typing.
+
 Simulator apps are checked again and copied into a private installation snapshot
 before startup. The installed file tree must equal the selected artifact. A
 same-sized older source executable cannot silently retain the previous code.

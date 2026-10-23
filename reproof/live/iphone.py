@@ -23,7 +23,7 @@ from .model import LiveError,check
 from .authority import HELPER_VERSION,NATIVE_PROTOCOL_VERSION
 from .providers import (CAPABILITIES, IosProvider, require_ios_helper_v2,
                         _exact_flat_mapping, _require_ios_runtime_capabilities,
-                        require_runtime_frame)
+                        _require_ios_helper_actions, require_runtime_frame)
 from ..core import ContractError, digest
 from ..ios_cases import case_spec
 from ..ios_instrumentation import profile_from_app
@@ -396,11 +396,9 @@ class PhysicalIosProvider(IosProvider):
                     received=clock.synchronizer.sample() if clock is not None else None
                     if self.profile is not None:
                         check(status.get('targetBundle')==self.profile.bundle
-                              and status.get('applicationProfileDigest')==self.profile.digest
-                              and isinstance(status.get('capabilities'),dict)
-                              and set(status['capabilities'].get('actions',[]))
-                                  == set(self.profile.data['capabilities']['actions']),
+                              and status.get('applicationProfileDigest')==self.profile.digest,
                               'native_profile_mismatch','iPhone helper target identity differs',400)
+                        _require_ios_helper_actions(self.profile,status.get('capabilities'))
                     self._validate_native_frame_buffer(status)
                     if self.device_authority is not None and self.native_handshake is None:
                         try:

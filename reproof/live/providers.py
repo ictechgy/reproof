@@ -69,6 +69,18 @@ def _require_ios_runtime_capabilities(profile, app=None):
               'The selected iOS app must embed its configured observation adapter', 400)
 
 
+def _require_ios_helper_actions(profile, capabilities):
+    """Bind a general helper's complete action list before startup advances."""
+    if profile is None:return
+    actions=capabilities.get('actions') if type(capabilities) is dict else None
+    check(type(actions) is list
+          and all(type(action) is str for action in actions)
+          and len(set(actions))==len(actions)
+          and set(actions)==set(profile.data['capabilities']['actions']),
+          'native_profile_mismatch',
+          'iOS helper actions differ from the selected profile',400)
+
+
 def _exact_flat_mapping(actual,expected):
     return (isinstance(actual,dict) and set(actual)==set(expected)
             and all(type(actual[key]) is type(value) and actual[key]==value
@@ -435,6 +447,9 @@ class IosProvider:
                           'providerIncarnation','nativeIncarnation','nativeClockId','nativeTimeMs'}
                 check(isinstance(body,dict) and set(body)==expected,
                       'native_protocol_mismatch','iOS helper handshake is invalid',400)
+            _require_ios_helper_actions(self.profile,
+                body.get('capabilities') if isinstance(body,dict) else None)
+            if self.device_authority is not None:
                 try:
                     with self._startup_lock:
                         self._startup_window_open_locked()

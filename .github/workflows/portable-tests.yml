@@ -36,6 +36,8 @@ jobs:
         run: python scripts/release-check.py --goal CLI --effects filesystem,process
       - name: Run review-only locator proposal checks
         run: python scripts/release-check.py --goal LOCATOR --effects filesystem,process,loopback
+      - name: Run synthetic native-provider contract checks
+        run: python scripts/release-check.py --goal NATIVE_CONTRACTS --effects filesystem,process
       - name: Run nonmutating deployment preflight checks
         run: python scripts/release-check.py --goal PREFLIGHT --effects filesystem,process
       # Official PyPI build tooling only; not a runtime dependency or publish step.
