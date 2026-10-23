@@ -42,6 +42,9 @@ def main(argv=None):
     if effective == ['installation-check']:
         result=installation_check(); print_summary(result)
         return 0 if result['status']=='ready' else 2
+    if effective and effective[0]=='live-check-config':
+        from .live.preflight import main as preflight_main
+        return preflight_main(effective[1:])
     if effective and effective[0]=='live-admin':
         from .live.configuration import admin_main
         return admin_main(effective[1:])
@@ -85,6 +88,7 @@ def main(argv=None):
     sub.add_parser('android-signing',help='Inspect or recover existing Android signing operations; use --help')
     sub.add_parser('ios-signing',help='Build fixed iOS signing tools, inspect or recover operations; use --help')
     sub.add_parser('ios-mobile',help='Inspect or recover iOS preparation operations; use --help')
+    sub.add_parser('live-check-config',help='Validate public shared deployment configuration without starting services')
     sub.add_parser('protected-service',help='Validate public protected service configuration; use --help')
     assets=sub.add_parser('export-resources',help='Copy public native build sources to a new directory')
     assets.add_argument('--output-new',type=Path,required=True)

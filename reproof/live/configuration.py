@@ -62,7 +62,7 @@ def load_shared_configuration(path):
     source = Path(path).absolute()
     try:
         value = read_json(source)
-    except Exception:
+    except (OSError, ContractError):
         raise ContractError("Shared coordinator configuration could not be loaded") from None
     _require(type(value) is dict and set(value) == {
         "schemaVersion", "kind", "stateRoot", "listen", "projects",
@@ -77,17 +77,30 @@ def load_shared_configuration(path):
     _require(type(listen) is dict and set(listen) == {
         "host", "port", "origin", "tlsCertificateFile", "tlsPrivateKeyFile"})
     host = listen["host"]
-    _require(isinstance(host, str) and host and not any(char in host for char in "/\\"))
+    _require(isinstance(host, str) and host and not any(
+        char.isspace() or ord(char) < 32 or ord(char) == 127 or char in "/\\"
+        for char in host), "Invalid shared coordinator listener host")
     port = listen["port"]
     _require(type(port) is int and 1 <= port <= 65535)
     origin = listen["origin"]
-    parsed = urlsplit(origin)
-    _require(parsed.scheme in {"http", "https"} and parsed.hostname is not None
-             and parsed.port is not None and not parsed.username and not parsed.password
+    _require(isinstance(origin, str) and origin and not any(
+        char.isspace() or ord(char) < 32 or ord(char) == 127 for char in origin),
+        "Invalid shared coordinator origin")
+    try:
+        parsed = urlsplit(origin)
+        origin_host = parsed.hostname
+        configured_port = parsed.port
+    except ValueError:
+        raise ContractError("Invalid shared coordinator origin") from None
+    _require(parsed.scheme in {"http", "https"} and origin_host is not None
+             and configured_port is not None and parsed.username is None and parsed.password is None
              and parsed.path in {"", "/"} and not parsed.query and not parsed.fragment)
     certificate = listen["tlsCertificateFile"]
     private_key = listen["tlsPrivateKeyFile"]
     _require((certificate is None) == (private_key is None))
+    _require(all(value is None or (isinstance(value, str) and value and "\0" not in value)
+                 for value in (certificate, private_key)),
+             "Invalid shared TLS file reference")
     certificate_path = Path(certificate).absolute() if certificate is not None else None
     private_key_path = Path(private_key).absolute() if private_key is not None else None
     if not _is_loopback(host):
@@ -95,12 +108,13 @@ def load_shared_configuration(path):
                  "Non-loopback shared coordination requires TLS")
     if certificate_path is not None:
         _require(parsed.scheme == "https", "TLS configuration requires an HTTPS origin")
+    else:
+        _require(parsed.scheme == "http", "HTTPS origin requires TLS configuration")
     if host in {"0.0.0.0", "::"}:
-        _require(parsed.hostname not in {"0.0.0.0", "::", "localhost"},
+        _require(origin_host not in {"0.0.0.0", "::", "localhost"},
                  "Wildcard listeners require an explicit advertised origin")
-    elif parsed.hostname not in {host, "localhost" if _is_loopback(host) else host}:
+    elif origin_host not in {host, "localhost" if _is_loopback(host) else host}:
         _require(False, "Configured origin does not match the listener")
-    configured_port = parsed.port
     _require(configured_port == port,
              "Configured origin port does not match the listener")
     projects = value["projects"]

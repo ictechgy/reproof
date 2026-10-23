@@ -1155,6 +1155,29 @@
           "gate": "software"
         }
       ]
+    },
+    "PREFLIGHT": {
+      "available": true,
+      "checks": [
+        {
+          "id": "shared-public-configuration",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_shared_preflight",
+            "tests.test_shared_configuration_validation"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }

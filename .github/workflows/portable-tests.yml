@@ -36,3 +36,5 @@ jobs:
         run: python scripts/release-check.py --goal CLI --effects filesystem,process
       - name: Run review-only locator proposal checks
         run: python scripts/release-check.py --goal LOCATOR --effects filesystem,process,loopback
+      - name: Run nonmutating deployment preflight checks
+        run: python scripts/release-check.py --goal PREFLIGHT --effects filesystem,process
