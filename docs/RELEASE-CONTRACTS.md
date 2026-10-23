@@ -203,5 +203,6 @@ company-environment acceptance.
 
 NATIVE_CONTRACTS exercises provider boundary code with synthetic helper replies.
 It checks declared iOS action compatibility before handshake, target installation
-and startup authority, without starting helpers or contacting devices. Passing
+and startup authority, plus Android locator display geometry and incomplete/stale
+observation rejection, without starting helpers or contacting devices. Passing
 this gate is not native compilation or real-device acceptance.

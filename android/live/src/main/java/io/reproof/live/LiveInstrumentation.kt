@@ -653,59 +653,90 @@ class LiveInstrumentation : Instrumentation() {
     }
 
     private fun observeSample(): JSONObject {
-        val profile = config?.profile ?: return statusSnapshot().put("ready", false).put("nodes", org.json.JSONArray())
-        val root = try { automation?.rootInActiveWindow } catch (_: Throwable) { null }
-        if (root?.packageName?.toString() != profile.packageName) {
-            return statusSnapshot()
-                .put("ready", false)
-                .put("nodes", org.json.JSONArray())
-        }
-        val allowIds = profile.targets.all
-        val rootBounds = android.graphics.Rect()
-        root.getBoundsInScreen(rootBounds)
-        val nodes = ArrayList<JSONObject>()
-        var visited = 0
-        fun visit(node: AccessibilityNodeInfo, depth: Int) {
-            if (depth > 50 || visited >= 2000) return
-            visited += 1
-            val resource = node.viewIdResourceName
-            val id = resource?.takeIf { it.startsWith("${profile.packageName}:id/") }?.substringAfterLast('/')
-            if (id != null && id in allowIds) {
-                val bounds = android.graphics.Rect()
-                node.getBoundsInScreen(bounds)
-                val value = JSONObject()
-                    .put("id", id)
-                    .put("bounds", JSONObject().put("left", bounds.left).put("top", bounds.top).put("right", bounds.right).put("bottom", bounds.bottom))
-                    .put("visible", node.isVisibleToUser)
-                    .put("enabled", node.isEnabled)
-                    .put("clickable", node.isClickable)
-                if (id in profile.targets.text) {
-                    value.put("hasText", !node.isShowingHintText && !node.text.isNullOrEmpty())
-                } else if (id in profile.targets.numeric) {
-                    val text = node.text?.toString().orEmpty()
-                    if (text.matches(Regex("\\d{1,9}"))) value.put("text", text)
-                    else value.put("textValid", false)
+        // Do not acquire inputLock (inside statusSnapshot) while holding the
+        // capture lock. The screenshot geometry and frame identity below must
+        // remain one snapshot throughout the bounded accessibility traversal.
+        val result = statusSnapshot()
+        return synchronized(captureLock) {
+            val profile = config?.profile
+                ?: return@synchronized result.put("ready", false).put("nodes", org.json.JSONArray())
+            val observedGeometry = geometryVersion
+            val displayWidth = actualFrameWidth
+            val displayHeight = actualFrameHeight
+            val sourceFrame = frameId
+            val geometryReady = try { sourceFrame > 0 && geometryMatches(observedGeometry) } catch (_: Throwable) { false }
+            val root = try { automation?.rootInActiveWindow } catch (_: Throwable) { null }
+            if (root == null) {
+                return@synchronized result.put("ready", false).put("nodes", org.json.JSONArray())
+            }
+            try {
+                if (root.packageName?.toString() != profile.packageName) {
+                    return@synchronized result.put("ready", false).put("nodes", org.json.JSONArray())
                 }
-                nodes += value
-            }
-            if (depth == 50 || visited >= 2000) return
-            for (index in 0 until node.childCount) {
-                val child = node.getChild(index) ?: continue
-                try { visit(child, depth + 1) } finally { child.recycle() }
-                if (visited >= 2000) return
+                val allowIds = profile.targets.all
+                val rootBounds = android.graphics.Rect()
+                root.getBoundsInScreen(rootBounds)
+                val nodes = ArrayList<JSONObject>()
+                var visited = 0
+                var complete = true
+                fun visit(node: AccessibilityNodeInfo, depth: Int) {
+                    if (depth > 50 || visited >= 2000) { complete = false; return }
+                    visited += 1
+                    val resource = node.viewIdResourceName
+                    val id = resource?.takeIf { it.startsWith("${profile.packageName}:id/") }?.substringAfterLast('/')
+                    if (id != null && id in allowIds) {
+                        val bounds = android.graphics.Rect()
+                        node.getBoundsInScreen(bounds)
+                        val value = JSONObject()
+                            .put("id", id)
+                            .put("bounds", JSONObject().put("left", bounds.left).put("top", bounds.top).put("right", bounds.right).put("bottom", bounds.bottom))
+                            .put("visible", node.isVisibleToUser)
+                            .put("enabled", node.isEnabled)
+                            .put("clickable", node.isClickable)
+                        if (id in profile.targets.text) {
+                            value.put("hasText", !node.isShowingHintText && !node.text.isNullOrEmpty())
+                        } else if (id in profile.targets.numeric) {
+                            val text = node.text?.toString().orEmpty()
+                            if (text.matches(Regex("\\d{1,9}"))) value.put("text", text)
+                            else value.put("textValid", false)
+                        }
+                        nodes += value
+                    }
+                    val childCount = node.childCount
+                    if (depth == 50 && childCount > 0) { complete = false; return }
+                    for (index in 0 until childCount) {
+                        if (visited >= 2000) { complete = false; return }
+                        val child = node.getChild(index)
+                        if (child == null) { complete = false; continue }
+                        try { visit(child, depth + 1) } finally { child.recycle() }
+                    }
+                }
+                visit(root, 0)
+                result.put("ready", true)
+                    // Retain this legacy window field for observation clients;
+                    // it is not the display/input coordinate space.
+                    .put("screenBounds", JSONObject().put("left", rootBounds.left)
+                        .put("top", rootBounds.top).put("right", rootBounds.right)
+                        .put("bottom", rootBounds.bottom))
+                    .put("nodes", org.json.JSONArray(nodes))
+                // Display rotation may happen without a new screenshot. Check
+                // actual display dimensions both before and after acquisition.
+                // Old/missing geometry leaves ordinary observation available,
+                // but cannot supply evidence for locator-driven input.
+                if (geometryReady && geometryVersion == observedGeometry && geometryMatches(observedGeometry)) {
+                    result.put("locatorEvidence", JSONObject()
+                        .put("version", 1).put("coordinateSpace", "display")
+                        .put("displayWidth", displayWidth).put("displayHeight", displayHeight)
+                        .put("geometryVersion", observedGeometry).put("nativeFrameId", sourceFrame)
+                        .put("complete", complete))
+                }
+                result
+            } catch (_: Throwable) {
+                result.put("ready", false).put("nodes", org.json.JSONArray())
+            } finally {
+                root.recycle()
             }
         }
-        try { visit(root, 0) } catch (_: Throwable) {
-            return statusSnapshot()
-                .put("ready", false)
-                .put("nodes", org.json.JSONArray())
-        }
-        return statusSnapshot()
-            .put("ready", true)
-            .put("screenBounds", JSONObject().put("left", rootBounds.left)
-                .put("top", rootBounds.top).put("right", rootBounds.right)
-                .put("bottom", rootBounds.bottom))
-            .put("nodes", org.json.JSONArray(nodes))
     }
 
     private fun stopFromServer(grant: AuthorityGrant?): Boolean {

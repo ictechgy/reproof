@@ -445,31 +445,55 @@ class AndroidLiveProvider:
                 raise LiveError('authority_unavailable',
                                 'Android locator authority is unavailable') from None
         observed = self._validate_native_metadata(self.transport.call('/inspect'))
+        evidence = observed.get('locatorEvidence')
+        expected = {'version', 'coordinateSpace', 'displayWidth', 'displayHeight',
+                    'geometryVersion', 'nativeFrameId', 'complete'}
+        check(observed.get('ready') is True and isinstance(evidence, dict)
+              and set(evidence) == expected
+              and type(evidence.get('version')) is int and evidence['version'] == 1
+              and evidence.get('coordinateSpace') == 'display'
+              and evidence.get('complete') is True
+              and all(type(evidence.get(key)) is int and 0 < evidence[key] <= 2**31 - 1
+                      for key in ('displayWidth', 'displayHeight', 'geometryVersion'))
+              and type(evidence.get('nativeFrameId')) is int
+              and 0 < evidence['nativeFrameId'] <= 2**63 - 1,
+              'observation_failed', 'Android locator geometry is unavailable', 409)
         nodes = observed.get('nodes')
-        screen = observed.get('screenBounds')
+        check(isinstance(nodes, list) and len(nodes) <= 2000,
+              'observation_failed', 'Android locator nodes are invalid', 409)
         matches = [node for node in nodes if isinstance(node, dict)
-                   and node.get('id') == target['value']] if isinstance(nodes, list) else []
-        check(len(matches) == 1 and isinstance(screen, dict)
-              and set(screen) == {'left', 'top', 'right', 'bottom'},
+                   and node.get('id') == target['value']]
+        check(len(matches) == 1,
               'observation_failed', 'Android locator is not uniquely visible', 409)
         node = matches[0]
         bounds = node.get('bounds')
-        numbers = [screen.get(key) for key in ('left', 'top', 'right', 'bottom')]
         values = ([bounds.get(key) for key in ('left', 'top', 'right', 'bottom')]
                   if isinstance(bounds, dict) else [])
-        check(set(bounds or {}) == {'left', 'top', 'right', 'bottom'}
-              and all(type(value) is int for value in numbers + values)
-              and screen['right'] > screen['left']
-              and screen['bottom'] > screen['top']
+        check(isinstance(bounds, dict)
+              and set(bounds) == {'left', 'top', 'right', 'bottom'}
+              and all(type(value) is int and -2**31 <= value <= 2**31 - 1
+                      for value in values)
               and bounds['right'] > bounds['left']
               and bounds['bottom'] > bounds['top']
               and node.get('visible') is True and node.get('enabled') is True,
               'observation_failed', 'Android locator bounds are invalid', 409)
-        frame = self.lab.frame(self.sid)
-        x = ((bounds['left'] + bounds['right']) / 2 - screen['left']) \
-            / (screen['right'] - screen['left'])
-        y = ((bounds['top'] + bounds['bottom']) / 2 - screen['top']) \
-            / (screen['bottom'] - screen['top'])
+        # Accessibility bounds are absolute display pixels. screenBounds is
+        # only the accessibility root/window, and frame dimensions describe a
+        # scaled JPEG. Neither proves the native input coordinate space.
+        width, height = evidence['displayWidth'], evidence['displayHeight']
+        with self.frame_mutex:
+            frame = self.lab.frame(self.sid)
+            native_geometry = self.frame_map.get(frame['id'])
+            check(type(native_geometry) is int
+                  and native_geometry == evidence['geometryVersion']
+                  and 0 < self.last_native_frame <= evidence['nativeFrameId']
+                  and frame.get('orientation') == ('landscape' if width >= height else 'portrait'),
+                  'observation_failed', 'Android locator geometry changed', 409)
+        # Match injectMotion's endpoint mapping, not the JPEG's scale or the
+        # root's origin. Incomplete and legacy snapshots fail only this locator
+        # boundary; their pixel/manual-input capabilities remain unchanged.
+        x = (bounds['left'] + bounds['right']) / 2 / max(1, width - 1)
+        y = (bounds['top'] + bounds['bottom']) / 2 / max(1, height - 1)
         check(0 <= x <= 1 and 0 <= y <= 1,
               'observation_failed', 'Android locator is outside the current frame', 409)
         return {'target': dict(target), 'x': x, 'y': y,

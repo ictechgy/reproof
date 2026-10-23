@@ -1,0 +1,37 @@
+name: Android helper compilation
+
+on:
+  pull_request:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-compile.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-compile.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  compile-live-helper:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify existing toolchain and official wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$JAVA_HOME_17_X64/bin/java"
+          test -f "$ANDROID_HOME/platforms/android-35/android.jar"
+          test -d "$ANDROID_HOME/build-tools/35.0.0"
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          echo '7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172  android/gradle/wrapper/gradle-wrapper.jar' | sha256sum --check --strict
+      - name: Compile helper without packaging, signing, or devices
+        working-directory: android
+        run: ./gradlew --no-daemon --no-build-cache --console=plain :live:compileDebugKotlin
