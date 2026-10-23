@@ -17,10 +17,17 @@ path is tracked in the [current execution plan](docs/PRODUCT-DELIVERY-PLAN.md)
 (the plan document is at r51; see [HANDOFF.md](HANDOFF.md) for physical-device
 progress since then).
 
+For company adoption, follow the [pilot preparation runbook](docs/COMPANY-PILOT.md).
+Verify the exact source commit and wheel; do not assume a published package
+version contains current `main` changes.
+
 ## Status
 
 What is proven and what is still open:
 
+- Pilot preparation now includes a [review-only locator proposal API](docs/LOCATOR-PROPOSALS.md)
+  and [nonmutating configuration preflight](docs/SHARED-PREFLIGHT.md). These have
+  portable software checks, not autonomous healing or new physical-device acceptance.
 - The sample path (record, reproduce, repair, re-verify) runs end to end on
   Android devices, iOS Simulator, and a physical iPhone. In the counter defect
   (one tap on `Add` raises the count by 2), the original reproduced 3/3 and the
@@ -176,10 +183,33 @@ environment blocks, `130` for CLI cancel.
 
 ## Tests
 
-```bash
-python3 -m unittest discover -s tests -t . -v
+Start with explicit portable gates, not full test discovery. The PACKAGE gate
+needs pip/venv and a prepared setuptools wheel builder in the selected Python
+interpreter (CI pins `setuptools==84.0.0`); the installed runtime has no external
+Python dependencies.
 
-# Regression tests on the fixed build
+```bash
+for goal in G0 RUNTIME CLI PREFLIGHT; do
+  python3 scripts/release-check.py --goal "$goal" --effects filesystem,process || exit 1
+done
+for goal in LOCATOR PACKAGE; do
+  python3 scripts/release-check.py --goal "$goal" --effects filesystem,process,loopback || exit 1
+done
+```
+
+These gates cover software contracts, resource integrity, CLI/public configuration
+validation, review-only locator proposals, and a fresh offline installed-package
+smoke check with synthetic loopback services. They do not access real devices,
+compile native tools, invoke external AI, deploy, or establish company/enterprise
+acceptance. Effects select tests; they are not a sandbox. Use the
+[company pilot preparation runbook](docs/COMPANY-PILOT.md) for exact source/wheel
+identity, acceptance evidence, support limits and the approval boundary before
+real-environment work.
+
+Native checks require their own prepared and authorized environment. For example,
+the Android fixed-build regression is a separate lane:
+
+```bash
 cd android
 ./gradlew --offline :sample:testFixedDebugUnitTest :sample:assembleFixedDebug :driver:assembleDebug
 ```

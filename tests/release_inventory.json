@@ -1178,6 +1178,29 @@
           "gate": "software"
         }
       ]
+    },
+    "PACKAGE": {
+      "available": true,
+      "checks": [
+        {
+          "id": "portable-installed-distribution",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_portable_distribution"
+          ],
+          "environment": "python-with-setuptools-and-pip",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }

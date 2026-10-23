@@ -38,3 +38,9 @@ jobs:
         run: python scripts/release-check.py --goal LOCATOR --effects filesystem,process,loopback
       - name: Run nonmutating deployment preflight checks
         run: python scripts/release-check.py --goal PREFLIGHT --effects filesystem,process
+      # Official PyPI build tooling only; not a runtime dependency or publish step.
+      - name: Prepare pinned package-test builder
+        run: |
+          PIP_CONFIG_FILE=/dev/null python -m pip --isolated install --no-cache-dir --index-url https://pypi.org/simple --only-binary=:all: --no-deps setuptools==84.0.0
+      - name: Run isolated installed-package checks
+        run: python scripts/release-check.py --goal PACKAGE --effects filesystem,process,loopback

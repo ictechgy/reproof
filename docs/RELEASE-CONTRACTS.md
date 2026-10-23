@@ -127,17 +127,27 @@ The checked-in inventory selects whole contract/boundary suites and the runner's
 
 ### Portable continuous integration
 
-The `Portable software checks` workflow runs the explicit G0, RUNTIME, and CLI gates on Ubuntu
-with Python 3.11, 3.12, and 3.13 for pull requests and pushes to `main`, or a
-manual dispatch. It needs no third-party Python dependencies and grants only
-read access to repository contents. Checkout credentials are not retained.
+The `Portable software checks` workflow runs explicit G0, RUNTIME, CLI, PREFLIGHT,
+LOCATOR and PACKAGE gates on Ubuntu with Python 3.11, 3.12, and 3.13 for pull
+requests and pushes to `main`, or a manual dispatch. G0, RUNTIME, CLI and PREFLIGHT
+declare filesystem/process effects; LOCATOR and PACKAGE also declare loopback.
+These are test-selection declarations, not an enforced sandbox.
 
-This lane covers the registered contract, boundary, semantic, release-runner,
-runtime-resource integrity, and read-only CLI validation checks only. It does not use test discovery, build or publish packages, or run
-native, browser, device, VM, or repair acceptance checks. A green portable job
-is not evidence that those environment-specific gates have passed. The separate
-PyPI publication workflow is unchanged; this lane does not enforce a publication
-prerequisite or grant release authority.
+The runtime and standard-library gates have no third-party Python dependencies.
+The workflow separately prepares `setuptools==84.0.0` for package construction;
+PACKAGE uses the selected Python interpreter's installed builder and pip/venv.
+Its wheel build, sdist rebuild and fresh virtualenv install are offline, with
+no dependency downloads. CI grants only read access to repository contents and
+does not retain checkout credentials.
+
+This lane covers registered contract, boundary, semantic, release-runner,
+runtime-resource integrity, CLI/configuration validation, locator-proposal and
+installed-package checks. It does not use test discovery, publish packages, or
+run native compilation, browser automation, real-device, VM or repair acceptance.
+A green portable job is not evidence that those environment-specific gates or
+company security/load acceptance have passed. The separate PyPI publication
+workflow is unchanged; this lane does not enforce a publication prerequisite,
+assert that a published version contains these changes, or grant release authority.
 
 The RUNTIME gate uses synthetic temporary checkout/installed asset trees without
 building or installing a package. Resource manifests reject duplicate JSON
@@ -156,3 +166,34 @@ Live CLI preflight tests use mocked provider/server boundaries: invalid numeric
 options fail before configuration, providers, or output creation; invalid
 profiles produce concise usage errors instead of tracebacks. Valid numeric
 boundaries are preserved, and profile I/O errors do not expose OS details.
+
+PREFLIGHT exercises `live-check-config` against temporary public configuration
+files with forbidden-effect mocks. It checks schemas, references, optional output
+namespace separation and bounded/redacted failures without opening an access
+store, reading credentials/TLS keys, resolving secrets, starting services or
+contacting workers/devices. `configuration-validated` always retains
+`executionAuthority: "none"` and an explicit `notChecked` list. It is not deployment
+or runtime readiness; see [shared preflight](SHARED-PREFLIGHT.md).
+
+LOCATOR uses temporary stores, a simulated provider and a loopback fixture service
+to test review-only proposals, authorization, immutable originals/oracles, stale
+and concurrent decisions, atomic publication and revert. It proves neither
+actual-app selector quality nor autonomous self-healing. Applying a proposal
+requires a new approval and original qualification before verification. See
+[locator proposals](LOCATOR-PROPOSALS.md).
+
+PACKAGE selects ten non-native distribution tests plus an installed preflight
+and locator-module smoke check. It builds from an owned public source copy,
+installs a real wheel in a fresh virtualenv outside the checkout, verifies package
+import origin and runtime resources, serves the synthetic console's static assets
+on loopback, and checks source export/no-overwrite, changed-resource rejection,
+private-state exclusion, stale build caches and sdist rebuilding. The three
+installed Kotlin analyzer/instrumentation tests remain excluded because they
+require native tools and cached dependencies. No skipped native test counts as
+portable coverage.
+
+The package gate's temporary wheel does not certify a separately supplied release
+artifact. Record the source commit and actual delivered wheel hash, verify that
+wheel outside the checkout, and retain the check reports. The
+[company pilot runbook](COMPANY-PILOT.md) separates this preparation from approved
+company-environment acceptance.
