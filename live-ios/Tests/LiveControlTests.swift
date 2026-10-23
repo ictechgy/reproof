@@ -310,6 +310,15 @@ final class LiveControlTests: XCTestCase {
         springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
     }
 
+    // Apple forbids disposing a semaphore below its initial count. Model a
+    // completed event like BridgeClient: start at zero, then signal once.
+    // https://developer.apple.com/documentation/dispatch/dispatchsemaphore/init(value:)
+    private func completedStartupResponseSemaphore() -> DispatchSemaphore {
+        let semaphore = DispatchSemaphore(value: 0)
+        semaphore.signal()
+        return semaphore
+    }
+
     /// Pure helper regressions: these tests do not launch a target or send HTTP.
     func testSimulatorStartupBudgetRejectsInvalidDeadlines() throws {
         let key = SimulatorStartupBudget.environmentKey
@@ -358,7 +367,9 @@ final class LiveControlTests: XCTestCase {
             environment: [SimulatorStartupBudget.environmentKey: "43335"], continuousTimeMS: { now }))
         XCTAssertEqual(try budget.remainingTimeInterval(), 42.335, accuracy: 0.000001)
         now += 8_584
-        XCTAssertNoThrow(try budget.wait(for: DispatchSemaphore(value: 1)))
+        let completedResponse = completedStartupResponseSemaphore()
+        XCTAssertNoThrow(try budget.wait(for: completedResponse))
+        XCTAssertEqual(completedResponse.wait(timeout: .now()), .timedOut)
         XCTAssertEqual(try budget.remainingTimeInterval(), 33.751, accuracy: 0.000001)
         XCTAssertEqual(try budget.remainingTimeInterval(limitedBy: 35_000), 25.416, accuracy: 0.000001)
         // A longer received grant cannot renew the original startup deadline.
@@ -368,7 +379,10 @@ final class LiveControlTests: XCTestCase {
         XCTAssertNoThrow(try budget.remainingTimeInterval())
         now = 43_335
         XCTAssertThrowsError(try budget.remainingTimeInterval())
-        XCTAssertThrowsError(try budget.wait(for: DispatchSemaphore(value: 1)))
+        let unconsumedResponse = completedStartupResponseSemaphore()
+        XCTAssertThrowsError(try budget.wait(for: unconsumedResponse))
+        // An already-expired budget rejects before consuming the response.
+        XCTAssertEqual(unconsumedResponse.wait(timeout: .now()), .success)
         now = 999
         XCTAssertThrowsError(try budget.remainingTimeInterval(), "A regressing clock fails closed")
 
@@ -401,7 +415,9 @@ final class LiveControlTests: XCTestCase {
                 reads += 1
                 return reads < 3 ? 1_000 : 2_000
             }))
-        XCTAssertThrowsError(try late.wait(for: DispatchSemaphore(value: 1)))
+        let lateResponse = completedStartupResponseSemaphore()
+        XCTAssertThrowsError(try late.wait(for: lateResponse))
+        XCTAssertEqual(lateResponse.wait(timeout: .now()), .timedOut)
         XCTAssertEqual(reads, 3)
 
         // A suspension-sized continuous-clock jump is noticed after a short slice,
