@@ -127,14 +127,21 @@ The checked-in inventory selects whole contract/boundary suites and the runner's
 
 ### Portable continuous integration
 
-The `Portable software checks` workflow runs this explicit G0 gate on Ubuntu
+The `Portable software checks` workflow runs the explicit G0 and RUNTIME gates on Ubuntu
 with Python 3.11, 3.12, and 3.13 for pull requests and pushes to `main`, or a
 manual dispatch. It needs no third-party Python dependencies and grants only
 read access to repository contents. Checkout credentials are not retained.
 
-This lane covers the registered contract, boundary, semantic, and release-runner
-checks only. It does not use test discovery, build or publish packages, or run
+This lane covers the registered contract, boundary, semantic, release-runner,
+and runtime-resource integrity checks only. It does not use test discovery, build or publish packages, or run
 native, browser, device, VM, or repair acceptance checks. A green portable job
 is not evidence that those environment-specific gates have passed. The separate
 PyPI publication workflow is unchanged; this lane does not enforce a publication
 prerequisite or grant release authority.
+
+The RUNTIME gate uses synthetic temporary checkout/installed asset trees without
+building or installing a package. Resource manifests reject duplicate JSON
+members at every level, including identical and escaped-equivalent digest keys;
+ambiguous metadata cannot report ready, return an asset, or create an export.
+Valid resource reading/export and changed-byte rejection are checked as controls.
+This checks manifest consistency, not authenticity of an unsigned manifest.

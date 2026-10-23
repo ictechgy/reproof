@@ -1084,6 +1084,28 @@
           "gate": "software"
         }
       ]
+    },
+    "RUNTIME": {
+      "available": true,
+      "checks": [
+        {
+          "id": "runtime-resource-integrity",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_runtime_resources"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }
