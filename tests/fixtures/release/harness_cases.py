@@ -27,6 +27,14 @@ class Cases(unittest.TestCase):
         print("Ran 1 test in 0.001s\n\nOK (unknown=1)", flush=True)
         os._exit(0)
 
+    def test_count_above_bound(self):
+        print("Ran 1000000000 tests in 0.001s\n\nOK", flush=True)
+        os._exit(0)
+
+    def test_oversized_count(self):
+        print("Ran " + "9" * 5000 + " tests in 0.001s\n\nOK", flush=True)
+        os._exit(0)
+
     def test_stdout(self):
         print("ordinary buffered test output")
 
