@@ -166,31 +166,78 @@ class ObservationBoundaryTests(unittest.TestCase):
         self.assertEqual(result.verdict, "observed")
         self.assertEqual((result.defect, result.expected), (False, False))
 
-    def test_variable_resolution_obeys_the_replay_deadline(self):
-        class Slow:
-            def resolve(self, context):
-                time.sleep(.4)
-                return "value"
-        self.env.variables._resolvers["secret_text"] = Slow()
+    def _assert_read_obeys_replay_deadline(self, target, attribute):
+        entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+        expired, replay_finished = threading.Event(), threading.Event()
+        approved = self.approve()
         before = len(self.env.control["calls"])
-        started = time.monotonic()
-        result = self.replay(self.approve(), timeout_seconds=.1)
-        self.assertLess(time.monotonic() - started, .35)
-        self.assertEqual(result.verdict, "unknown")
-        self.assertEqual(len(self.env.control["calls"]), before)
+        outcome = {}
+        original = getattr(target, attribute)
+        def slow(*args, **kwargs):
+            outcome["read_thread"] = threading.current_thread()
+            try:
+                # Capture valid evidence while the session is active, then delay
+                # its return. Cleanup must not turn this into a callback error.
+                value = original(*args, **kwargs)
+                entered.set()
+                release.wait()
+                outcome["returned"] = True
+                return value
+            finally:
+                finished.set()
+        def replay():
+            try:
+                outcome["result"] = self.replay(approved, timeout_seconds=.1)
+            except Exception as error:
+                outcome["error"] = error
+            finally:
+                replay_finished.set()
+        # Expire only after the read begins. Approval, fixture startup and
+        # durable cleanup are outside the runner's callback deadline. The
+        # event waits are deadlock watchdogs, not host-speed assertions.
+        clock = lambda: 1.0 if expired.is_set() else 0.0
+        with patch.object(target, attribute, slow), \
+                patch.object(self.env.runner, "monotonic", clock):
+            replay_thread = threading.Thread(target=replay, daemon=True)
+            replay_thread.start()
+            try:
+                self.assertTrue(entered.wait(5), "Replay never reached the read callback")
+                self.assertFalse(replay_finished.is_set())
+                expired.set()
+                self.assertTrue(replay_finished.wait(5),
+                                "Replay waited for the read despite its expired deadline")
+                if "error" in outcome:
+                    raise outcome["error"]
+                self.assertFalse(finished.is_set(), "Read returned before replay finished")
+                self.assertFalse(release.is_set())
+                result = outcome["result"]
+                self.assertEqual(result.verdict, "unknown")
+                self.assertFalse(result.valid)
+                self.assertEqual(len(self.env.control["calls"]), before)
+            finally:
+                expired.set()
+                release.set()
+                replay_thread.join(5)
+                read_thread = outcome.get("read_thread")
+                if read_thread is not None:
+                    read_thread.join(5)
+                self.assertFalse(replay_thread.is_alive(), "Replay thread did not stop")
+                if read_thread is not None:
+                    self.assertFalse(read_thread.is_alive(), "Read thread did not stop")
+            self.assertTrue(finished.is_set())
+            self.assertTrue(outcome.get("returned"), "Read callback did not return its value")
+            self.assertEqual(len(self.env.control["calls"]), before,
+                             "Late read completion dispatched input after expiry")
+
+    def test_variable_resolution_obeys_the_replay_deadline(self):
+        class Resolver:
+            def resolve(self, context):
+                return "value"
+        self.env.variables._resolvers["secret_text"] = Resolver()
+        self._assert_read_obeys_replay_deadline(Resolver, "resolve")
 
     def test_slow_locator_cannot_dispatch_input_after_the_deadline(self):
-        original = ScenarioProvider.resolve_locator
-        def slow(provider, target):
-            time.sleep(.4)
-            return original(provider, target)
-        before = len(self.env.control["calls"])
-        started = time.monotonic()
-        with patch.object(ScenarioProvider, "resolve_locator", slow):
-            result = self.replay(self.approve(), timeout_seconds=.1)
-        self.assertLess(time.monotonic() - started, .35)
-        self.assertEqual(result.verdict, "unknown")
-        self.assertEqual(len(self.env.control["calls"]), before)
+        self._assert_read_obeys_replay_deadline(ScenarioProvider, "resolve_locator")
 
     def test_secret_in_observation_metadata_is_rejected_before_persistence(self):
         secret = "private_account_marker"
