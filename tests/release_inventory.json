@@ -1204,6 +1204,28 @@
           "gate": "software"
         }
       ]
+    },
+    "NATIVE_CONTRACTS": {
+      "available": true,
+      "checks": [
+        {
+          "id": "native-provider-contracts",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_ios_helper_capabilities"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }
