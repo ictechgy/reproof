@@ -29,9 +29,10 @@ def _command(argv, *, cwd, timeout=90):
                           capture_output=True, text=True, timeout=timeout)
 
 
-def _builder():
-    for executable in dict.fromkeys(filter(None, (sys.executable, shutil.which('python3.11'),
-                                                  shutil.which('python3.12')))):
+def _builder(exact_executable=None):
+    candidates = ((exact_executable,) if exact_executable else
+                  (sys.executable, shutil.which('python3.11'), shutil.which('python3.12')))
+    for executable in dict.fromkeys(filter(None, candidates)):
         checked = _command([executable, '-I', '-c',
             'from setuptools.command.bdist_wheel import bdist_wheel'], cwd=ROOT)
         if checked.returncode == 0:
@@ -46,12 +47,12 @@ class InstalledDistributionTests(unittest.TestCase):
         cls.addClassCleanup(cls.temporary.cleanup)
         cls.root = Path(cls.temporary.name).resolve()
         cls.source = cls.root / 'build-input'; cls.source.mkdir()
-        cls.builder = _builder()
+        cls.builder = _builder(getattr(cls, 'builder_executable', None))
         # Only the public package and explicitly declared release resources enter
         # this owned build copy. The installer never receives repository tests.
         paths = [p.relative_to(ROOT).as_posix() for p in (ROOT / 'reproof').rglob('*.py')
                  if '__pycache__' not in p.parts and '_assets' not in p.parts]
-        paths += ['pyproject.toml']
+        paths += ['pyproject.toml', 'README.md', 'LICENSE']
         for name in ('setup.py', 'distribution-resources.json', 'MANIFEST.in'):
             if (ROOT / name).is_file(): paths.append(name)
         if (ROOT / 'distribution-resources.json').is_file():
