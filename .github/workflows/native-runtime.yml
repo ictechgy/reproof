@@ -32,8 +32,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Explicitly blocked after unaccelerated helper-startup failures.
+  # A skipped job is NOT Android runtime acceptance; keep PR draft.
+  # Do not grant KVM access without separate approval for the exact CI run.
   android:
-    if: github.event.repository.private == false
+    name: Android runtime (blocked pending acceleration approval)
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:

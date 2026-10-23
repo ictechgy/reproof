@@ -1,9 +1,12 @@
 """Portable CI fixture guards/oracles; never invokes Apple tools or a device."""
 import copy
+from contextlib import redirect_stdout
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -22,6 +25,15 @@ ENV = {"GITHUB_ACTIONS": "true", "RUNNER_OS": "macOS", "RUNNER_ENVIRONMENT": "gi
        "GITHUB_REPOSITORY": "ictechgy/reproof", "GITHUB_RUN_ID": "42", "GITHUB_RUN_ATTEMPT": "1"}
 DEVICE = {"name": NAME, "udid": UUID, "state": "Booted", "isAvailable": True,
           "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-16"}
+
+
+def synthetic_build():
+    return {"app": Path("/owned-synthetic/InventoryFixture.app"), "receipt": {
+        "schemaVersion": 2, "kind": "configured-uikit-build", "platform": "ios",
+        "applicationId": "io.reproof.fixture.inventory", "executionEnvironment": "simulator",
+        "artifactDigest": "a" * 64, "artifactBytes": 4096, "sourceDigest": "b" * 64,
+        "bundleVersion": "1.0", "bundleBuild": "1", "buildCompleted": True,
+        "signed": False, "automaticObservations": False}}
 
 
 class IOSNativeFixtureHarnessTests(unittest.TestCase):
@@ -113,7 +125,6 @@ class IOSNativeFixtureHarnessTests(unittest.TestCase):
                     prepare_ios_instrumentation(source, lexical_root / "prepared", profile=profile)
                 self.assertFalse((lexical_root / "prepared").exists())
                 # Use the same helper as main with an owner-created directory.
-                from types import SimpleNamespace
                 canonical = HARNESS.owned_temporary_root(SimpleNamespace(name=name))
                 self.assertEqual(canonical.parent, real_parent)
                 self.assertNotEqual(canonical, lexical_root)
@@ -128,6 +139,68 @@ class IOSNativeFixtureHarnessTests(unittest.TestCase):
                 # The production rejection is retained after successful preparation.
                 with self.assertRaisesRegex(ContractError, "real existing parent directories"):
                     prepare_ios_instrumentation(source, lexical_root / "another", profile=profile)
+
+    def test_semantic_probe_reaches_exact_unsupported_gate_before_provider_effects(self):
+        from reproof.live import providers
+        args = SimpleNamespace(simulator=UUID, helper_products=Path("/owned-synthetic/products"))
+        with patch.object(HARNESS, "ios_device", wraps=providers.ios_device) as selected, \
+             patch.object(providers, "_general_ios_simulator_identity") as identity, \
+             patch.object(providers, "IosProvider") as provider, \
+             patch.object(providers.subprocess, "run") as native_run, \
+             patch.object(providers.subprocess, "Popen") as native_start:
+            result = HARNESS.reject_semantic_claim(args, synthetic_build())
+        self.assertEqual(result, {"status": "unsupported", "code": "unsupported_operation",
+                                  "beforeProviderStartup": True, "coordinateFallback": False})
+        self.assertEqual(selected.call_args.kwargs["profile"]["capabilities"]["locator"]["targets"],
+                         ["inventory_save"])
+        identity.assert_not_called()
+        provider.assert_not_called()
+        native_run.assert_not_called()
+        native_start.assert_not_called()
+        # A malformed declaration is an invalid contract, never capability proof.
+        invalid = synthetic_build()
+        invalid["receipt"]["artifactDigest"] = "invalid-sha"
+        with patch.object(HARNESS, "ios_device") as selected:
+            with self.assertRaises(ContractError) as rejected:
+                HARNESS.reject_semantic_claim(args, invalid)
+            selected.assert_not_called()
+        self.assertNotIsInstance(rejected.exception, HARNESS.LiveError)
+
+    def test_completed_build_receipts_survive_later_failure(self):
+        # Exercise main's result writes with inert build/Apple-tool doubles only.
+        for fail_at in ("second_build", "semantic_probe"):
+            with self.subTest(fail_at=fail_at), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve(strict=True)
+                products = root / "products"
+                products.mkdir()
+                output = root / "evidence"
+                completed = synthetic_build()
+                calls = []
+
+                def build(*args, **kwargs):
+                    # Each prior build must already be persisted before this call.
+                    if calls:
+                        stored = json.loads((output / "result.json").read_text())
+                        self.assertEqual(len(stored["builds"]), len(calls))
+                    if fail_at == "second_build" and calls:
+                        raise HARNESS.GateFailure("synthetic second build failure")
+                    calls.append(args[1].name)
+                    return copy.deepcopy(completed)
+
+                with patch.object(HARNESS, "verify_ci_simulator", return_value={}), \
+                     patch.object(HARNESS, "build_observation_app", side_effect=build), \
+                     patch.object(HARNESS, "command", return_value=b""), \
+                     patch.object(HARNESS, "reject_semantic_claim", side_effect=HARNESS.GateFailure("synthetic probe failure")), \
+                     patch.object(HARNESS, "run_flow") as flow, redirect_stdout(io.StringIO()):
+                    with self.assertRaises(HARNESS.GateFailure):
+                        HARNESS.main(["--simulator", UUID, "--owned-simulator-name", NAME,
+                                      "--helper-products", str(products), "--output", str(output)])
+                    flow.assert_not_called()
+                result = json.loads((output / "result.json").read_text())
+                self.assertFalse(result["passed"])
+                self.assertEqual(set(result["builds"]), {"original"} if fail_at == "second_build"
+                                 else {"original", "instrumented", "release"})
+                self.assertTrue(all(row["buildCompleted"] for row in result["builds"].values()))
 
     def test_log_gate_rejects_missing_screen_or_lost_events(self):
         events = [{"type": "click", "name": phase, "target": target}

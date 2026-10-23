@@ -5,6 +5,15 @@ MIT license. It does not download third-party apps, use customer data or account
 or operate a developer's phone or Mac. It is not company-app acceptance and does not
 establish Compose, SwiftUI, or automatic self-healing support.
 
+## Current acceptance state
+
+The Android runtime job is explicitly paused after software-emulator helper
+handshake failures. Its skipped status is not acceptance. Hardware acceleration
+permission has not been granted; no KVM ACL or host security setting is changed.
+The iOS lane continues independently. Neither lane has yet established the full
+UI flow at the time this status was added; retain the draft until evidence supports
+a narrower verified claim.
+
 ## Isolation and execution
 
 `.github/workflows/native-runtime.yml` uses standard public GitHub-hosted

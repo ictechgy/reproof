@@ -300,8 +300,10 @@ def run_flow(args, build, observer, label, work, *, logs):
 
 def reject_semantic_claim(args, build):
     profile = copy.deepcopy(runtime_profile(build, label="instrumented", logs=True).data)
+    # Runtime locator targets are contract IDs, not UIKit accessibility IDs.
+    # Keep this synthetic capability probe valid so it reaches the provider gate.
     profile["capabilities"]["locator"] = {"kind": "xctest-accessibility", "version": 1,
-                                            "targets": ["inventory.save"]}
+                                            "targets": ["inventory_save"]}
     profile["capabilities"]["observations"].append("accessibility")
     try:
         ios_device(args.simulator, args.helper_products, profile["bundle"],
@@ -326,7 +328,7 @@ def main(argv=None):
     require(not args.output.exists(), "new_output_required")
     require(args.helper_products.is_dir(), "built_helper_products_required")
     args.output.mkdir(parents=True, mode=0o700)
-    result = {"schemaVersion": 1, "kind": "configured-uikit-native-ci-proof", "passed": False,
+    result = {"schemaVersion": 1, "kind": "configured-uikit-native-ci-proof", "passed": False, "builds": {},
               "executionEnvironment": "github-owned-ios-simulator", "ownership": ownership,
               "companyAppValidated": False, "physicalDeviceValidated": False,
               "semanticReplayValidated": False, "targetBoundTypingValidated": False,
@@ -341,16 +343,20 @@ def main(argv=None):
         preparation = prepare_ios_instrumentation(source, work / "prepared", profile=profile)
         require(preparation["productSourcesUnchanged"] is True, "product_sources_changed")
         original = build_observation_app(source, work / "original-build", profile=profile)
+        result["builds"]["original"] = copy.deepcopy(original["receipt"])
+        save(args.output / "result.json", result)
         instrumented = build_observation_app(preparation["source"], work / "instrumented-build")
+        result["builds"]["instrumented"] = copy.deepcopy(instrumented["receipt"])
+        save(args.output / "result.json", result)
         release = build_observation_app(preparation["source"], work / "release-build", configuration="Release")
+        result["builds"]["release"] = copy.deepcopy(release["receipt"])
+        save(args.output / "result.json", result)
         require(release["receipt"]["automaticObservations"] is False and release["receipt"]["signed"] is False,
                 "release_not_uninstrumented_unsigned")
         observer = work / "observe-frame"
         command(["/usr/bin/xcrun", "swiftc", "-O", "-framework", "Vision", "-framework", "Foundation",
                  str(source / "ObserveFrame.swift"), "-o", str(observer)], timeout=90)
         result["unsupportedSemanticProfile"] = reject_semantic_claim(args, instrumented)
-        result["builds"] = {label: build["receipt"] for label, build in (
-            ("original", original), ("instrumented", instrumented), ("release", release))}
         result["original"] = run_flow(args, original, observer, "original", work, logs=False)
         result["instrumented"] = run_flow(args, instrumented, observer, "instrumented", work, logs=True)
         require([row["name"] for row in result["original"]["states"]]
