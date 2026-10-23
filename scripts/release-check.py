@@ -107,6 +107,8 @@ def run_check(check):
     started = time.monotonic()
     command = [sys.executable] + check["command"][1:]
     environment = os.environ.copy()
+    # Keep ordinary test stdout ahead of unittest's stderr summary.
+    environment["PYTHONUNBUFFERED"] = "1"
     tests_path = str(ROOT / "tests")
     inherited_path = environment.get("PYTHONPATH")
     environment["PYTHONPATH"] = (tests_path + os.pathsep + inherited_path
@@ -143,7 +145,12 @@ def run_check(check):
     text = bytes(output[:MAX_OUTPUT]).decode("utf-8", "replace")
     matches = re.findall(r"^Ran ([0-9]+) tests?(?: in [^\n]+)?$", text, flags=re.MULTILINE)
     count = int(matches[-1]) if matches else 0
-    passed = process.returncode == 0 and count > 0 and reason is None
+    # unittest exits successfully even when every test is skipped or expected
+    # to fail. Required release checks need the complete, clean success footer,
+    # not just a nonzero testsRun count (which includes those outcomes).
+    complete = re.search(r"^Ran [0-9]+ tests? in [0-9]+(?:\.[0-9]+)?s\n\nOK\n?\Z",
+                         text, flags=re.MULTILINE) is not None
+    passed = process.returncode == 0 and count > 0 and complete and reason is None
     item = {"id": check["id"], "gate": check["gate"], "environment": check["environment"],
             "command": check["command"], "requiredEffects": check["effects"],
             "evidence": check["evidence"], "returncode": process.returncode, "testsRun": count,
