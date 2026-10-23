@@ -1,0 +1,92 @@
+name: Owned native runtime acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'live-ios/**'
+      - 'ios-native-fixture/**'
+      - 'reproof/**'
+      - 'scripts/*runtime*'
+      - 'scripts/ios-native-fixture-qa.py'
+      - 'scripts/ci/**'
+      - '.github/workflows/native-runtime.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'live-ios/**'
+      - 'ios-native-fixture/**'
+      - 'reproof/**'
+      - 'scripts/*runtime*'
+      - 'scripts/ios-native-fixture-qa.py'
+      - 'scripts/ci/**'
+      - '.github/workflows/native-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-runtime-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build repository-owned debug apps in disposable home
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$JAVA_HOME_17_X64/bin/java"
+          test -f "$ANDROID_HOME/platforms/android-35/android.jar"
+          test -d "$ANDROID_HOME/build-tools/35.0.0"
+          echo '7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172  android/gradle/wrapper/gradle-wrapper.jar' | sha256sum --check --strict
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          export HOME="$RUNNER_TEMP/reproof-build-home"
+          export ANDROID_USER_HOME="$RUNNER_TEMP/reproof-android-home"
+          export GRADLE_USER_HOME="$RUNNER_TEMP/reproof-gradle"
+          mkdir -p "$HOME" "$ANDROID_USER_HOME" "$GRADLE_USER_HOME"
+          cd android
+          ./gradlew --no-daemon --no-build-cache --console=plain -Duser.home="$HOME" :live:assembleDebug :runtime-fixture:assembleDebug
+      - name: Exercise Reproof on an owned offline emulator
+        run: bash scripts/ci/android-runtime.sh
+      - name: Preserve only runtime evidence, never signing keys
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-native-runtime
+          path: ${{ runner.temp }}/reproof-runtime-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+
+  ios:
+    if: github.event.repository.private == false
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exercise Reproof on an owned offline simulator
+        run: bash scripts/ci/ios-runtime.sh
+      - name: Preserve runtime evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-native-runtime
+          path: ${{ runner.temp }}/reproof-runtime-evidence/
+          if-no-files-found: warn
+          retention-days: 7
