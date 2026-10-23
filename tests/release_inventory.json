@@ -1142,7 +1142,10 @@
             "python3",
             "-m",
             "unittest",
-            "tests.test_locator_proposals"
+            "tests.test_locator_proposals",
+            "tests.test_locator_failure_semantics",
+            "tests.test_g4_locator_boundaries",
+            "tests.test_g4_observation_boundaries"
           ],
           "environment": "local-python-standard-library",
           "effects": [
@@ -1150,7 +1153,7 @@
             "process",
             "loopback"
           ],
-          "timeoutSeconds": 60,
+          "timeoutSeconds": 90,
           "evidence": "unittest-summary",
           "gate": "software"
         }

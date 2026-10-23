@@ -180,3 +180,31 @@ matching, an approval UI and runtime fallback are not implemented.
 Record unperformed checks as unperformed, with an owner and the approval or
 environment input needed next. Keep prior results historical rather than
 claiming they were rerun for this pilot.
+
+## Android and iOS locator compatibility checkpoint
+
+Select the actual UI framework and build profile before promising a locator-based
+pilot on either platform. The current Android general-app provider resolves only
+registered resource IDs, with one visible/enabled match; role/ancestor locator
+options are not implemented by that provider. General iOS Simulator/physical
+providers do not currently advertise semantic locator support, and the remote
+provider has no locator resolver. Do not enable a capability merely to bypass
+those refusals or turn an unsupported locator into an implicit coordinate tap.
+
+Known unsupported locator requests are rejected before input and produce the
+runner's `failed` verdict consistently, including Android provider refusals.
+Observation/transport failures remain `unknown`. Neither result is an app-defect
+proof or a passing qualification; no assertion is relaxed. Provider exception
+text is not exposed as a public diagnostic.
+
+Native text input uses current focus. Existing production descriptors do not
+provide the trusted `recordingTextTarget` binding required for release text
+recording, so that path remains blocked; a locator lookup is not proof of target
+focus. Do not add an implicit tap or advertise target-bound typing without a
+separately verified implementation.
+
+For the next actual-app acceptance step, supply the Android build form and UI
+framework, iOS Simulator or signed device build and UI framework, owned test
+devices/OS versions, and isolated account/fixture/observer environment. Platform
+selection alone does not authorize installation, reset, account access, network
+capture, signing, or external AI transfer.
