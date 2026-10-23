@@ -138,3 +138,11 @@ gate는 별도 상태ful backend, coordinator와 실제 worker CLI 프로세스 
 G9 연결 후 현재 G7 검사 61개도 `artifacts/qa-delivery/g9-regression-g7-r1.json`에서 통과했다. 현재 전체 검사 대조는 `g9-parent-covered-tests.json`을 따른다. 고유 검사 1,026개 중 1,023개는 통과 근거가 있고, 고정 Android 의존성 검사 3개는 차단됐다. helper의 최신 offline 시도는 Gradle 8.14.5를 실행했지만 AGP 8.13.2를 해석하지 못했다. 이 결과를 전체 회귀 검사 통과로 해석하지 않는다.
 
 `--environment /explicit/native-descriptor.json`은 명시된 native 환경의 필수 정보·소유권 선언을 검사한다. 실제 두 Mac·실기기·회사 앱·접근 credential·fixture 검증이 없으면 `blocked-unqualified`이며 이를 합성 환경으로 대신 통과시키지 않는다. G7의 로컬 통과는 회사 QA·두 Mac 실기기·G8 VM·G9 보호 수정 acceptance가 아니다.
+
+## Review-only locator proposals
+
+The shared API now supports [review-only locator proposals](LOCATOR-PROPOSALS.md).
+A maintainer may propose one stable target change, then explicitly apply it as a
+new unapproved revision. Assertions and original evidence remain unchanged. This
+is not automatic candidate generation or runtime fallback; see the linked
+contract, limits and pilot verification boundary before enabling a workflow.

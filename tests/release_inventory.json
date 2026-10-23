@@ -1132,6 +1132,29 @@
           "gate": "software"
         }
       ]
+    },
+    "LOCATOR": {
+      "available": true,
+      "checks": [
+        {
+          "id": "review-only-locator-proposals",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_locator_proposals"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }
