@@ -277,3 +277,11 @@ The shared native CLI supports multiple registered projects through a fresh
 grant for each selected project/session. Physical and two-Mac acceptance remain
 separate from the software and same-Mac CLI checks described in the
 [worker runtime guide](WORKER-RUNTIME.md).
+
+## Nonmutating configuration check
+
+Use [`reproof live-check-config`](SHARED-PREFLIGHT.md) before initializing state or
+starting the coordinator. It validates public configuration and selected
+references, without opening access state, reading credentials/TLS keys, binding
+ports or contacting devices. `configuration-validated` is not runtime readiness
+or authorization; see the explicit unchecked acceptance requirements.
