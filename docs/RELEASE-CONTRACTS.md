@@ -124,3 +124,17 @@ python3 scripts/release-check.py --goal G0 --effects filesystem,process
 ```
 
 The checked-in inventory selects whole contract/boundary suites and the runner's own fault checks; the separate test that invokes the full gate is excluded from that gate to avoid recursion. Every entry declares its command, environment, effects, timeout, evidence type, and software/environment gate. The entire registry is validated before any command runs. Unknown/unavailable goals, malformed/empty registries, unregistered commands, and missing effects block execution. Timeouts, excess output, test failures, and zero/missing test evidence fail a check. Required checks must finish with a complete unittest summary and plain `OK`: skipped tests (even alongside passing tests), expected failures, and missing or unrecognized result summaries fail closed. `testsRun` is the reported execution count, not a count of passing tests. Child Python output is unbuffered so ordinary test stdout cannot appear after and obscure the final summary. Child output is bounded while reading, and owned process groups are terminated at completion or failure. The report retains actual exit code, elapsed time, command, test count, and bounded summary. Issue packages cannot register executable commands.
+
+### Portable continuous integration
+
+The `Portable software checks` workflow runs this explicit G0 gate on Ubuntu
+with Python 3.11, 3.12, and 3.13 for pull requests and pushes to `main`, or a
+manual dispatch. It needs no third-party Python dependencies and grants only
+read access to repository contents. Checkout credentials are not retained.
+
+This lane covers the registered contract, boundary, semantic, and release-runner
+checks only. It does not use test discovery, build or publish packages, or run
+native, browser, device, VM, or repair acceptance checks. A green portable job
+is not evidence that those environment-specific gates have passed. The separate
+PyPI publication workflow is unchanged; this lane does not enforce a publication
+prerequisite or grant release authority.
