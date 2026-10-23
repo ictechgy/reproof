@@ -29,7 +29,8 @@ the declared dimensions and orientations.
 
 Android supports a selected single APK and checks the installed APK digest.
 Split APK qualification is unavailable. Its optional resource-ID locator binds
-a fresh native acquisition to the current frame and geometry. iOS currently
+a fresh native acquisition to the current frame and geometry, using the versioned
+`locatorEvidence` contract described below. iOS currently
 supports the declared gesture/launch actions and pixels. General accessibility
 locators remain unavailable. Its optional `repro-app-log` adapter requires the
 selected app to embed a matching [configured UIKit observation profile](IOS-APP-OBSERVATIONS.md).
@@ -240,3 +241,26 @@ Physical iPhone/Android operation, installed-app query compatibility, signed
 product acceptance, two-Mac TLS/USB behavior, and company QA/fixtures are pending
 their authorized environment inputs. Synthetic adapters and compilation do not
 establish these acceptance results.
+
+## Android locator geometry compatibility
+
+Locator inspection now requires `locatorEvidence` version 1: display coordinate
+space, original display width/height, native geometry version and source frame ID,
+and a complete bounded accessibility traversal. The existing `screenBounds` field
+is the accessibility window/root, not the full display, and must never be used to
+normalize injected coordinates. Scaled JPEG dimensions are not display dimensions.
+
+Upgrade the host and rebuild the helper from the same reviewed source before using
+resource-ID replay. An older helper without this evidence retains pixel/manual-input
+behavior, but locator resolution fails closed as an uncertain observation; it never
+falls back to guessed coordinates. Truncated trees, duplicate/missing targets,
+disabled/invisible targets, rotation/geometry mismatch and stale acquisition also
+fail closed. Only registered exact resource IDs are supported, not Compose test tags
+or role/ancestor matching. This contract does not make a screenshot and semantic
+tree an atomic UI snapshot, prove target focus for text, or add automatic healing.
+
+The Android helper compilation workflow checks the existing Gradle project with
+JDK 17 and SDK 35 using `:live:compileDebugKotlin`. It verifies the official Gradle
+wrapper/distribution hashes and performs no APK installation, device use, signing,
+or publishing. Compile success and synthetic geometry regressions do not replace
+inset/dialog/rotation/duplicate-ID acceptance on an approved physical device.

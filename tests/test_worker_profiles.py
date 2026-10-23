@@ -289,18 +289,26 @@ class GeneralApplicationProfileTests(unittest.TestCase):
             "capabilities": {"actions": profile.data["capabilities"]["actions"]},
             "screenBounds": {"left": 0, "top": 0, "right": 1000,
                              "bottom": 2000},
+            "locatorEvidence": {"version": 1, "coordinateSpace": "display",
+                                "displayWidth": 1000, "displayHeight": 2000,
+                                "geometryVersion": 5, "nativeFrameId": 11,
+                                "complete": True},
             "nodes": [{"id": "checkout_button",
                        "bounds": {"left": 400, "top": 800,
                                   "right": 600, "bottom": 1000},
                        "visible": True, "enabled": True}],
         }
         provider.lab = Mock()
-        provider.lab.frame.return_value = {"id": 7, "geometryVersion": 3}
+        provider.lab.frame.return_value = {"id": 7, "geometryVersion": 3,
+                                          "orientation": "portrait"}
+        provider.frame_map[7] = 5
+        provider.last_native_frame = 11
         provider.sid = "session"
         provider.provider_incarnation = "provider_current"
         result = provider.resolve_locator(
             {"kind": "resource-id", "value": "checkout_button"})
-        self.assertEqual((result["x"], result["y"]), (0.5, 0.45))
+        self.assertAlmostEqual(result["x"] * 999, 500)
+        self.assertAlmostEqual(result["y"] * 1999, 900)
         self.assertEqual((result["frameId"], result["geometryVersion"]), (7, 3))
         with self.assertRaises(Exception):
             provider.resolve_locator(

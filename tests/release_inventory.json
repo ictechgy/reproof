@@ -1214,7 +1214,9 @@
             "python3",
             "-m",
             "unittest",
-            "tests.test_ios_helper_capabilities"
+            "tests.test_ios_helper_capabilities",
+            "tests.test_android_locator_geometry",
+            "tests.test_worker_profiles"
           ],
           "environment": "local-python-standard-library",
           "effects": [
