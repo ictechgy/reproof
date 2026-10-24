@@ -338,7 +338,7 @@ class IosProvider:
             self._check_permit(permit)
             command['authority']=self.device_authority.native_grant(permit,self.native_handshake).wire()
         event=threading.Event()
-        pending={'event':event,'result':None,'authority':command.get('authority')}
+        pending={'event':event,'result':None,'authority':command.get('authority'),'action':action}
         with self.lock:self.pending[command['id']]=pending
         try:
             self.commands.put_nowait(command)
@@ -511,11 +511,22 @@ class IosProvider:
                               and keys<={'id','ok','timing','error'}
                               and ('timing' not in body or body['timing']=='best-effort'))
                 expected={'id','ok','timing','authority'}|({'error'} if 'error' in body else set())
+                cleanup_success=(self.device_authority is not None
+                                 and pending.get('action')=='authority_cleanup'
+                                 and body.get('ok') is True)
+                if cleanup_success:expected.add('cleanupEvidence')
                 shared_valid=(self.device_authority is not None and keys==expected
                               and body.get('timing')=='best-effort'
                               and _exact_flat_mapping(body.get('authority'),pending['authority']))
                 check((legacy_valid or shared_valid) and type(body.get('ok')) is bool,
                       'authority_rejected','Native acknowledgement is not bound',409)
+                if cleanup_success:
+                    # Only the trusted pending action can admit termination
+                    # evidence, and it must identify this authorized app.
+                    check(_exact_flat_mapping(body.get('cleanupEvidence'),{
+                              'bundleId':self.bundle,'state':'not-running',
+                              'observer':'xctest-application-state'}),
+                          'authority_rejected','Native cleanup evidence is not bound',409)
                 result={'ok':body.get('ok') is True,'timing':'best-effort'}
                 error=body.get('error')
                 if result['ok'] is False and isinstance(error,str) and re.fullmatch(r'[a-z_]{1,64}',error):
