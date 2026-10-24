@@ -1,0 +1,46 @@
+name: Capture Vision four-observation comparison
+
+# Exactly one opened event, not synchronize, push, dispatch, or automatic reruns.
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/owned-native-runtime-acceptance]
+    paths:
+      - 'diagnostics/capture-vision/**'
+      - 'diagnostics/offline-vision/**'
+      - '.github/workflows/capture-vision-comparison.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: capture-vision-comparison-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    if: >-
+      github.event.repository.private == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.run_attempt == 1
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - name: Check out same-repository pull request
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run inert tests with child-process guards
+        run: python3 diagnostics/capture-vision/run_tests.py
+      - name: Compare two archived JPEGs during capture and after verified shutdown
+        run: bash diagnostics/capture-vision/run-ci.sh
+      - name: Preserve bounded redacted result only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capture-vision-comparison
+          path: ${{ runner.temp }}/capture-vision-report.json
+          if-no-files-found: warn
+          retention-days: 7
