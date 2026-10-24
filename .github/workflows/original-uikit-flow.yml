@@ -1,0 +1,45 @@
+name: Original UIKit one-shot flow diagnostic
+
+# A new PR opened once; no synchronize, push, dispatch, or automatic reruns.
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/owned-native-runtime-acceptance]
+    paths:
+      - 'diagnostics/original-flow/**'
+      - '.github/workflows/original-uikit-flow.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: original-uikit-flow-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  original-flow:
+    if: >-
+      github.event.repository.private == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.run_attempt == 1
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - name: Check out same-repository pull request
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run inert tests with process and socket denial
+        run: python3 diagnostics/original-flow/run_tests.py
+      - name: Run original UIKit flow once, stop on first failure
+        run: bash diagnostics/original-flow/run-ci.sh
+      - name: Preserve only synthetic frame and observation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-uikit-flow
+          path: ${{ runner.temp }}/original-flow-evidence/
+          if-no-files-found: warn
+          retention-days: 7
