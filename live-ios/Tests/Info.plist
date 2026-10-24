@@ -22,6 +22,8 @@
 	<integer>2</integer>
 	<key>ReproLiveHelperVersion</key>
 	<integer>2</integer>
+	<key>ReproLiveSimulatorStartupBudgetVersion</key>
+	<integer>1</integer>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

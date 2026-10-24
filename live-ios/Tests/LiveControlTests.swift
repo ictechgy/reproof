@@ -184,6 +184,77 @@ private func nativeContinuousTimeMS() -> Int64 {
     return Int64(min(milliseconds, Double(Int64.max)))
 }
 
+/// An absolute host-issued simulator budget, never a fresh per-request window.
+/// The injected clock is also used by the bounded semaphore loop, because a
+/// DispatchTime wait alone does not account for suspended time on every OS.
+private struct SimulatorStartupBudget {
+    static let environmentKey = "REPRO_LIVE_SIMULATOR_STARTUP_DEADLINE_MS"
+    static let maximumRemainingMS: Int64 = 90_000
+    static let maximumDeadlineMS = Int64.max / 1_000_000
+    private static let maximumWaitSlice: TimeInterval = 0.05
+
+    let deadlineMS: Int64
+    private let observedAtMS: Int64
+    private let continuousTimeMS: () -> Int64
+
+    static func read(
+        environment: [String: String],
+        continuousTimeMS: @escaping () -> Int64 = nativeContinuousTimeMS
+    ) throws -> SimulatorStartupBudget? {
+        guard let raw = environment[environmentKey] else { return nil }
+        // Int64 accepts a leading sign; the wire contract deliberately does not.
+        guard !raw.isEmpty, raw.utf8.count <= 19,
+              raw.utf8.first.map({ $0 >= 49 && $0 <= 57 }) == true,
+              raw.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
+              let deadlineMS = Int64(raw), deadlineMS <= maximumDeadlineMS else {
+            throw BridgeFailure.configurationInvalid
+        }
+        let now = continuousTimeMS()
+        guard now >= 0, deadlineMS > now,
+              deadlineMS - now <= maximumRemainingMS else {
+            throw BridgeFailure.configurationInvalid
+        }
+        return SimulatorStartupBudget(
+            deadlineMS: deadlineMS, observedAtMS: now, continuousTimeMS: continuousTimeMS)
+    }
+
+    func remainingTimeInterval(limitedBy authorityDeadlineMS: Int64? = nil) throws -> TimeInterval {
+        let now = continuousTimeMS()
+        let deadline = min(deadlineMS, authorityDeadlineMS ?? deadlineMS)
+        guard now >= observedAtMS, deadline > now else { throw BridgeFailure.timeout }
+        return Double(deadline - now) / 1000
+    }
+
+    func wait(for semaphore: DispatchSemaphore, limitedBy authorityDeadlineMS: Int64? = nil) throws {
+        while true {
+            let remaining = try remainingTimeInterval(limitedBy: authorityDeadlineMS)
+            if semaphore.wait(timeout: .now() + min(remaining, Self.maximumWaitSlice)) == .success {
+                // A response delivered while suspended must not revive an expired grant.
+                _ = try remainingTimeInterval(limitedBy: authorityDeadlineMS)
+                return
+            }
+        }
+    }
+}
+
+/// Both URLSession timeouts and the URLRequest must use the same remaining
+/// startup bound; increasing only the request leaves the resource cap at 5s.
+private struct BridgeRequestSettings {
+    let timeout: TimeInterval
+
+    func configuration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.waitsForConnectivity = false
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout
+        return configuration
+    }
+
+    func request(url: URL) -> URLRequest {
+        URLRequest(url: url, timeoutInterval: timeout)
+    }
+}
+
 private final class NativeAuthorityContext {
     static let shared = NativeAuthorityContext()
     let enabled: Bool
@@ -237,6 +308,141 @@ final class LiveControlTests: XCTestCase {
         XCTAssertFalse(generalRequested && generalRuntime == nil, "general_profile_invalid")
         targetApplication = XCUIApplication(bundleIdentifier: targetBundle)
         springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    }
+
+    // Apple forbids disposing a semaphore below its initial count. Model a
+    // completed event like BridgeClient: start at zero, then signal once.
+    // https://developer.apple.com/documentation/dispatch/dispatchsemaphore/init(value:)
+    private func completedStartupResponseSemaphore() -> DispatchSemaphore {
+        let semaphore = DispatchSemaphore(value: 0)
+        semaphore.signal()
+        return semaphore
+    }
+
+    /// Pure helper regressions: these tests do not launch a target or send HTTP.
+    func testSimulatorStartupBudgetRejectsInvalidDeadlines() throws {
+        let key = SimulatorStartupBudget.environmentKey
+        var clockReads = 0
+        XCTAssertNil(try SimulatorStartupBudget.read(environment: [:], continuousTimeMS: {
+            clockReads += 1
+            return 1_000
+        }))
+        XCTAssertEqual(clockReads, 0, "An absent value keeps the legacy path without a new budget")
+        for raw in ["", "0", "-1", "+2000", "02000", " 2000", "2000 ", "2000\n",
+                    "2_000", "2e3", "2000.0", "٢٠٠٠", "２０００", "9223372036854775808",
+                    "999", "1000", "91001"] {
+            XCTAssertThrowsError(try SimulatorStartupBudget.read(
+                environment: [key: raw], continuousTimeMS: { 1_000 }), raw) { error in
+                XCTAssertEqual((error as? BridgeFailure)?.safeCode, "bridge_configuration_invalid")
+            }
+        }
+        XCTAssertThrowsError(try SimulatorStartupBudget.read(
+            environment: [key: "1"], continuousTimeMS: { -1 }))
+        XCTAssertEqual(try SimulatorStartupBudget.read(
+            environment: [key: "91000"], continuousTimeMS: { 1_000 })?.deadlineMS, 91_000)
+        let maximumDeadline = Int64.max / 1_000_000
+        let large = try XCTUnwrap(SimulatorStartupBudget.read(
+            environment: [key: String(maximumDeadline)], continuousTimeMS: { maximumDeadline - 90_000 }))
+        XCTAssertEqual(try large.remainingTimeInterval(), 90)
+        XCTAssertThrowsError(try SimulatorStartupBudget.read(
+            environment: [key: String(maximumDeadline + 1)], continuousTimeMS: { maximumDeadline }))
+
+        #if targetEnvironment(simulator)
+        var sessionsCreated = 0
+        let invalid = BridgeClient(environment: [
+            "REPRO_LIVE_URL": "http://127.0.0.1:1", "REPRO_LIVE_TOKEN": "synthetic-test-token",
+            key: "+2000"
+        ], continuousTimeMS: { 1_000 }, sessionFactory: { configuration in
+            sessionsCreated += 1
+            return URLSession(configuration: configuration)
+        })
+        XCTAssertNil(invalid)
+        XCTAssertEqual(sessionsCreated, 0, "Reject invalid configuration before transport setup")
+        #endif
+    }
+
+    func testSimulatorStartupBudgetUsesOneShrinkingDeadline() throws {
+        var now: Int64 = 1_000
+        let budget = try XCTUnwrap(SimulatorStartupBudget.read(
+            environment: [SimulatorStartupBudget.environmentKey: "43335"], continuousTimeMS: { now }))
+        XCTAssertEqual(try budget.remainingTimeInterval(), 42.335, accuracy: 0.000001)
+        now += 8_584
+        let completedResponse = completedStartupResponseSemaphore()
+        XCTAssertNoThrow(try budget.wait(for: completedResponse))
+        XCTAssertEqual(completedResponse.wait(timeout: .now()), .timedOut)
+        XCTAssertEqual(try budget.remainingTimeInterval(), 33.751, accuracy: 0.000001)
+        XCTAssertEqual(try budget.remainingTimeInterval(limitedBy: 35_000), 25.416, accuracy: 0.000001)
+        // A longer received grant cannot renew the original startup deadline.
+        XCTAssertEqual(try budget.remainingTimeInterval(limitedBy: 90_000), 33.751, accuracy: 0.000001)
+        now = 35_000
+        XCTAssertThrowsError(try budget.remainingTimeInterval(limitedBy: 35_000))
+        XCTAssertNoThrow(try budget.remainingTimeInterval())
+        now = 43_335
+        XCTAssertThrowsError(try budget.remainingTimeInterval())
+        let unconsumedResponse = completedStartupResponseSemaphore()
+        XCTAssertThrowsError(try budget.wait(for: unconsumedResponse))
+        // An already-expired budget rejects before consuming the response.
+        XCTAssertEqual(unconsumedResponse.wait(timeout: .now()), .success)
+        now = 999
+        XCTAssertThrowsError(try budget.remainingTimeInterval(), "A regressing clock fails closed")
+
+        #if targetEnvironment(simulator)
+        now = 1_000
+        let bridge = try XCTUnwrap(BridgeClient(environment: [
+            "REPRO_LIVE_URL": "http://127.0.0.1:1", "REPRO_LIVE_TOKEN": "synthetic-test-token",
+            SimulatorStartupBudget.environmentKey: "2000"
+        ], continuousTimeMS: { now }))
+        XCTAssertNoThrow(try bridge.validateStartupBeforeTargetLaunch(authority: nil))
+        now = 2_000
+        XCTAssertThrowsError(try bridge.validateStartupBeforeTargetLaunch(authority: nil))
+        #endif
+    }
+
+    func testSimulatorStartupBudgetBoundsTransportWaits() throws {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:1/ready"))
+        for timeout in [TimeInterval(42.335), 0.001, 5] {
+            let settings = BridgeRequestSettings(timeout: timeout)
+            let configuration = settings.configuration()
+            XCTAssertEqual(configuration.timeoutIntervalForRequest, timeout, accuracy: 0.000001)
+            XCTAssertEqual(configuration.timeoutIntervalForResource, timeout, accuracy: 0.000001)
+            XCTAssertFalse(configuration.waitsForConnectivity)
+            XCTAssertEqual(settings.request(url: url).timeoutInterval, timeout, accuracy: 0.000001)
+        }
+        // A signaled response still expires between the pre-wait and post-response checks.
+        var reads = 0
+        let late = try XCTUnwrap(SimulatorStartupBudget.read(
+            environment: [SimulatorStartupBudget.environmentKey: "2000"], continuousTimeMS: {
+                reads += 1
+                return reads < 3 ? 1_000 : 2_000
+            }))
+        let lateResponse = completedStartupResponseSemaphore()
+        XCTAssertThrowsError(try late.wait(for: lateResponse))
+        XCTAssertEqual(lateResponse.wait(timeout: .now()), .timedOut)
+        XCTAssertEqual(reads, 3)
+
+        // A suspension-sized continuous-clock jump is noticed after a short slice,
+        // without waiting for a fresh 90-second DispatchTime timeout.
+        reads = 0
+        let suspended = try XCTUnwrap(SimulatorStartupBudget.read(
+            environment: [SimulatorStartupBudget.environmentKey: "91000"], continuousTimeMS: {
+                reads += 1
+                return reads < 3 ? 1_000 : 91_000
+            }))
+        XCTAssertThrowsError(try suspended.wait(for: DispatchSemaphore(value: 0)))
+        XCTAssertEqual(reads, 3)
+
+        #if targetEnvironment(simulator)
+        var capturedTimeouts: [TimeInterval] = []
+        let legacy = BridgeClient(environment: [
+            "REPRO_LIVE_URL": "http://127.0.0.1:1", "REPRO_LIVE_TOKEN": "synthetic-test-token"
+        ], continuousTimeMS: { -1 }, sessionFactory: { configuration in
+            capturedTimeouts = [configuration.timeoutIntervalForRequest, configuration.timeoutIntervalForResource]
+            return URLSession(configuration: configuration)
+        })
+        XCTAssertNotNil(legacy)
+        XCTAssertEqual(capturedTimeouts, [5, 5])
+        XCTAssertNoThrow(try legacy?.validateStartupBeforeTargetLaunch(authority: nil))
+        #endif
     }
 
     func testCaptureFormats() throws {
@@ -351,8 +557,22 @@ final class LiveControlTests: XCTestCase {
                 targetApplication.terminate()
             }
         }
+        #if targetEnvironment(simulator)
+        launchTarget(beforeLaunch: {
+            do {
+                try (bridge as? BridgeClient)?.validateStartupBeforeTargetLaunch(authority: startupAuthority)
+                self.targetWasLaunched = true
+                return true
+            } catch {
+                XCTFail("bridge_timeout")
+                return false
+            }
+        })
+        guard targetWasLaunched else { return }
+        #else
         targetWasLaunched = true
         launchTarget()
+        #endif
         guard targetApplication.wait(for: .runningForeground, timeout: 10) else {
             XCTFail("target_unavailable")
             return
@@ -421,7 +641,7 @@ final class LiveControlTests: XCTestCase {
         }
     }
 
-    private func launchTarget(autoRunID: String? = nil) {
+    private func launchTarget(autoRunID: String? = nil, beforeLaunch: (() -> Bool)? = nil) {
         let environment = ProcessInfo.processInfo.environment
         if generalRuntime != nil {
             var launchEnvironment: [String: String] = [:]
@@ -462,6 +682,7 @@ final class LiveControlTests: XCTestCase {
                 }
             }
             targetApplication.launchEnvironment = launchEnvironment
+            guard beforeLaunch?() ?? true else { return }
             targetApplication.launch()
             return
         }
@@ -495,6 +716,7 @@ final class LiveControlTests: XCTestCase {
             return
         }
         targetApplication.launchEnvironment = launchEnvironment
+        guard beforeLaunch?() ?? true else { return }
         targetApplication.launch()
     }
 
@@ -1310,29 +1532,47 @@ private final class BridgeClient: LiveBridge {
     private let baseURL: URL
     private let token: String
     private let session: URLSession
+    private let startupBudget: SimulatorStartupBudget?
+    private let sessionFactory: (URLSessionConfiguration) -> URLSession
     private let encoder = JSONEncoder()
     private let requestTimeout: TimeInterval = 5
     private var frameCounter: Int64 = 0
     private var lastClockSyncMs: Int64?
 
-    init?() {
-        guard let rawURL = ProcessInfo.processInfo.environment["REPRO_LIVE_URL"],
+    init?(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        continuousTimeMS: @escaping () -> Int64 = nativeContinuousTimeMS,
+        sessionFactory: @escaping (URLSessionConfiguration) -> URLSession = { URLSession(configuration: $0) }
+    ) {
+        guard let rawURL = environment["REPRO_LIVE_URL"],
               let url = URL(string: rawURL),
               let scheme = url.scheme,
               ["http", "https"].contains(scheme),
               url.host != nil,
-              let token = ProcessInfo.processInfo.environment["REPRO_LIVE_TOKEN"],
+              let token = environment["REPRO_LIVE_TOKEN"],
               !token.isEmpty,
               !token.contains(where: { $0 == "\n" || $0 == "\r" }) else {
             return nil
         }
+        #if targetEnvironment(simulator)
+        do {
+            startupBudget = try SimulatorStartupBudget.read(
+                environment: environment, continuousTimeMS: continuousTimeMS)
+        } catch {
+            // A present but invalid budget must not silently recover the legacy 5s path.
+            return nil
+        }
+        #else
+        startupBudget = nil
+        #endif
         baseURL = url
         self.token = token
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.waitsForConnectivity = false
-        configuration.timeoutIntervalForRequest = requestTimeout
-        configuration.timeoutIntervalForResource = requestTimeout
-        session = URLSession(configuration: configuration)
+        self.sessionFactory = sessionFactory
+        session = sessionFactory(BridgeRequestSettings(timeout: requestTimeout).configuration())
+    }
+
+    func validateStartupBeforeTargetLaunch(authority: AuthorityGrant?) throws {
+        _ = try startupBudget?.remainingTimeInterval(limitedBy: authority?.nativeDeadlineMS)
     }
 
     func next() throws -> NextEnvelope {
@@ -1362,7 +1602,7 @@ private final class BridgeClient: LiveBridge {
             nativeIncarnation: authority.enabled ? authority.nativeIncarnation : nil,
             nativeClockId: authority.enabled ? nativeClockID : nil,
             nativeTimeMs: authority.enabled ? nativeContinuousTimeMS() : nil)
-        let data = try post(path: "ready", payload: payload)
+        let data = try post(path: "ready", payload: payload, startupDeadlineMS: startupBudget?.deadlineMS)
         guard strictAuthorityNumberTypes(data) else { throw BridgeFailure.invalidResponse }
         do {
             return try JSONDecoder().decode(ReadyResponse.self, from: data).authority
@@ -1375,7 +1615,8 @@ private final class BridgeClient: LiveBridge {
 
     func started(authority: AuthorityGrant?) throws {
         guard let authority else { throw BridgeFailure.invalidResponse }
-        _ = try post(path: "started", payload: StartedPayload(authority: authority))
+        let deadline = startupBudget.map { min($0.deadlineMS, authority.nativeDeadlineMS) }
+        _ = try post(path: "started", payload: StartedPayload(authority: authority), startupDeadlineMS: deadline)
     }
 
     func synchronizeClock() throws {
@@ -1482,19 +1723,30 @@ private final class BridgeClient: LiveBridge {
 
     func shutdown() {}
 
-    private func post<T: Encodable>(path: String, payload: T) throws -> Data {
+    private func post<T: Encodable>(
+        path: String, payload: T, startupDeadlineMS: Int64? = nil
+    ) throws -> Data {
         let body: Data
         do {
             body = try encoder.encode(payload)
         } catch {
             throw BridgeFailure.invalidResponse
         }
-        return try request(method: "POST", path: path, body: body)
+        return try request(method: "POST", path: path, body: body, startupDeadlineMS: startupDeadlineMS)
     }
 
-    private func request(method: String, path: String, body: Data?) throws -> Data {
+    private func request(
+        method: String, path: String, body: Data?, startupDeadlineMS: Int64? = nil
+    ) throws -> Data {
+        let budget = startupDeadlineMS == nil ? nil : startupBudget
+        let timeout = try budget?.remainingTimeInterval(limitedBy: startupDeadlineMS) ?? requestTimeout
+        let settings = BridgeRequestSettings(timeout: timeout)
+        // A separate session prevents a startup exception from widening ordinary
+        // next/frame/input/clock requests or retaining a fresh resource timeout.
+        let requestSession = budget == nil ? session : sessionFactory(settings.configuration())
+        defer { if budget != nil { requestSession.invalidateAndCancel() } }
         let requestURL = baseURL.appendingPathComponent(path)
-        var request = URLRequest(url: requestURL, timeoutInterval: requestTimeout)
+        var request = settings.request(url: requestURL)
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if body != nil {
@@ -1505,7 +1757,7 @@ private final class BridgeClient: LiveBridge {
         let semaphore = DispatchSemaphore(value: 0)
         var responseData: Data?
         var responseError: Error?
-        let task = session.dataTask(with: request) { data, response, error in
+        let task = requestSession.dataTask(with: request) { data, response, error in
             responseData = data
             responseError = error
             if let httpResponse = response as? HTTPURLResponse,
@@ -1514,11 +1766,18 @@ private final class BridgeClient: LiveBridge {
             }
             semaphore.signal()
         }
-        task.resume()
-
-        guard semaphore.wait(timeout: .now() + requestTimeout) == .success else {
+        do {
+            // Recheck after request/session setup, immediately before dispatch.
+            _ = try budget?.remainingTimeInterval(limitedBy: startupDeadlineMS)
+            task.resume()
+            if let budget {
+                try budget.wait(for: semaphore, limitedBy: startupDeadlineMS)
+            } else if semaphore.wait(timeout: .now() + requestTimeout) != .success {
+                throw BridgeFailure.timeout
+            }
+        } catch {
             task.cancel()
-            throw BridgeFailure.timeout
+            throw error
         }
         if let responseError {
             if responseError is BridgeFailure {
