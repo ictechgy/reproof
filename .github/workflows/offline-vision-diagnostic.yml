@@ -1,0 +1,32 @@
+name: Offline Vision diagnostic
+
+# Intentionally opened-only: pushes, synchronize events, and manual runs do not
+# authorize another Apple-hosted replay of these synthetic fixture screenshots.
+on:
+  pull_request:
+    types: [opened]
+    paths:
+      - 'diagnostics/offline-vision/**'
+      - '.github/workflows/offline-vision-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-vision:
+    if: >-
+      github.event.repository.private == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: macos-15
+    timeout-minutes: 5
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - name: Check out the same-repository pull request
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run dependency-free diagnostic tests
+        run: python3 -m unittest discover -s diagnostics/offline-vision -p test_replay.py
+      - name: Replay the two synthetic screenshots once
+        run: python3 diagnostics/offline-vision/replay.py --output "$RUNNER_TEMP/offline-vision-report.json"
