@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "status": "reconstructed_diagnostic_not_recovered_previous_draft",
+  "scope": "Offline replay of synthetic fixture screenshots only; no device, simulator, app, production, or inventory work.",
+  "reconstruction": true,
+  "recovered_previous_draft": false,
+  "source_run_id": 40068410548,
+  "original_native_evidence_pass": false,
+  "native_ios_evidence_pass": false,
+  "evidence_limit": "The original failed native evidence remains false. Offline observer results cannot promote or replace native interaction evidence.",
+  "source_artifact": {
+    "filename": "original-run40068410548.zip",
+    "size_bytes": 155649,
+    "sha256": "d384462c941c64d752c9bf80fe2ef4576b45f5bce78e99d812ac77caa43a4bf9"
+  },
+  "observer": {
+    "path": "ObserveFrame.swift",
+    "source_git_commit": "6eb207897f5819bf74b949c062a88e67df810abd",
+    "source_git_path": "ios-native-fixture/ObserveFrame.swift",
+    "size_bytes": 1819,
+    "sha256": "18ad97694079c779f39111b0f31d0ab6336e5644d61860263c604503c28573c9",
+    "copied_byte_identical": true
+  },
+  "fixtures": [
+    {
+      "path": "fixtures/03-invalid-attempt-001.jpg",
+      "source_archive_member": "ios/original/03-invalid-attempt-001.jpg",
+      "size_bytes": 93904,
+      "sha256": "3248da8f3e908bf19bbbbecadeb147f876ce6fe26f36dca38440f5668eb98f50"
+    },
+    {
+      "path": "fixtures/04-created-attempt-001.jpg",
+      "source_archive_member": "ios/original/04-created-attempt-001.jpg",
+      "size_bytes": 81847,
+      "sha256": "ac74d667cc9aa523790993c790dbeadf72f450b012a6d8feb32dbbe0abbeec23"
+    }
+  ],
+  "fixture_handling": "Exact archived bytes extracted without transformation.",
+  "required_host": {
+    "runner": "macos-15",
+    "xcode_version": "16.4",
+    "xcode_build": "16F6",
+    "developer_dir": "/Applications/Xcode_16.4.app/Contents/Developer"
+  },
+  "execution_bounds": {
+    "workflow_timeout_minutes": 5,
+    "compile_once_timeout_seconds": 90,
+    "observer_calls": 2,
+    "observer_timeout_seconds": 15
+  }
+}
