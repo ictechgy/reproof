@@ -265,3 +265,11 @@ mode from the local console. Roles, project permissions, one-time host
 enrollment, TLS/CSRF, configuration files that contain no secrets, and the
 admin CLI are covered in the
 [shared coordinator operations documentation](docs/SHARED-COORDINATOR.md).
+
+## SDK export review bridge
+
+The [local SDK review bridge](docs/SDK-REVIEW-BRIDGE.md) validates finalized
+Android v1 and iOS v2 sample exports without promoting SDK callbacks to dispatch
+evidence. Run `python3 scripts/qa-sdk-review.py` for a synthetic joined review
+example; separate trusted recording/oracle/log evidence and exact collector
+binding are required before ticket intake can create even an inert review draft.

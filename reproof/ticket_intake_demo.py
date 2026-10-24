@@ -17,11 +17,11 @@ RUN = '00000000-0000-4000-8000-000000000002'
 PROFILE = hashlib.sha256(b'repository-synthetic-checkout-profile-v1').hexdigest()
 
 
-def demo_draft(project, oracle_digest):
+def demo_material(project, oracle_digest):
     """Correlate a fixed synthetic ticket to this source and frozen oracle.
 
-    The returned review draft is inert. The demo runner's explicit invocation,
-    not this document, selects the bounded local software exercise.
+    Returns ticket, registered synthetic capsule and authored fixture specification.
+    This fixture helper neither validates a real capture nor grants execution.
     """
     project = contracts.validate_project_revision(project)
     contracts.validate_digest(oracle_digest)
@@ -75,6 +75,12 @@ def demo_draft(project, oracle_digest):
         'buildId': build['id'], 'sourceDigest': build['sourceDigest'], 'sessionId': SESSION,
         'recordingDigest': recording_digest,
         'text': 'Synthetic fixture: shipping should be free at the 5000-cent threshold.'}
+    return ticket, entry, specification
+
+
+def demo_draft(project, oracle_digest):
+    """Return the unchanged inert demo draft using separately synthetic material."""
+    ticket, entry, specification = demo_material(project, oracle_digest)
     draft = intake_ticket(canonical(ticket), tenant_id='local_demo', registry=(entry,))
     # Independent binding checked by the caller before even the local exercise.
     return {**draft, 'demoBinding': {'syntheticEvidence': True,
