@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "offline_checkout_demo",
+  "revision": "repository-fixture-v1",
+  "trustGroup": "local_demo",
+  "applications": [
+    {
+      "id": "schema_only_placeholder",
+      "platform": "android",
+      "bundle": "io.reproof.demo.placeholder"
+    }
+  ],
+  "builds": [
+    {
+      "id": "original",
+      "applicationId": "schema_only_placeholder",
+      "revision": "python-source-fixture-not-mobile-build",
+      "artifactDigest": "3768fc41dd46a88824476d11ae2b642d16cda6daf2cf9ceb14fb73de7e5c5017",
+      "sourceDigest": "3ac55c7889228006230e116cf7ad7343d5019578d09d1f30f5d0a2ab18c66037",
+      "provenance": "operator-attestation"
+    }
+  ],
+  "variables": [],
+  "fixtures": [],
+  "observations": [
+    "checkout_total"
+  ],
+  "evidencePolicy": {
+    "pixels": false,
+    "text": false,
+    "accessibility": false,
+    "logs": true,
+    "fixtures": true,
+    "unknownSensitive": "deny",
+    "aiEligible": false
+  },
+  "editablePaths": [
+    "checkout.py"
+  ],
+  "recipes": [
+    {
+      "id": "checkout_regression",
+      "kind": "regression",
+      "productFile": "recipe.json",
+      "operation": "regression"
+    }
+  ],
+  "executionClasses": [
+    "host-build"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "kind": "bounded-python-checkout",
+  "entryPoint": "checkout_total",
+  "productFile": "checkout.py",
+  "oracleFile": "oracle.json",
+  "candidateGenerator": "scripted-comparator-edit",
+  "maxSourceBytes": 512,
+  "maxAstNodes": 64,
+  "maxStepsPerCase": 64,
+  "maxInputCents": 1000000,
+  "maxResultCents": 1000500,
+  "maxCases": 16
+}
