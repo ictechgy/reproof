@@ -29,6 +29,8 @@ import uuid
 
 FIXTURE_REVISION = "inventory-empty-statement-v2"
 PIXEL_ORACLE_REVISION = "exact-required-observed-forbidden-v2"
+OBSERVER_PROCESS_TIMEOUT_SECONDS = 15
+PIXEL_STATE_TIMEOUT_SECONDS = 25
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -143,6 +145,157 @@ def state_matches(value, required, forbidden):
     words = normalized_words(value)
     observed = {" ".join(row["text"].upper().split()) for row in value["observations"]}
     return set(required) <= words and not (set(forbidden) & observed)
+
+
+
+OBSERVER_STAGES = frozenset({"started", "invalid_arguments", "image_read", "vision_started",
+                             "vision_completed", "output_written", "failed"})
+
+
+def observer_stages(stderr):
+    """Retain only bounded, exact stage/timing records, including on timeout."""
+    if isinstance(stderr, bytes):
+        stderr = stderr[:16384].decode("ascii", errors="replace")
+    if not isinstance(stderr, str):
+        return []
+    result = []
+    for line in stderr[:16384].splitlines():
+        match = re.fullmatch(r"reproof_observer stage=([a-z_]+) elapsed_ms=([0-9]{1,9})", line)
+        if match and match[1] in OBSERVER_STAGES:
+            result.append({"stage": match[1], "elapsedMs": int(match[2])})
+            if len(result) == 16:
+                break
+    return result
+
+
+def observe_frame(observer, path, timeout, attempt):
+    # Do not use command(): arbitrary stderr or TimeoutExpired command strings
+    # must not escape into the public fixture result. Never retry a timeout.
+    process_deadline = time.monotonic() + timeout
+    try:
+        result = subprocess.run([str(observer), str(path)], cwd=ROOT,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired as error:
+        attempt["observerStages"] = observer_stages(error.stderr)
+        attempt["processOutcome"] = "timeout"
+        raise GateFailure("pixel_observer_timeout") from None
+    except OSError:
+        attempt["processOutcome"] = "launch_failed"
+        raise GateFailure("pixel_observer_launch_failed") from None
+    returned = time.monotonic()
+    attempt["observerStages"] = observer_stages(result.stderr)
+    if returned >= process_deadline:
+        attempt["processOutcome"] = "deadline_exceeded"
+        raise GateFailure("pixel_observer_deadline_exceeded")
+    attempt["processOutcome"] = "returned" if result.returncode == 0 else "failed"
+    require(result.returncode == 0, "pixel_observer_failed")
+    return result.stdout
+
+
+def observe_state(frame_source, observer, output, proof, name, required, forbidden=(), *, last_frame=0):
+    """One absolute state budget; every accepted OCR result binds its exact JPEG."""
+    started = time.monotonic()
+    deadline = started + PIXEL_STATE_TIMEOUT_SECONDS
+    state = {"name": name, "outcome": "observing", "attempts": []}
+    proof.setdefault("observationDiagnostics", []).append(state)
+    attempt = None
+
+    def remaining(phase):
+        state["phase"] = phase
+        left = deadline - time.monotonic()
+        if left <= 0:
+            state["outcome"] = "deadline_exceeded"
+            if attempt is not None and attempt["outcome"] == "observing":
+                attempt["outcome"] = "deadline_exceeded"
+            raise GateFailure("pixel_state_deadline_exceeded_" + name)
+        return left
+
+    def pause():
+        time.sleep(min(0.2, remaining("poll_wait")))
+        remaining("poll_wait")
+
+    try:
+        while True:
+            remaining("frame_request")
+            try:
+                frame = frame_source()
+            except LiveError as error:
+                remaining("frame_received")
+                if error.code != "frame_pending":
+                    raise
+                pause()
+                continue
+            remaining("frame_received")
+            if frame["id"] <= last_frame:
+                pause()
+                continue
+            last_frame = frame["id"]
+            number = len(state["attempts"]) + 1
+            stem = f"{name}-attempt-{number:03d}"
+            attempt = {"attempt": number, "frameId": frame["id"],
+                       "geometryVersion": frame["geometryVersion"], "outcome": "observing"}
+            state["attempts"].append(attempt)
+            image = base64.b64decode(frame["imageBase64"], validate=True)
+            image_sha = hashlib.sha256(image).hexdigest()
+            attempt["imageSha256"] = image_sha
+            remaining("image_decoded")
+            path = output / (stem + ".jpg")
+            # The output directory is new for this flow; exclusive creation
+            # prevents a repeated state name from overwriting earlier evidence.
+            with path.open("xb") as stream:
+                stream.write(image)
+            attempt["imageFile"] = path.name
+            remaining("image_written")
+            timeout = min(OBSERVER_PROCESS_TIMEOUT_SECONDS, remaining("observer_start"))
+            attempt["processTimeoutSeconds"] = timeout
+            try:
+                raw = observe_frame(observer, path, timeout, attempt)
+            except GateFailure:
+                remaining("observer_returned")
+                raise
+            remaining("observer_returned")
+            try:
+                actual = json.loads(raw)
+            except (ValueError, UnicodeError):
+                raise GateFailure("pixel_observer_invalid") from None
+            remaining("observer_parsed")
+            normalized_words(actual)
+            remaining("observer_validated")
+            ocr_path = output / (stem + "-ocr.json")
+            # Save only the validated, bound result, not unrecognized output fields.
+            save(ocr_path, {"frameId": frame["id"], "imageSha256": image_sha,
+                            "observations": actual["observations"]})
+            attempt["ocrFile"] = ocr_path.name
+            remaining("ocr_written")
+            matches = state_matches(actual, required, forbidden)
+            remaining("required_oracle")
+            if matches:
+                # Prove the very same oracle cannot silently accept a wrong state.
+                false_positive = state_matches(actual, ["IMPOSSIBLE FIXTURE STATE"], [])
+                remaining("negative_oracle")
+                require(not false_positive, "pixel_oracle_false_positive")
+                accepted = {"name": name, "frameId": frame["id"],
+                    "geometryVersion": frame["geometryVersion"], "imageSha256": image_sha,
+                    "imageFile": path.name, "ocrFile": ocr_path.name,
+                    "required": list(required), "forbidden": list(forbidden), "passed": True,
+                    "fixtureRevision": FIXTURE_REVISION, "pixelOracleRevision": PIXEL_ORACLE_REVISION}
+                remaining("before_pass")
+                attempt["outcome"] = state["outcome"] = "passed"
+                proof["states"].append(accepted)
+                return last_frame
+            attempt["outcome"] = "mismatch"
+            pause()
+    except Exception:
+        if state["outcome"] == "observing":
+            state["outcome"] = {"timeout": "observer_timeout",
+                                "deadline_exceeded": "observer_deadline_exceeded"}.get(
+                                    attempt.get("processOutcome") if attempt else None, "failed")
+        if attempt is not None and attempt["outcome"] == "observing":
+            attempt["outcome"] = state["outcome"]
+        raise
+    finally:
+        state["elapsedMs"] = max(0, round((time.monotonic() - started) * 1000))
 
 
 def verify_app_logs(snapshot):
@@ -502,37 +655,8 @@ def run_flow(args, build, observer, label, work, *, logs):
 
         def observe(name, required, forbidden=()):
             nonlocal last_frame
-            deadline = time.monotonic() + 25
-            last_words = set()
-            while time.monotonic() < deadline:
-                try:
-                    frame = lab.frame(sid, owner)
-                except LiveError as error:
-                    if error.code != "frame_pending":
-                        raise
-                    time.sleep(0.2)
-                    continue
-                if frame["id"] <= last_frame:
-                    time.sleep(0.2)
-                    continue
-                last_frame = frame["id"]
-                image = base64.b64decode(frame["imageBase64"], validate=True)
-                path = output / (name + ".jpg")
-                path.write_bytes(image)
-                actual = json.loads(command([str(observer), str(path)], timeout=15))
-                last_words = normalized_words(actual)
-                save(output / (name + "-ocr.json"), actual)
-                if state_matches(actual, required, forbidden):
-                    # Prove the very same oracle cannot silently accept a wrong state.
-                    require(not state_matches(actual, ["IMPOSSIBLE FIXTURE STATE"], []),
-                            "pixel_oracle_false_positive")
-                    proof["states"].append({"name": name, "frameId": frame["id"],
-                        "geometryVersion": frame["geometryVersion"], "imageSha256": hashlib.sha256(image).hexdigest(),
-                        "required": list(required), "forbidden": list(forbidden), "passed": True,
-                        "fixtureRevision": FIXTURE_REVISION, "pixelOracleRevision": PIXEL_ORACLE_REVISION})
-                    return
-                time.sleep(0.2)
-            raise GateFailure("pixel_state_unconfirmed_" + name + ": " + repr(sorted(last_words)))
+            last_frame = observe_state(lambda: lab.frame(sid, owner), observer, output, proof,
+                                       name, required, forbidden, last_frame=last_frame)
 
         def send(action, payload):
             nonlocal sequence, last_frame

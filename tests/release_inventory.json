@@ -1221,7 +1221,8 @@
             "tests.test_android_locator_geometry",
             "tests.test_worker_profiles",
             "tests.test_android_native_fixture_harness",
-            "tests.test_ios_native_fixture_harness"
+            "tests.test_ios_native_fixture_harness",
+            "tests.test_ios_cleanup_ack"
           ],
           "environment": "local-python-standard-library",
           "effects": [

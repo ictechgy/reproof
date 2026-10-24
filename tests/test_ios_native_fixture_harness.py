@@ -413,6 +413,271 @@ class IOSNativeFixtureHarnessTests(unittest.TestCase):
         self.assertEqual(diagnostics.snapshot(), before)
 
 
+class PixelObservationBudgetTests(unittest.TestCase):
+    """Fake clocks, synthetic bytes and inert subprocess doubles only."""
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.output = Path(temporary.name)
+        self.clock = SimpleNamespace(now=0.0)
+        self.proof = {"states": []}
+        self.frame_number = 0
+        self.frame_source = Mock(side_effect=self.next_frame)
+        self.process = Mock(return_value=self.process_result("EXPECTED"))
+        for target, name, replacement in ((HARNESS.time, "monotonic", lambda: self.clock.now),
+                                          (HARNESS.time, "sleep", self.advance),
+                                          (HARNESS.subprocess, "run", self.process)):
+            patched = patch.object(target, name, replacement)
+            patched.start()
+            self.addCleanup(patched.stop)
+
+    def advance(self, seconds):
+        self.clock.now += seconds
+
+    def next_frame(self):
+        self.frame_number += 1
+        image = ("synthetic JPEG " + str(self.frame_number)).encode()
+        return {"id": self.frame_number, "geometryVersion": 7,
+                "imageBase64": HARNESS.base64.b64encode(image).decode()}
+
+    def process_result(self, text="EXPECTED", *, confidence=1, stderr=b""):
+        return SimpleNamespace(returncode=0, stderr=stderr,
+            stdout=json.dumps({"observations": [{"text": text, "confidence": confidence}]}).encode())
+
+    def observe(self):
+        return HARNESS.observe_state(self.frame_source, Path("/private/observer-sentinel"),
+                                     self.output, self.proof, "01-test", ["EXPECTED"], ["FORBIDDEN"])
+
+    def diagnostics(self):
+        return self.proof["observationDiagnostics"][-1]
+
+    def test_success_keeps_original_process_contract_and_binds_both_artifacts(self):
+        self.assertEqual(HARNESS.OBSERVER_PROCESS_TIMEOUT_SECONDS, 15)
+        self.assertEqual(HARNESS.PIXEL_STATE_TIMEOUT_SECONDS, 25)
+        self.assertEqual(self.observe(), 1)
+        args, kwargs = self.process.call_args
+        self.assertEqual(len(args[0]), 2)
+        self.assertEqual(kwargs["timeout"], 15)
+        self.assertEqual(kwargs["stdin"], HARNESS.subprocess.DEVNULL)
+        accepted = self.proof["states"][0]
+        attempt = self.diagnostics()["attempts"][0]
+        saved = json.loads((self.output / accepted["ocrFile"]).read_text())
+        expected_hash = HARNESS.hashlib.sha256((self.output / accepted["imageFile"]).read_bytes()).hexdigest()
+        for row in (saved, accepted, attempt):
+            self.assertEqual(row["frameId"], 1)
+            self.assertEqual(row["imageSha256"], expected_hash)
+        self.assertEqual(attempt["outcome"], "passed")
+        self.assertEqual(self.diagnostics()["outcome"], "passed")
+        self.assertEqual(accepted["pixelOracleRevision"], "exact-required-observed-forbidden-v2")
+
+    def test_two_14_point_8_second_observations_cannot_renew_state_budget(self):
+        def run(*args, **kwargs):
+            self.advance(14.8)
+            return self.process_result("WRONG" if self.process.call_count == 1 else "EXPECTED")
+        self.process.side_effect = run
+        with self.assertRaisesRegex(HARNESS.GateFailure, "pixel_state_deadline_exceeded"):
+            self.observe()
+        self.assertEqual(self.process.call_count, 2)
+        self.assertEqual(self.process.call_args_list[0].kwargs["timeout"], 15)
+        self.assertAlmostEqual(self.process.call_args_list[1].kwargs["timeout"], 10)
+        self.assertEqual(self.proof["states"], [])
+        self.assertEqual(self.diagnostics()["phase"], "observer_returned")
+        self.assertEqual(self.diagnostics()["outcome"], "deadline_exceeded")
+        self.assertEqual(self.diagnostics()["attempts"][-1]["outcome"], "deadline_exceeded")
+
+    def test_return_at_or_after_process_deadline_is_rejected_inside_state_budget(self):
+        for elapsed in (15, 16):
+            with self.subTest(elapsed=elapsed), tempfile.TemporaryDirectory() as temporary:
+                self.output = Path(temporary)
+                self.clock.now = 0
+                self.proof = {"states": []}
+                def run(*args, **kwargs):
+                    self.advance(elapsed)
+                    return self.process_result()
+                self.process.side_effect = run
+                with self.assertRaisesRegex(HARNESS.GateFailure, "^pixel_observer_deadline_exceeded$"):
+                    self.observe()
+                self.assertEqual(self.proof["states"], [])
+                self.assertEqual(self.diagnostics()["outcome"], "observer_deadline_exceeded")
+                self.assertEqual(self.diagnostics()["attempts"][0]["processOutcome"], "deadline_exceeded")
+                self.assertFalse(any(self.output.glob("*-ocr.json")))
+
+    def test_return_at_exact_deadline_is_not_a_pass(self):
+        def run(*args, **kwargs):
+            self.clock.now = 25
+            return self.process_result()
+        self.process.side_effect = run
+        with self.assertRaisesRegex(HARNESS.GateFailure, "pixel_state_deadline_exceeded"):
+            self.observe()
+        self.assertEqual(self.proof["states"], [])
+        self.assertEqual(self.diagnostics()["phase"], "observer_returned")
+        self.assertFalse(any(self.output.glob("*-ocr.json")))
+
+    def test_frame_fetch_expiry_cannot_start_observer_or_write_evidence(self):
+        def frame():
+            self.clock.now = 25
+            return self.next_frame()
+        self.frame_source.side_effect = frame
+        with self.assertRaisesRegex(HARNESS.GateFailure, "pixel_state_deadline_exceeded"):
+            self.observe()
+        self.process.assert_not_called()
+        self.assertEqual(list(self.output.iterdir()), [])
+        self.assertEqual(self.diagnostics()["phase"], "frame_received")
+
+    def test_pending_frame_waits_are_capped_by_remaining_budget(self):
+        def frame():
+            self.clock.now = 24.95
+            raise HARNESS.LiveError("frame_pending", "private-frame-sentinel")
+        self.frame_source.side_effect = frame
+        with patch.object(HARNESS.time, "sleep", wraps=self.advance) as sleep:
+            with self.assertRaisesRegex(HARNESS.GateFailure, "pixel_state_deadline_exceeded"):
+                self.observe()
+        self.assertAlmostEqual(sleep.call_args.args[0], 0.05)
+        self.process.assert_not_called()
+        self.assertEqual(self.diagnostics()["outcome"], "deadline_exceeded")
+
+    def test_image_write_expiry_cannot_start_observer(self):
+        stream = Mock()
+        stream.write.side_effect = lambda image: self.advance(25)
+        context = Mock(__enter__=Mock(return_value=stream), __exit__=Mock(return_value=False))
+        with patch.object(Path, "open", return_value=context):
+            with self.assertRaisesRegex(HARNESS.GateFailure, "pixel_state_deadline_exceeded"):
+                self.observe()
+        self.process.assert_not_called()
+        self.assertEqual(self.diagnostics()["phase"], "image_written")
+        self.assertEqual(self.proof["states"], [])
+
+    def test_json_parse_expiry_cannot_save_or_accept_ocr(self):
+        original = HARNESS.json.loads
+        def parse(raw):
+            result = original(raw)
+            self.clock.now = 25
+            return result
+        with patch.object(HARNESS.json, "loads", side_effect=parse):
+            with self.assertRaisesRegex(HARNESS.GateFailure, "pixel_state_deadline_exceeded"):
+                self.observe()
+        self.assertEqual(self.diagnostics()["phase"], "observer_parsed")
+        self.assertFalse(any(self.output.glob("*-ocr.json")))
+        self.assertEqual(self.proof["states"], [])
+
+    def test_evidence_write_expiry_is_rejected_before_oracle(self):
+        original = HARNESS.save
+        def save(path, value):
+            original(path, value)
+            self.clock.now = 25
+        with patch.object(HARNESS, "save", side_effect=save), \
+             patch.object(HARNESS, "state_matches") as oracle:
+            with self.assertRaisesRegex(HARNESS.GateFailure, "pixel_state_deadline_exceeded"):
+                self.observe()
+            oracle.assert_not_called()
+        self.assertEqual(self.diagnostics()["phase"], "ocr_written")
+        self.assertEqual(self.diagnostics()["attempts"][0]["outcome"], "deadline_exceeded")
+        self.assertEqual(self.proof["states"], [])
+
+    def test_final_oracles_cannot_mark_expired_observation_passed(self):
+        original = HARNESS.state_matches
+        for expire_at, phase in ((1, "required_oracle"), (2, "negative_oracle")):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as temporary:
+                self.output = Path(temporary)
+                self.clock.now = 0
+                self.proof = {"states": []}
+                calls = []
+                def oracle(*args):
+                    value = original(*args)
+                    calls.append(args)
+                    if len(calls) == expire_at:
+                        self.clock.now = 25
+                    return value
+                with patch.object(HARNESS, "state_matches", side_effect=oracle):
+                    with self.assertRaisesRegex(HARNESS.GateFailure, "pixel_state_deadline_exceeded"):
+                        self.observe()
+                self.assertEqual(self.proof["states"], [])
+                self.assertEqual(self.diagnostics()["phase"], phase)
+                self.assertEqual(self.diagnostics()["outcome"], "deadline_exceeded")
+                self.assertEqual(self.diagnostics()["attempts"][0]["outcome"], "deadline_exceeded")
+
+    def test_mismatch_then_timeout_never_pairs_previous_ocr_with_new_jpeg(self):
+        def run(argv, **kwargs):
+            self.advance(0.1 if self.process.call_count == 1 else kwargs["timeout"])
+            if self.process.call_count == 1:
+                return self.process_result("WRONG")
+            raise HARNESS.subprocess.TimeoutExpired(argv, kwargs["timeout"],
+                output=b'private-stdout-sentinel', stderr=(
+                    b'reproof_observer stage=started elapsed_ms=0\n'
+                    b'/private/path-sentinel OCR-text-sentinel\n'
+                    b'reproof_observer stage=vision_started elapsed_ms=12\n'))
+        self.process.side_effect = run
+        with self.assertRaisesRegex(HARNESS.GateFailure, "^pixel_observer_timeout$") as caught:
+            self.observe()
+        self.assertEqual(self.process.call_count, 2)
+        first, second = self.diagnostics()["attempts"]
+        self.assertNotEqual(first["imageFile"], second["imageFile"])
+        self.assertNotEqual(first["imageSha256"], second["imageSha256"])
+        self.assertNotEqual(first["frameId"], second["frameId"])
+        self.assertEqual(len(list(self.output.glob("*.jpg"))), 2)
+        self.assertEqual(len(list(self.output.glob("*-ocr.json"))), 1)
+        saved = json.loads((self.output / first["ocrFile"]).read_text())
+        self.assertEqual(saved["frameId"], first["frameId"])
+        self.assertEqual(saved["imageSha256"], first["imageSha256"])
+        self.assertNotIn("ocrFile", second)
+        self.assertEqual(second["outcome"], "observer_timeout")
+        self.assertEqual(second["observerStages"], [
+            {"stage": "started", "elapsedMs": 0}, {"stage": "vision_started", "elapsedMs": 12}])
+        self.assertEqual(self.proof["states"], [])
+        self.assertNotIn("sentinel", json.dumps(self.proof) + str(caught.exception))
+
+    def test_nonzero_exit_and_launch_error_never_publish_raw_error_text(self):
+        for failure in (self.process_result(stderr=b"/private/path-sentinel OCR-text-sentinel"),
+                        OSError("private-launch-sentinel")):
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as temporary:
+                self.output = Path(temporary)
+                self.proof = {"states": []}
+                if isinstance(failure, OSError):
+                    self.process.side_effect = failure
+                else:
+                    failure.returncode = 1
+                    self.process.return_value = failure
+                with self.assertRaises(HARNESS.GateFailure) as caught:
+                    self.observe()
+                self.assertNotIn("sentinel", str(caught.exception) + json.dumps(self.proof))
+                self.assertEqual(self.proof["states"], [])
+                self.assertFalse(any(self.output.glob("*-ocr.json")))
+
+    def test_malformed_ocr_cannot_become_evidence_or_leak_raw_stdout(self):
+        self.process.return_value.stdout = b"private-stdout-sentinel"
+        with self.assertRaisesRegex(HARNESS.GateFailure, "^pixel_observer_invalid$") as caught:
+            self.observe()
+        self.assertEqual(self.proof["states"], [])
+        self.assertFalse(any(self.output.glob("*-ocr.json")))
+        self.assertNotIn("sentinel", str(caught.exception) + json.dumps(self.proof))
+
+    def test_stderr_protocol_is_bounded_and_allowlisted(self):
+        raw = (b"reproof_observer stage=started elapsed_ms=0\n"
+               b"reproof_observer stage=private_sentinel elapsed_ms=1\n"
+               b"reproof_observer stage=failed elapsed_ms=-1\n"
+               b"reproof_observer stage=failed elapsed_ms=1234567890\n"
+               b"reproof_observer stage=failed elapsed_ms=1 /private/sentinel\n"
+               b"prefix reproof_observer stage=failed elapsed_ms=1\n"
+               b"reproof_observer stage=vision_started elapsed_ms=12\n")
+        expected = [{"stage": "started", "elapsedMs": 0}, {"stage": "vision_started", "elapsedMs": 12}]
+        self.assertEqual(HARNESS.observer_stages(raw), expected)
+        self.assertEqual(HARNESS.observer_stages(raw.decode()), expected)
+        self.assertEqual(HARNESS.observer_stages(None), [])
+        self.assertEqual(len(HARNESS.observer_stages(b"reproof_observer stage=started elapsed_ms=0\n" * 50)), 16)
+        self.assertEqual(HARNESS.observer_stages(b"x" * 16384 + raw), [])
+
+    def test_swift_stdout_contract_and_diagnostic_privacy_remain_narrow(self):
+        source = (ROOT / "ios-native-fixture/ObserveFrame.swift").read_text()
+        self.assertIn("CommandLine.arguments.count == 2", source)
+        self.assertIn('withJSONObject: ["observations": words]', source)
+        self.assertIn("VNImageRequestHandler(data: image", source)
+        self.assertIn('case visionStarted = "vision_started"', source)
+        self.assertIn("FileHandle.standardError.write(Data(line.utf8))", source)
+        self.assertIn("} catch {\n    report(.failed)", source)
+        for unwanted in ("localizedDescription", "String(describing:", "CryptoKit", '"frameId"', '"imageSha256"'):
+            self.assertNotIn(unwanted, source)
+
+
 class NativeBudgetEvidenceTests(unittest.TestCase):
     def check_log(self, text):
         script = (ROOT / "scripts/ci/ios-runtime.sh").read_text()
