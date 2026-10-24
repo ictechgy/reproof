@@ -1241,7 +1241,8 @@
             "-m",
             "unittest",
             "tests.test_ticket_intake",
-            "tests.test_offline_repair_demo"
+            "tests.test_offline_repair_demo",
+            "tests.test_sdk_review"
           ],
           "environment": "local-python-standard-library",
           "effects": [
