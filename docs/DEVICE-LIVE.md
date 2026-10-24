@@ -139,3 +139,36 @@ python3 -m reproof live-serve --iphone iphone-0000000000000000 \
 새 iPhone 소스 빌드는 `live-iphone-build --team <TEAM_ID>`로 서명할 수 있다. 자동 프로비저닝에는 Xcode 계정 설정이 필요하며 `--provision`은 Apple portal 접근을 명시적으로 허용할 때만 사용한다. 이번 실기기 검증에서는 사용자 승인 아래 기존 프로파일·Keychain 인증서를 사용했다. 기존 Simulator 방식도 유지한다.
 
 이 결과는 실제 Android Live와 worker 실행 기반의 진전이다. WebDriver/Appium 전체 호환, 역할별 다중 사용자 운영, 30/60FPS 영상, 실제 화면 AI와 기존 repair 엔진 전체의 세션 서비스 통합을 완료한 것으로 표시하지 않는다.
+
+## iOS Simulator startup transport budget
+
+The authenticated Simulator startup path keeps one absolute deadline: no later
+than the original 90-second startup window or the original dispatch permit.
+The host anchors this deadline to its qualified, suspend-inclusive Darwin clock
+before app staging or XCTest preparation. The Simulator helper receives the
+same boot-scoped `mach_continuous_time` deadline, not a fresh duration after
+XCTest launches. Clock uncertainty and millisecond quantization shorten it.
+
+Only the `ready` and `started` HTTP exchanges use this shrinking startup budget.
+Their request, resource, and semaphore waits are bounded together; normal input,
+frame, acknowledgement, and clock requests retain the existing five-second
+transport timeout. Invalid, expired, or discontinuous budgets fail closed.
+New hosts require `ReproLiveSimulatorStartupBudgetVersion = 1` in the helper
+metadata before starting XCTest, so rebuild an older Simulator helper. A new
+helper without the startup environment value keeps the older host's five-second
+behavior. Protocol/helper version 2 and the physical iPhone bridge are unchanged.
+
+The budget is not authority: the authenticated native handshake still precedes
+target installation. Installation, identity checks, launch, and the final
+`started` publication retain permit, generation, cancellation, and deadline
+fences. Duplicate `ready` or `started` callbacks are rejected, not retried.
+Revocation does not promise immediate cancellation of an in-flight platform
+call; a late or unconfirmed result cannot become successful startup evidence,
+and the existing failure/quarantine and owned-process abort paths remain.
+
+Portable regressions are in `tests/test_ios_startup_budget.py` and the
+`NATIVE_CONTRACTS` release gate. Pure native budget tests are the three
+`testSimulatorStartupBudget*` methods in `ReproLiveTests/LiveControlTests`.
+They do not launch the target or issue native input. Passing these tests is not
+proof of native compilation, app runtime success, or semantic-locator support;
+the owned-Simulator runtime validation remains a separate check.

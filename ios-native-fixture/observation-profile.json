@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 2,
+  "kind": "uikit-observation-v2",
+  "applicationId": "io.reproof.fixture.inventory",
+  "project": "InventoryFixture.xcodeproj",
+  "target": "InventoryFixture",
+  "build": {
+    "scheme": "InventoryFixture",
+    "product": "InventoryFixture",
+    "infoPlist": "App/Info.plist",
+    "debugConfiguration": "Debug"
+  },
+  "sourceInputs": [
+    "App/AppDelegate.swift",
+    "App/Info.plist",
+    "InventoryFixture.xcodeproj/project.pbxproj",
+    "InventoryFixture.xcodeproj/xcshareddata/xcschemes/InventoryFixture.xcscheme"
+  ],
+  "tapTargets": [
+    "inventory.add",
+    "inventory.save",
+    "inventory.cancel",
+    "inventory.item.0",
+    "inventory.back"
+  ],
+  "screenTargets": {
+    "inventory.list": "list",
+    "inventory.editor": "editor",
+    "inventory.detail": "detail"
+  }
+}
