@@ -1230,6 +1230,29 @@
           "gate": "software"
         }
       ]
+    },
+    "TICKET_INTAKE": {
+      "available": true,
+      "checks": [
+        {
+          "id": "ticket-intake-causal-local-demo",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_ticket_intake",
+            "tests.test_offline_repair_demo"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }

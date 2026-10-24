@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "specification": "Shipping costs 500 cents below a 5000-cent subtotal and is free at or above 5000 cents.",
+  "cases": [
+    {"id": "empty_cart", "subtotalCents": 0, "expectedTotalCents": 500},
+    {"id": "small_cart", "subtotalCents": 1200, "expectedTotalCents": 1700},
+    {"id": "below_threshold", "subtotalCents": 4999, "expectedTotalCents": 5499},
+    {"id": "at_threshold", "subtotalCents": 5000, "expectedTotalCents": 5000},
+    {"id": "above_threshold", "subtotalCents": 5001, "expectedTotalCents": 5001},
+    {"id": "large_cart", "subtotalCents": 12000, "expectedTotalCents": 12000},
+    {"id": "maximum_input", "subtotalCents": 1000000, "expectedTotalCents": 1000000}
+  ]
+}
