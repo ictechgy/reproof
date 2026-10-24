@@ -16,6 +16,9 @@ android {
         consumerProguardFiles("consumer-rules.pro")
     }
 
+    // Compile the real source-vendored runtime only in the test variant, never in the SDK AAR.
+    sourceSets.getByName("test").java.srcDir("../../reproof/instrumentation_templates/android/debug/java")
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -24,4 +27,8 @@ android {
 
 tasks.withType<KotlinCompile>().configureEach {
     compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
 }

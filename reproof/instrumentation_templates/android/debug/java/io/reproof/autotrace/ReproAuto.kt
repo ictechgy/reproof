@@ -353,6 +353,8 @@ object ReproAuto {
             fixtureVersion = configuration.fixtureVersion,
             startState = configuration.startState,
             safeTextTargets = configuration.textTargets,
+            numericTargets = configuration.numericTargets,
+            allowedStartScreens = setOf(configuration.startScreen),
             tapTargets = configuration.tapTargets,
             scrollTargets = configuration.scrollTargets,
             backTarget = configuration.backTarget,
@@ -366,6 +368,7 @@ object ReproAuto {
         var closed = false
 
         fun initialize(): Boolean {
+            if (!recorder.isEnabled) return false
             if (diagnosticsFile.exists() && !diagnosticsFile.delete()) return false
             val current = activityRef.get() ?: return false
             val nodes = configuration.startNodes
@@ -452,6 +455,7 @@ object ReproAuto {
         val fixtureId: String,
         val fixtureVersion: Int,
         val startState: JSONObject,
+        val startScreen: String,
         val startNodes: Map<String, String>,
         val tapTargets: Set<String>,
         val textTargets: Set<String>,
@@ -482,6 +486,8 @@ object ReproAuto {
                 val back = targetsObject.opt("back") as? String ?: return null
                 if (!IDENTIFIER.matches(back)) return null
                 val startState = profile.optJSONObject("startState") ?: return null
+                val startScreen = startState.opt("screen") as? String ?: return null
+                if (!IDENTIFIER.matches(startScreen)) return null
                 val nodesObject = startState.optJSONObject("nodes") ?: return null
                 val nodes = LinkedHashMap<String, String>()
                 val nodeKeys = nodesObject.keys()
@@ -501,7 +507,10 @@ object ReproAuto {
                     packageName = packageName,
                     fixtureId = fixtureId,
                     fixtureVersion = fixtureVersion,
-                    startState = JSONObject(startState.toString()),
+                    startState = JSONObject().put("screen", startScreen).put("nodes", JSONObject().also { safe ->
+                        nodes.forEach { (target, value) -> safe.put(target, value) }
+                    }),
+                    startScreen = startScreen,
                     startNodes = nodes,
                     tapTargets = tap,
                     textTargets = text,
