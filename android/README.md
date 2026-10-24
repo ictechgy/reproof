@@ -40,6 +40,76 @@ SDK allowlist, and the recorder stops when it reaches ten minutes or 20 MiB.
 
 Replay mode is selected with `repro_mode=replay`; it does not create a recorder.
 
+## Recorder privacy admission
+
+`ReproPrivacyConfig` and `ReproStartState` provide an additive typed API:
+
+```kotlin
+val policy = ReproPrivacyConfig(
+    safeTextTargets = setOf("name"),
+    numericTargets = setOf("count"),
+    allowedStartScreens = setOf("main"),
+    tapTargets = setOf("add", "next"),
+)
+val start = ReproStartState("main", mapOf("name" to "", "count" to "0"))
+val recorder = ReproRecorder(context, policy, start)
+if (recorder.isEnabled) recorder.recordTap("add")
+```
+
+The integration owner must supply trusted semantic IDs, synthetic safe text
+values and start-screen allowlists. Do not derive a policy from arbitrary user
+input, raw JSON values or captured screen text. This is admission, not generic
+redaction: non-allowlisted values, nested objects, extra/missing observation
+nodes, wrong types and oversized input are rejected, not sanitized or echoed.
+Default text values remain `""`, `"QA"` and `"Test"`; numeric start nodes allow
+only one to nine ASCII digits. Numeric targets are not automatically text or tap
+targets. Tap, replace, scroll and back have separate policies; a scroll endpoint
+is tappable only if also explicitly in `tapTargets`.
+
+Configuration IDs have at most 64 characters; each target/value set has at most
+64 members, scroll maps at most 16 containers and start states at most 128 nodes.
+Safe text values have at most 64 characters and cannot contain control characters.
+Policy and state collections are defensively copied and exposed read-only.
+The supplied start state must contain exactly the union of text and numeric
+observation targets; where legacy default sets overlap, numeric validation wins.
+A conservative start-state storage reserve must fit the capture byte budget.
+Duration and byte budgets can be reduced from, but not exceed, the defaults.
+Invalid typed policy/state construction throws `IllegalArgumentException` with
+a fixed message, as a programmer configuration error.
+
+The existing `JSONObject` constructor and named sample arguments remain source
+compatible. Its raw adapter checks exact keys and types without calling
+`toString` or coercive `getString` on untrusted input. Invalid legacy policy or
+start state produces a disabled recorder (`isEnabled == false`) before JSON
+serialization, context access, clocks, executor creation or filesystem work.
+Recording and `freezeAndExport` then return false; the callback is not invoked.
+`capturePath()` on a disabled recorder throws `IllegalStateException` with the
+fixed message `Recorder is disabled`, rather than returning a stale capture.
+Callers must inspect `isEnabled` and must not upload an older capture as a new
+session. A typed, structurally valid state that does not match its policy also
+disables the recorder. `isEnabled` describes configuration admission, not whether
+an admitted session has subsequently stopped or successfully exported.
+
+The version-1 capture and metadata wire keys are unchanged. Both source and
+build instrumentation copy the single `ReproRecorder.kt` file, including its
+support types. `ReproAuto` supplies numeric targets and the validated start
+screen from the trusted host-generated profile, rather than inferring policy
+from arbitrary raw state.
+
+The existing Android compile workflow is extended to compile the SDK, both
+sample variants and the live helper, and run `:sdk:testDebugUnitTest`. Its existing
+pull-request and main-push path filters also cover Android instrumentation
+templates. The SDK test source set compiles the actual debug runtime templates
+with an inert test-only configuration; these files are not production SDK
+sources and are not packaged in its AAR. These JVM
+tests exercise the pure admission policy with mutation, bound and non-coercion
+canaries; they do not instantiate Android `Context` or `JSONObject`. Source-copy
+and ordering assertions are supporting Python checks, not runtime proof. Real
+CI compilation/JVM results are required before merging this change. Native
+Android JSON-adapter behavior, device recording and export remain unverified by
+these tests; no device, installation, signing or production qualification is
+claimed.
+
 ## Driver commands
 
 Install `driver-debug.apk` and invoke it with Android instrumentation. The

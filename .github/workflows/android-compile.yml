@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - 'android/**'
+      - 'reproof/instrumentation_templates/android/**'
       - '.github/workflows/android-compile.yml'
   push:
     branches: [main]
     paths:
       - 'android/**'
+      - 'reproof/instrumentation_templates/android/**'
       - '.github/workflows/android-compile.yml'
 
 permissions:
@@ -32,6 +34,6 @@ jobs:
           echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
           echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
           echo '7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172  android/gradle/wrapper/gradle-wrapper.jar' | sha256sum --check --strict
-      - name: Compile helper without packaging, signing, or devices
+      - name: Compile SDK, samples and helper; run pure SDK policy tests
         working-directory: android
-        run: ./gradlew --no-daemon --no-build-cache --console=plain :live:compileDebugKotlin
+        run: ./gradlew --no-daemon --no-build-cache --console=plain :sdk:compileDebugKotlin :sdk:testDebugUnitTest :sample:compileBuggyDebugKotlin :sample:compileFixedDebugKotlin :live:compileDebugKotlin

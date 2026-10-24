@@ -39,7 +39,11 @@ class InstrumentationProjectTests(unittest.TestCase):
         self.assertEqual(self.activity.read_text(), self.original)
         staged = output / 'source'
         self.assertEqual((staged / 'app/src/main/java/example/Stock.kt').read_text(), self.product.read_text())
-        self.assertTrue((staged / 'app/src/debug/java/io/reproof/sdk/ReproRecorder.kt').is_file())
+        recorder = staged / 'app/src/debug/java/io/reproof/sdk/ReproRecorder.kt'
+        self.assertEqual(recorder.read_bytes(), (Path(__file__).resolve().parents[1] /
+            'android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt').read_bytes())
+        self.assertIn('class ReproPrivacyConfig(', recorder.read_text())
+        self.assertIn('class ReproStartState(', recorder.read_text())
         self.assertFalse((staged / 'app/src/release/java/io/reproof/sdk/ReproRecorder.kt').exists())
         self.assertTrue((staged / 'app/src/release/java/io/reproof/autotrace/ReproAuto.kt').is_file())
         self.assertIn('android.permission.DUMP', (staged / 'app/src/debug/AndroidManifest.xml').read_text())

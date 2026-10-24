@@ -56,6 +56,62 @@ class InstrumentationRuntimeTemplateTests(unittest.TestCase):
         source = (ROOT / "android" / "sdk" / "src" / "main" / "java" / "io" / "reproof" / "sdk" / "ReproRecorder.kt").read_text()
         self.assertIn("fun lastEventSequence(): Int = synchronized(lock) { nextSequence - 1 }", source)
 
+    def test_recorder_admission_precedes_side_effects_and_raw_serialization(self):
+        source = (ROOT / "android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt").read_text()
+        adapter = source[source.index("private fun admitLegacy"):source.index("class ReproRecorder")]
+        self.assertNotIn("toString(", adapter)
+        self.assertNotIn("getString(", adapter)
+        self.assertIn('raw.length() == 2 && raw.has("screen") && raw.has("nodes")', adapter)
+        self.assertIn('raw.opt("nodes") as? JSONObject', adapter)
+        self.assertIn("admitStartState(trusted", adapter)
+        self.assertIn("this(context, admitLegacy({", source)
+        self.assertNotIn("JSONObject(startState.toString())", source)
+        self.assertIn("private val appContext by lazy", source)
+        self.assertIn("private val executor: ExecutorService by lazy", source)
+        self.assertIn("if (isEnabled) executor.execute", source)
+        self.assertIn("if (!isEnabled || frozen) return false", source)
+        self.assertNotIn("private fun safeTarget", source)
+        for signature, admission in (("fun recordTap", "policy.allowsTap"),
+                                     ("fun recordReplace", "policy.allowsReplace"),
+                                     ("fun recordScrollTo", "policy.allowsScroll")):
+            body = source[source.index(signature):]
+            self.assertLess(body.index(admission), body.index("JSONObject()"))
+            self.assertLess(body.index("if (!isEnabled) return false"), body.index("JSONObject()"))
+
+    def test_runtime_passes_explicit_host_validated_numeric_and_screen_policy(self):
+        source = DEBUG_RUNTIME.read_text()
+        self.assertIn("numericTargets = configuration.numericTargets", source)
+        self.assertIn("allowedStartScreens = setOf(configuration.startScreen)", source)
+        self.assertIn('val startScreen = startState.opt("screen") as? String ?: return null', source)
+        self.assertIn("if (!IDENTIFIER.matches(startScreen)) return null", source)
+        self.assertIn("if (!recorder.isEnabled) return false", source)
+        self.assertNotIn("JSONObject(startState.toString())", source)
+
+    def test_actual_debug_templates_are_compiled_only_in_sdk_test_source_set(self):
+        build = (ROOT / "android/sdk/build.gradle.kts").read_text()
+        self.assertIn('sourceSets.getByName("test").java.srcDir("../../reproof/instrumentation_templates/android/debug/java")', build)
+        config = (ROOT / "android/sdk/src/test/java/io/reproof/autotrace/ReproConfig.kt").read_text()
+        for name in ("PROFILE_JSON", "PROFILE_DIGEST", "SITES_JSON", "APP_LOGS_ENABLED", "SCREEN_TARGETS_JSON"):
+            self.assertIn(f"const val {name}", config)
+        workflow = (ROOT / ".github/workflows/android-compile.yml").read_text()
+        self.assertEqual(workflow.count("'reproof/instrumentation_templates/android/**'"), 2)
+        self.assertIn(":sdk:testDebugUnitTest", workflow)
+
+    def test_distribution_keeps_single_file_policy_support(self):
+        import json
+        manifest = json.loads((ROOT / "distribution-resources.json").read_text())
+        self.assertIn("android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt", manifest["files"])
+        for resource in (
+            "android/sdk/src/test/java/io/reproof/autotrace/ReproConfig.kt",
+            "android/sdk/src/test/java/io/reproof/sdk/ReproLegacyConstructorCompileCheck.java",
+            "android/sdk/src/test/java/io/reproof/sdk/ReproPrivacyConfigTest.kt",
+        ):
+            self.assertIn(resource, manifest["files"])
+            self.assertTrue((ROOT / resource).is_file())
+        recorder = (ROOT / "android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt").read_text()
+        for declaration in ("class ReproPrivacyConfig(", "class ReproStartState(", "class ReproRecorder"):
+            self.assertIn(declaration, recorder)
+
 
 if __name__ == "__main__":
     unittest.main()
