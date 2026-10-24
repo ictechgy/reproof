@@ -20,3 +20,7 @@ build-device/
 .DS_Store
 .omc/
 .kotlin/
+
+# SwiftPM local build state is not source or a distribution resource.
+.build/
+.swiftpm/

@@ -3,6 +3,7 @@
 import argparse
 from pathlib import Path
 import re
+import shutil
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,10 +48,17 @@ def prepare(output):
     controller.write_text(text)
     (source / 'Recorder/Recorder.swift').unlink()
     (source / 'Recorder').rmdir()
+    shutil.rmtree(source / 'SDK')
     spec = source / 'project.yml'
     text = spec.read_text()
     require(text.count('      - path: Recorder\n') == 1, 'Fixture project recorder dependency changed')
-    spec.write_text(text.replace('      - path: Recorder\n', ''))
+    package = 'packages:\n  ReproofSDK:\n    path: SDK\n'
+    dependency = '    dependencies:\n      - package: ReproofSDK\n'
+    require(text.count(package) == 1 and text.count(dependency) == 1,
+            'Fixture project SDK dependency changed')
+    text = text.replace('      - path: Recorder\n', '').replace(package, '').replace(dependency, '')
+    require('ReproofSDK' not in text, 'Plain UIKit fixture still depends on SDK')
+    spec.write_text(text)
     run_command(['/opt/homebrew/bin/xcodegen', 'generate', '--spec', str(spec)], str(source), timeout=30)
     write_json(output / 'fixture.json', {'synthetic': True, 'platform': 'ios', 'ui': 'UIKit',
         'manualRecorderCalls': 0, 'reportView': False, 'cases': ['counter', 'duplicate-submit', 'reset']})
