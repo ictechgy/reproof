@@ -338,27 +338,30 @@ def _validate_result(xml_raw, log_raw, returncode, mode, oracle_path):
     # Reject unparsed, duplicate or truncated test-case rows as well.
     _require(len(re.findall(r'^Test Case ', log, re.MULTILINE)) == 2, 'test_log_identity')
     summaries = re.findall(r'^\s*Executed (\d+) tests?, with (\d+) failures? \((\d+) unexpected\) in [0-9]+(?:\.[0-9]+)? \([0-9]+(?:\.[0-9]+)?\) seconds$', log, re.MULTILINE)
-    _require(len(summaries) == 2 and all(row == ('1', str(failures), '0') for row in summaries)
+    _require(len(summaries) == 3 and all(row == ('1', str(failures), '0') for row in summaries)
              and len(summaries) == len(re.findall(r'^\s*Executed ', log, re.MULTILINE)), 'test_log_count')
+    # Exact Xcode 16.4 host XCTest hierarchy, captured by the native CI fixture.
+    # The bundle wrapper has its own summary; it is not another testcase.
     suite_lines = re.findall(r"^Test Suite '([^']+)' (started|passed|failed) at [^\n]+$", log, re.MULTILINE)
-    _require(len(suite_lines) == 4 and suite_lines[0] == ('Selected tests', 'started')
-             and suite_lines[1] in (('SubmissionLogicTests', 'started'), ('ReproLogicTests.SubmissionLogicTests', 'started'))
-             and suite_lines[2] == (suite_lines[1][0], expected_end)
-             and suite_lines[3] == ('Selected tests', expected_end)
-             and len(re.findall(r'^Test Suite ', log, re.MULTILINE)) == 4, 'test_log_incomplete')
+    hierarchy = ('Selected tests', 'ReproofNativeLogicPackageTests.xctest', 'SubmissionLogicTests')
+    expected_suites = [(name, 'started') for name in hierarchy]
+    expected_suites += [(name, expected_end) for name in reversed(hierarchy)]
+    _require(suite_lines == expected_suites
+             and len(re.findall(r'^Test Suite ', log, re.MULTILINE)) == 6, 'test_log_incomplete')
     # A valid prefix or reordered rows are not a complete native test run.
     suite_rows = list(re.finditer(r'^Test Suite ', log, re.MULTILINE))
     case_rows = list(re.finditer(r'^Test Case ', log, re.MULTILINE))
     summary_rows = list(re.finditer(r'^\s*Executed ', log, re.MULTILINE))
-    positions = [suite_rows[0].start(), suite_rows[1].start(), case_rows[0].start(),
-                 case_rows[1].start(), suite_rows[2].start(), summary_rows[0].start(),
-                 suite_rows[3].start(), summary_rows[1].start()]
+    positions = [suite_rows[0].start(), suite_rows[1].start(), suite_rows[2].start(),
+                 case_rows[0].start(), case_rows[1].start(), suite_rows[3].start(),
+                 summary_rows[0].start(), suite_rows[4].start(), summary_rows[1].start(),
+                 suite_rows[5].start(), summary_rows[2].start()]
     _require(positions == sorted(set(positions)), 'test_log_incomplete')
     errors = [line for line in log.splitlines() if 'error:' in line or 'XCTAssert' in line]
     if failing:
         expectation = RECIPE_VALUE['failureAssertions'][mode]
         exact = (f"{oracle_path}:{expectation['line']}: error: {OBJC_CASE} : "
-                 f"{expectation['assertion']} failed -")
+                 f"{expectation['assertion']} failed")
         _require(len(errors) == 1 and errors[0].rstrip() == exact
                  and case_rows[0].start() < log.index(errors[0]) < case_rows[1].start(),
                  'expected_assertion_missing')

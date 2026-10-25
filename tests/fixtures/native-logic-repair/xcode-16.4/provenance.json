@@ -1,0 +1,25 @@
+{
+  "artifactId": 12599315361,
+  "artifactMemberPrefix": "reproof-native-logic-results/fixed/baseline/",
+  "artifactSha256": "12210e3efbfaa02c093e9b55319f2007fbf9eb0a2a5f836016f4c4e7328efe1c",
+  "candidateExecuted": false,
+  "checkedOutCommit": "0cb2807a7af4e6f4739109676c6092ebace3f80d",
+  "files": {
+    "result.xml": "bcf01c5ef321ad4995facc7971bb5ed8fa7db58be16a8d75467d1eb6a71e5b8a",
+    "test.log": "d77ad971eadc6b7f166e29ccce5ac3fe25eb9d7f519157135c3f303b322dc03a"
+  },
+  "jobId": 121168178427,
+  "kind": "captured-native-baseline-parser-regression",
+  "nativeReturncode": 1,
+  "note": "Original log/XML bytes, not normalized. Real baseline assertion failed; the original supervisor rejected its log format. This fixture is not evidence of a passing repair.",
+  "oracleDigest": "0c56508f9b35b4679766f5d9913384da7d80c3d814cebd07f920e087e0c81dcd",
+  "oraclePath": "/Users/runner/work/_temp/reproof-native-logic-results/fixed/baseline/package/Tests/LogicTests.swift",
+  "originalGateStatus": "failed",
+  "originalRejection": "test_log_count",
+  "repository": "ictechgy/reproof",
+  "schemaVersion": 1,
+  "sourceCommit": "c937c537027bb19d99899c69ea08ac73d78f6124",
+  "sourceTree": "4b526aebefd6427f3f1b6931bd554f89e12deea1",
+  "workflowRunAttempt": 1,
+  "workflowRunId": 40193120964
+}

@@ -17,6 +17,7 @@ from reproof.execution.artifacts import ArtifactError, BlobSet
 from reproof.project_repair import RepairError
 
 ROOT = Path(__file__).resolve().parents[1]
+CAPTURED = ROOT / 'tests/fixtures/native-logic-repair/xcode-16.4'
 ORACLE_PATH = Path('/owned/package/Tests/LogicTests.swift')
 
 
@@ -30,13 +31,15 @@ def evidence(mode='fixed'):
     assertion = ''
     if fail:
         oracle = demo.RECIPE_VALUE['failureAssertions'][mode]
-        assertion = f"{ORACLE_PATH}:{oracle['line']}: error: {demo.OBJC_CASE} : {oracle['assertion']} failed -\n"
+        assertion = f"{ORACLE_PATH}:{oracle['line']}: error: {demo.OBJC_CASE} : {oracle['assertion']} failed\n"
     summary = f'\t Executed 1 test, with {fail} failures ({0} unexpected) in 0.01 (0.02) seconds\n'
     log = ("Test Suite 'Selected tests' started at 2026-10-25 10:00:00.\n"
+           "Test Suite 'ReproofNativeLogicPackageTests.xctest' started at 2026-10-25 10:00:00.\n"
            "Test Suite 'SubmissionLogicTests' started at 2026-10-25 10:00:00.\n"
            f"Test Case '{demo.OBJC_CASE}' started.\n" + assertion +
            f"Test Case '{demo.OBJC_CASE}' {verdict} (0.01 seconds).\n"
            f"Test Suite 'SubmissionLogicTests' {verdict} at 2026-10-25 10:00:00.\n" + summary +
+           f"Test Suite 'ReproofNativeLogicPackageTests.xctest' {verdict} at 2026-10-25 10:00:00.\n" + summary +
            f"Test Suite 'Selected tests' {verdict} at 2026-10-25 10:00:00.\n" + summary).encode()
     return xml, log, fail
 
@@ -55,6 +58,50 @@ class NativeLogicResultTests(unittest.TestCase):
             self.assertEqual(result['tests'], 1)
             self.assertEqual(result['assertionsInFrozenTest'], 2)
             self.assertEqual(result['failures'], int(mode != 'fixed'))
+
+    def test_original_xcode_output_is_bound_and_parses_exact_baseline_failure(self):
+        provenance = json.loads((CAPTURED / 'provenance.json').read_text())
+        self.assertEqual(provenance['sourceCommit'], 'c937c537027bb19d99899c69ea08ac73d78f6124')
+        self.assertEqual(provenance['workflowRunId'], 40193120964)
+        self.assertEqual(provenance['artifactSha256'], '12210e3efbfaa02c093e9b55319f2007fbf9eb0a2a5f836016f4c4e7328efe1c')
+        self.assertEqual(provenance['oracleDigest'], demo.PINS[demo.ORACLE])
+        self.assertEqual(provenance['originalGateStatus'], 'failed')
+        self.assertFalse(provenance['candidateExecuted'])
+        xml, log = (CAPTURED / 'result.xml').read_bytes(), (CAPTURED / 'test.log').read_bytes()
+        self.assertEqual(demo._sha(xml), provenance['files']['result.xml'])
+        self.assertEqual(demo._sha(log), provenance['files']['test.log'])
+        result = demo._validate_result(xml, log, 1, 'baseline', Path(provenance['oraclePath']))
+        self.assertEqual((result['tests'], result['failures'], result['skipped']), (1, 1, 0))
+        self.assertEqual(result['expectedAssertion'], {'line': 13, 'assertion': 'XCTAssertFalse'})
+        for mode, code in (('fixed', 0), ('wrong', 1)):
+            with self.subTest(mode=mode), self.assertRaises(demo.NativeLogicError):
+                demo._validate_result(xml, log, code, mode, Path(provenance['oraclePath']))
+
+    def test_original_wrapper_missing_duplicate_foreign_or_partial_rejects(self):
+        provenance = json.loads((CAPTURED / 'provenance.json').read_text())
+        xml, log = (CAPTURED / 'result.xml').read_bytes(), (CAPTURED / 'test.log').read_bytes()
+        wrapper = b'Test Suite \'ReproofNativeLogicPackageTests.xctest\''
+        rows = log.splitlines(keepends=True)
+        without_wrapper = []
+        omit_summary = False
+        for row in rows:
+            if row.startswith(wrapper):
+                omit_summary = b' failed at ' in row
+                continue
+            if omit_summary and b'Executed ' in row:
+                omit_summary = False
+                continue
+            without_wrapper.append(row)
+        start_row = next(row for row in rows if row.startswith(wrapper) and b' started at ' in row)
+        variants = [log.replace(b'ReproofNativeLogicPackageTests.xctest', b'ForeignPackageTests.xctest'),
+                    b''.join(without_wrapper), log.replace(start_row, start_row + start_row),
+                    log.replace(b'SubmissionLogicTests testDuplicateIsRejected', b'SubmissionLogicTests testOther'),
+                    log.replace(b'XCTAssertFalse failed\n', b'XCTAssertFalse failed -\n'),
+                    log.replace(b'with 1 failure (0 unexpected)', b'with 0 failures (0 unexpected)', 1),
+                    log[:log.index(b"Test Suite 'Selected tests' failed")]]
+        for changed in variants:
+            with self.subTest(log=changed), self.assertRaises(demo.NativeLogicError):
+                demo._validate_result(xml, changed, 1, 'baseline', Path(provenance['oraclePath']))
 
     def test_filter_matches_only_exact_case(self):
         self.assertIsNotNone(re.fullmatch(demo.FILTER, demo.CASE))
