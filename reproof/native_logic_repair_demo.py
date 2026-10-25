@@ -191,13 +191,50 @@ def _draft(source, frozen):
     return draft
 
 
-def _stop(process):
+def _can_observe_exit():
+    return sys.platform == 'linux' and all(hasattr(os, name) for name in
+        ('waitid', 'P_PID', 'WEXITED', 'WNOHANG', 'WNOWAIT'))
+
+
+def _observe_exit(process):
+    # This runner requires a controlled host: SIGCHLD must stay at its default,
+    # and no other thread/handler may reap this child. WNOWAIT reserves the PID
+    # even after natural exit; it is not protection against a competing reaper.
+    _require(signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL
+             and process.returncode is None, 'process_ownership_lost')
+    try:
+        return os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    except OSError:
+        raise NativeLogicError('process_ownership_lost') from None
+
+
+def _reap_owned(process):
+    deadline = time.monotonic() + 0.2
+    while True:
+        _observe_exit(process)
+        try:
+            pid, status = os.waitpid(process.pid, os.WNOHANG)
+        except OSError:
+            raise NativeLogicError('process_ownership_lost') from None
+        if pid:
+            process.returncode = os.waitstatus_to_exitcode(status)
+            return
+        _require(time.monotonic() < deadline, 'cleanup_unconfirmed')
+        time.sleep(0.01)
+
+
+def _stop(process, *, preserve_wait=False):
     # poll() may already have reaped a naturally completed leader. Never signal
     # that numeric PGID again: it could now belong to a different process.
     if process.returncode is None:
-        # No wait/poll between these signals: the unreaped leader reserves its
+        # No reaping between these signals: the unreaped leader reserves its
         # PID while we terminate the process group we created with it.
         for sig in (signal.SIGTERM, signal.SIGKILL):
+            if preserve_wait:
+                _observe_exit(process)
+            else:
+                _require(signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL,
+                         'process_ownership_lost')
             try:
                 os.killpg(process.pid, sig)
             except ProcessLookupError:
@@ -205,7 +242,10 @@ def _stop(process):
             if sig == signal.SIGTERM:
                 time.sleep(0.1)
         try:
-            process.wait(timeout=0.2)
+            if preserve_wait:
+                _reap_owned(process)
+            else:
+                process.wait(timeout=0.2)
         except subprocess.TimeoutExpired:
             raise NativeLogicError('cleanup_unconfirmed') from None
     deadline = time.monotonic() + 0.5
@@ -223,6 +263,8 @@ def _command(argv, cwd, log_path, home, timeout, *, environment=None):
     environment = environment if environment is not None else {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'HOME': str(home),
                    'TMPDIR': str(home), 'LANG': 'C', 'LC_ALL': 'C',
                    'DEVELOPER_DIR': DEVELOPER_DIR}
+    _require(signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL, 'process_ownership_lost')
+    preserve_wait = _can_observe_exit()
     cancelled = False
     def cancel(signum, frame):
         nonlocal cancelled
@@ -241,8 +283,22 @@ def _command(argv, cwd, log_path, home, timeout, *, environment=None):
             except OSError:
                 raise NativeLogicError('tool_start_failed') from None
             deadline = time.monotonic() + timeout
+            owned = True
+            def exited():
+                nonlocal owned
+                try:
+                    _require(signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL,
+                             'process_ownership_lost')
+                    return (_observe_exit(process) is not None if preserve_wait
+                            else process.poll() is not None)
+                except NativeLogicError:
+                    owned = False
+                    raise
+                except OSError:
+                    owned = False
+                    raise NativeLogicError('process_ownership_lost') from None
             try:
-                while process.poll() is None:
+                while not exited():
                     _require(not cancelled, 'command_cancelled')
                     _require(time.monotonic() < deadline, 'command_timeout')
                     _require(os.fstat(log.fileno()).st_size <= MAX_OUTPUT, 'output_limit')
@@ -250,9 +306,10 @@ def _command(argv, cwd, log_path, home, timeout, *, environment=None):
                 _require(not cancelled, 'command_cancelled')
                 _require(os.fstat(log.fileno()).st_size <= MAX_OUTPUT, 'output_limit')
                 _require(time.monotonic() < deadline, 'command_timeout')
-                code = process.returncode
             finally:
-                _stop(process)
+                if owned:
+                    _stop(process, preserve_wait=preserve_wait)
+            code = process.returncode
         _require(not cancelled, 'command_cancelled')
         raw = read_regular(log_path.parent, log_path.name, maximum=MAX_OUTPUT)
     finally:

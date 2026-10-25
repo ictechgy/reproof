@@ -117,6 +117,28 @@ class AndroidLogicContractTests(unittest.TestCase):
             with self.subTest(edit=new), self.assertRaises(demo.NativeLogicError):
                 self.validate('baseline', lambda r: (r[0], r[1].replace(old, new), r[2]))
 
+    def test_expected_failure_allows_only_single_terminal_or_start_then_terminal(self):
+        row = b'> Task ' + demo.TASK.encode()
+        for mode in ('baseline', 'wrong'):
+            self.validate(mode, lambda r: (r[0], r[1].replace(row + b' FAILED\n',
+                row + b'\n' + row + b' FAILED\n'), r[2]))
+            for suffixes in ([], [''], [' FAILED', ''], ['', ''],
+                             [' FAILED', ' FAILED'], ['', '', ' FAILED'],
+                             ['', ' FAILED', ' FAILED'], ['', ' FAILED', ''],
+                             [' SKIPPED', ' FAILED'], [' FROM-CACHE', ' FAILED'],
+                             [' UP-TO-DATE', ' FAILED'], [' NO-SOURCE', ' FAILED'],
+                             ['', ' FAILED extra'], [' extra', ' FAILED']):
+                replacement = b''.join(row + suffix.encode() + b'\n' for suffix in suffixes)
+                with self.subTest(mode=mode, suffixes=suffixes), self.assertRaises(demo.NativeLogicError):
+                    self.validate(mode, lambda r: (r[0], r[1].replace(row + b' FAILED\n',
+                        replacement), r[2]))
+            with self.assertRaises(demo.NativeLogicError):
+                self.validate(mode, lambda r: (r[0], r[1].replace(row + b' FAILED\n',
+                    row + b'\n' + row + b' FAILED\n') + b'> Task :sdk:compileDebugKotlin FAILED\n', r[2]))
+        with self.assertRaises(demo.NativeLogicError):
+            self.validate('fixed', lambda r: (r[0], r[1].replace(row + b'\n',
+                row + b'\n' + row + b' FAILED\n'), r[2]))
+
     def test_pinned_source_and_real_callsite(self):
         source, frozen = demo._load_source(ROOT)
         entries = dict(frozen.entries)
