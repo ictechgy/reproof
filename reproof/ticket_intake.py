@@ -16,7 +16,8 @@ import uuid
 import zipfile
 
 from . import contracts
-from .app_logs import APP_LOG_MIME, IDENTITY_KEYS, validate_app_log
+from .app_logs import (APP_LOG_MIME, IDENTITY_KEYS, MAX_APP_LOG_SNAPSHOTS,
+                       MAX_APP_LOG_SNAPSHOT_BYTES, app_log_extends, validate_app_log)
 from .issue_package import PackageLimits, canonical, inspect_archive
 from .storage import _unique_object
 
@@ -33,8 +34,9 @@ IDENTITY = ('tenantId', 'projectId', 'applicationId', 'buildId',
 class RegisteredCapsule:
     """Locally authorized snapshot, not a transferable authority handle.
 
-    ``app_log_digest`` must name a sealed observation in the capsule. ``run_id``
-    and ``session_id`` come from the trusted collector, not ticket text.
+    ``app_log_digest`` must name the final sealed app-log observation in the
+    capsule's original order. ``run_id`` and ``session_id`` come from the trusted
+    collector, not ticket text. Earlier snapshots must be same-identity prefixes.
     """
     tenant_id: str
     project: dict
@@ -113,22 +115,30 @@ def _validate(entry, ticket):
     _need(spec['originalRecordingDigest'] == actual['recordingDigest'], 'identity_mismatch')
     app = next(a for a in project['applications'] if a['id'] == actual['applicationId'])
     logs = [r for r in original['observations'] if r['mimeType'] == APP_LOG_MIME]
-    # Multiple snapshots/sessions require explicit consolidation by the existing
-    # collector, never a fuzzy "latest" choice by ticket intake.
-    _need(len(logs) == 1 and logs[0]['digest'] == entry.app_log_digest, 'log_ambiguous')
+    # Preserve sealed observation order, including repeated references. The
+    # trusted collector selects the final digest; intake never chooses one.
+    _need(1 <= len(logs) <= MAX_APP_LOG_SNAPSHOTS
+          and logs[-1]['digest'] == entry.app_log_digest, 'log_ambiguous')
+    _need(sum(reference['bytes'] for reference in logs) <= MAX_APP_LOG_SNAPSHOT_BYTES,
+          'log_ambiguous')
+    previous = None
     with zipfile.ZipFile(io.BytesIO(entry.capsule)) as archive:
-        raw = archive.read('objects/' + entry.app_log_digest)
-    _need(hashlib.sha256(raw).hexdigest() == entry.app_log_digest, 'identity_mismatch')
-    log = json.loads(raw, object_pairs_hook=_unique_object)
-    _need(type(log) is dict, 'log_invalid')
-    marker = {key: log.get(key) for key in IDENTITY_KEYS}
-    _need(marker.get('platform') == app['platform']
-          and marker.get('applicationId') == app['bundle']
-          and marker.get('runId') == entry.run_id
-          and marker.get('sessionId') == entry.session_id
-          and marker.get('profileDigest') == entry.profile_digest, 'identity_mismatch')
-    log = validate_app_log(log, marker, click_targets=entry.click_targets,
-                           screen_targets=entry.screen_targets)
+        for reference in logs:
+            raw = archive.read('objects/' + reference['digest'])
+            _need(len(raw) == reference['bytes']
+                  and hashlib.sha256(raw).hexdigest() == reference['digest'], 'identity_mismatch')
+            log = json.loads(raw, object_pairs_hook=_unique_object)
+            _need(type(log) is dict, 'log_invalid')
+            marker = {key: log.get(key) for key in IDENTITY_KEYS}
+            _need(marker.get('platform') == app['platform']
+                  and marker.get('applicationId') == app['bundle']
+                  and marker.get('runId') == entry.run_id
+                  and marker.get('sessionId') == entry.session_id
+                  and marker.get('profileDigest') == entry.profile_digest, 'identity_mismatch')
+            log = validate_app_log(log, marker, click_targets=entry.click_targets,
+                                   screen_targets=entry.screen_targets)
+            _need(previous is None or app_log_extends(previous, log), 'log_ambiguous')
+            previous = log
     _need(not log['lostEvents'] and not log['truncated'] and log['events'], 'evidence_incomplete')
     return {'projectDigest': contracts.digest(project),
             'recordingDigest': actual['recordingDigest'],

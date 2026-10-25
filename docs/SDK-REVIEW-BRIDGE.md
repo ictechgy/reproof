@@ -19,9 +19,10 @@ build identity, approval, or execution authority.
   published path alone is insufficient: metadata must say finalized, with
   incomplete/lostEvents/unsupported all false. Android metadata has no sequence
   boundary, so capture's own endSequence is checked against its event stream.
-  This path fix preserves the existing fail-closed host and bridge checks; it
-  does not solve cross-recorder contention on the shared latest-file temporary
-  path or establish native/device export correctness.
+  Publications now use uniquely owned temporary files rather than a shared
+  latest-file temporary path. This preserves the fail-closed host and bridge
+  checks; it does not make capture/metadata publication a cross-file transaction
+  or establish native/device export correctness.
 - iOS: [`ios/SDK`](../ios/SDK/README.md) is a public, local Foundation Swift
   package with explicit bounded annotation policies. `ios/Recorder/Recorder.swift`
   is the thin sample-specific `ReproCase` adapter. Collect the session-specific
@@ -92,13 +93,19 @@ must explicitly attest their mapping through that exact binding; no time-based,
 latest-session or fuzzy matching is performed. A provided mismatch abstains.
 A missing binding stays unresolved and abstains before creating a draft.
 
-Only after this link succeeds does the unchanged `intake_ticket` validate the
+Only after this link succeeds does `intake_ticket` validate the
 separate frozen complete recording, genuine collector-supplied dispatch receipts,
 authored expected oracle, typed app logs and all project/build/source/session
 identities. It retains its strict loss/truncation, identity and completeness
 requirements. The SDK export does not satisfy any of those missing evidence
 requirements. The result remains a review draft, never a saved/approved issue.
 Approval and protected execution must follow their existing separate workflows.
+
+Repeated sealed app-log observations must form the bounded, same-identity
+[validated prefix chain](TICKET-INTAKE-DEMO.md#reference-only-intake), in original
+observation order. Every snapshot is validated, and the final reference must
+match the trusted collector's registered app-log digest. This does not fabricate
+a collector mapping, select an arbitrary latest log, or rewrite frozen evidence.
 
 ## Runnable repository-owned joined example
 

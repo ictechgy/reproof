@@ -9,6 +9,9 @@ from .core import require
 MAX_APP_LOG_BYTES = 1024 * 1024
 APP_LOG_MIME = 'application/vnd.reproof.app-log+json'
 MAX_APP_LOG_EVENTS = 2000
+# Chain budgets count every reference, including repeats of the same object.
+MAX_APP_LOG_SNAPSHOTS = 64
+MAX_APP_LOG_SNAPSHOT_BYTES = 8 * 1024 * 1024
 MAX_APP_LOG_DURATION_MS = 1_800_000
 IDENTITY_KEYS = {'schemaVersion', 'platform', 'applicationId', 'runId', 'sessionId', 'profileDigest', 'startedAtMs'}
 EVENT_KEYS = {'seq', 'elapsedMs', 'type', 'name', 'component', 'componentId', 'target'}
@@ -73,6 +76,19 @@ def validate_app_log(value, marker, *, click_targets, screen_targets):
     require(len(json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode()) <= MAX_APP_LOG_BYTES,
             'Automatic app log exceeds its size limit')
     return copy.deepcopy(value)
+
+
+def app_log_extends(previous, current):
+    """Check continuity of two already validated snapshots in observed order.
+
+    Callers must validate each snapshot and its trusted source binding first.
+    Equal snapshots and empty prefixes are allowed; identity, prior events and
+    loss flags cannot be changed. This neither sorts nor consolidates evidence.
+    """
+    return (all(previous[field] == current[field] for field in IDENTITY_KEYS)
+            and current['events'][:len(previous['events'])] == previous['events']
+            and (not previous['truncated'] or current['truncated'])
+            and (not previous['lostEvents'] or current['lostEvents']))
 
 
 def collect_app_logs(read, *, platform, application_id, profile_digest, run_id, click_targets, screen_targets,

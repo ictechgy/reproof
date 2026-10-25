@@ -105,6 +105,39 @@ class RepairDiagnosticsTests(unittest.TestCase):
             with self.subTest(mutate=mutate), self.assertRaises(RepairError): self.derive()
             self.original['observations'].pop()
 
+    def test_empty_prefix_and_sticky_flags_remain_diagnostic_not_completion_evidence(self):
+        self.attach(dict(app_log(), events=[], endSequence=0))
+        self.attach(app_log())
+        flagged = dict(app_log(), truncated=True, lostEvents=True)
+        self.attach(flagged); self.attach(flagged)
+        result = self.derive()
+        self.assertEqual(len(result['runs']), 1)
+        self.assertEqual(result['runs'][0]['totalEvents'], 5)
+        self.assertTrue(result['runs'][0]['truncated'])
+        self.assertTrue(result['runs'][0]['lostEvents'])
+        self.assertEqual(len(result['sourceObjects']), 3)
+
+    def test_shrinking_and_individual_flag_clearing_keep_binding_failure(self):
+        pairs = [(app_log(), dict(app_log(), events=[], endSequence=0))]
+        pairs += [(dict(app_log(), **{flag: True}), app_log())
+                  for flag in ('lostEvents', 'truncated')]
+        for previous, current in pairs:
+            self.original['observations'].clear()
+            self.attach(previous); self.attach(current)
+            with self.assertRaises(RepairError) as caught:
+                self.derive()
+            self.assertEqual(caught.exception.code, 'diagnostics_binding')
+
+    def test_interleaved_distinct_sessions_keep_separate_prefix_chains(self):
+        first = app_log()
+        other = dict(app_log(), runId='99999999-2222-4333-8444-555555555555',
+            sessionId='99999999-3333-4444-8555-666666666666')
+        self.attach(dict(first, events=[], endSequence=0))
+        self.attach(other); self.attach(first)
+        result = self.derive()
+        self.assertEqual(len(result['runs']), 2)
+        self.assertEqual([run['totalEvents'] for run in result['runs']], [5, 5])
+
     def test_secret_fields_corrupt_bytes_and_foreign_identity_are_rejected(self):
         for mutate in (lambda v: v['events'][0].update(message='synthetic-private-value'),
                        lambda v: v['events'][2].update(target='synthetic-private-value'),
