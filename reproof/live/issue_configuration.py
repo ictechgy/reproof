@@ -91,9 +91,11 @@ class LoopbackObservationAdapter:
         check(type(request) is ObservationRequest and request.observation_id == self.observation_id
               and request.requirement["class"] in self.coverage_classes,
               "observation_binding", "Observation request is not registered", 409)
-        binding = request.lab.release_binding(request.session_id, request.owner)
-        check(binding["projectDigest"] == self.project_digest,
+        binding = copy.deepcopy(request.lab.release_binding(request.session_id, request.owner))
+        check(binding.get("projectDigest") == self.project_digest,
               "observation_binding", "Observation project revision changed", 409)
+        check("applicationId" in binding and binding["applicationId"] == request.application_id,
+              "observation_binding", "Observation application changed", 409)
         timeout = min(20, request.deadline_monotonic - time.monotonic())
         check(timeout > 0, "observation_timeout", "Observation deadline elapsed", 408)
         request_id = "observation_" + uuid.uuid4().hex
@@ -140,6 +142,12 @@ class LoopbackObservationAdapter:
         absent = value["absentProperties"]
         check(type(value["values"]) is dict and type(absent) is list and len(absent) <= 128,
               "observation_invalid", "Observation values are invalid", 409)
+        # Evidence cannot span a change in the locally selected release. Keep
+        # the device provider binding distinct from the observation provider.
+        check(request.lab.release_binding(request.session_id, request.owner) == binding,
+              "observation_binding", "Observation release selection changed", 409)
+        check(request.deadline_monotonic - time.monotonic() > 0,
+              "observation_timeout", "Observation deadline elapsed", 408)
         return ObservationEvidence(envelope, value["values"], tuple(absent))
 
 

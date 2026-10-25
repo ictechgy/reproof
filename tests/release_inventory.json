@@ -1170,12 +1170,14 @@
             "-m",
             "unittest",
             "tests.test_shared_preflight",
-            "tests.test_shared_configuration_validation"
+            "tests.test_shared_configuration_validation",
+            "tests.test_issue_configuration"
           ],
           "environment": "local-python-standard-library",
           "effects": [
             "filesystem",
-            "process"
+            "process",
+            "loopback"
           ],
           "timeoutSeconds": 60,
           "evidence": "unittest-summary",
