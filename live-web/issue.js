@@ -160,6 +160,82 @@ export class TicketReferenceState {
   }
 }
 
+// Project-scoped, memory-only discovery. Results are snapshots, not authority;
+// selecting a result repeats the read before navigating to the issue.
+export class TicketLookupState {
+  constructor(api, { changed = () => {} } = {}) {
+    this.api = api; this.changed = changed; this.generation = 0;
+    this.scope = new AbortController(); this.reset();
+  }
+  clear() {
+    this.scope.abort(); this.scope = new AbortController(); this.generation++;
+    this.references = []; this.unavailableCount = 0; this.loaded = false;
+    this.busy = false; this.ticketId = ""; this.message = "";
+  }
+  reset() { this.clear(); this.key = null; this.projectId = null; }
+  sync({ project, principal, authenticated }) {
+    const allowed = authenticated && principal && /^[a-z][a-z0-9_-]{0,63}$/.test(project?.id || "")
+      && ["specification.maintain", "export.read"].every((name) => project.capabilities.includes(name));
+    const key = allowed ? JSON.stringify([project.id, project.projectDigest, principal, [...project.capabilities].sort()]) : null;
+    if (key !== this.key) { this.clear(); this.key = key; }
+    this.projectId = allowed ? project.id : null;
+  }
+  async search(ticketId) {
+    // A newer search (including invalid input) always supersedes an older read.
+    this.clear(); const generation = this.generation;
+    if (!this.key) { this.changed(); return false; }
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(ticketId)) {
+      this.message = "Use an exact ticket ID: 1–64 letters, numbers, underscores or hyphens, starting with a letter or number.";
+      this.changed(); return false;
+    }
+    this.ticketId = ticketId; this.busy = true; this.changed();
+    try {
+      const result = await this.api.post(`${ROOT}/projects/${this.projectId}/ticket-lookup`, { ticketId }, { signal: this.scope.signal });
+      if (generation !== this.generation) return false;
+      // Fail closed on malformed or cross-project results, including unsafe paths.
+      if (!Array.isArray(result?.references) || !Number.isInteger(result.unavailableCount) || result.unavailableCount < 0
+        || result.references.length + result.unavailableCount > 64
+        || result.references.some((item) => item.projectId !== this.projectId || item.ticketId !== ticketId
+          || !/^[a-z][a-z0-9_-]{0,63}$/.test(item.issueId || "") || typeof item.id !== "string"
+          || !["stale", "matches-current-revision"].includes(item.status))) throw new Error("Invalid lookup response");
+      this.references = result.references; this.unavailableCount = result.unavailableCount; this.loaded = true;
+      return true;
+    } catch (error) {
+      if (generation !== this.generation) return false;
+      this.message = error.code === "ticket_lookup_limit"
+        ? "More than 64 matching references. Open an issue and use its reference history; no partial results are shown."
+        : error.code === "ticket_lookup_timeout"
+          ? "Lookup timed out. Retry the exact ticket ID; no partial results are shown."
+          : "Ticket lookup unavailable. Access or evidence may have changed. Search again to retry.";
+      return false;
+    } finally {
+      if (generation === this.generation) { this.busy = false; this.changed(); }
+    }
+  }
+  async resolve(referenceId) {
+    if (this.busy || !this.loaded || !this.references.some((item) => item.id === referenceId)) return null;
+    if (!await this.search(this.ticketId)) return null;
+    const reference = this.references.find((item) => item.id === referenceId);
+    if (!reference) {
+      this.message = "This reference is no longer available. Choose a retained result or search again."; this.changed();
+    }
+    return reference?.issueId || null;
+  }
+}
+
+export async function readSelectedIssue({ api, id, projectId, signal, current }) {
+  if (!/^[a-z][a-z0-9_-]{0,63}$/.test(id || "")) throw new Error("Invalid issue identifier");
+  try {
+    const view = await api.request(`${ROOT}/issues/${id}`, { signal });
+    if (!current()) return null;
+    if (view?.issue?.id !== id || view.issue.projectId !== projectId) throw new Error("Issue no longer matches the selected project");
+    return view;
+  } catch (error) {
+    if (!current()) return null;
+    throw error;
+  }
+}
+
 export async function refreshIssueView({ state, api, issuePath, renderView, refreshRepairs, tickets, refreshCatalog }) {
   if (!state.view) return;
   const generation = state.generation; const sequence = ++state.readSequence;
@@ -173,7 +249,7 @@ export async function refreshIssueView({ state, api, issuePath, renderView, refr
 }
 
 export async function pollIssueWorkspace({ state, api, tickets, syncTickets, renderTickets, refreshView,
-  liveFrame, refreshCatalog, resetScope, notice, hidden = () => document.hidden }) {
+  liveFrame, refreshCatalog, resetScope, notice, lookup, hidden = () => document.hidden }) {
   syncTickets(); renderTickets();
   if (!api.csrf || state.polling || state.busy || hidden()) return;
   state.polling = true; const generation = state.generation;
@@ -187,6 +263,7 @@ export async function pollIssueWorkspace({ state, api, tickets, syncTickets, ren
     if (error.name !== "AbortError" && generation === state.generation) {
       // An issue or repair read can fail before ticket references are read.
       // Do not leave an earlier retained/current list or export usable then.
+      if (lookup) { lookup.clear(); lookup.message = "Ticket lookup unavailable. Search again to check current access and evidence."; lookup.changed(); }
       tickets.clear();
       tickets.message = "References unavailable. Refresh to check references; export again before linking.";
       renderTickets();
@@ -287,10 +364,20 @@ const TEMPLATE = `
       <div class="qa-divider"></div><div class="qa-heading"><h2>Issue library</h2><button class="button button-secondary" id="qa-refresh">Refresh</button></div>
       <label class="qa-field"><span>Import issue package</span><input type="file" id="qa-import" accept="application/zip,.zip" /></label>
       <p class="qa-muted">Imported approvals are provenance. Bind and approve a saved revision locally before replay.</p>
+      <section id="qa-ticket-search" aria-labelledby="qa-ticket-search-title" hidden>
+        <h3 id="qa-ticket-search-title">Find linked issues</h3>
+        <form id="qa-ticket-search-form">
+          <label class="qa-field"><span>Exact ticket ID</span><input id="qa-ticket-search-id" autocomplete="off" spellcheck="false" required maxlength="64" pattern="[A-Za-z0-9](?:[A-Za-z0-9_]|-){0,63}" aria-describedby="qa-ticket-search-help" /></label>
+          <button class="button button-secondary" id="qa-ticket-search-submit">Find linked issues</button>
+        </form>
+        <p class="qa-muted" id="qa-ticket-search-help">Case-sensitive exact match in the selected project only. At most 64 references, including unavailable ones; no partial results. No tracker is contacted. References do not grant approval or execution.</p>
+        <p class="qa-muted" id="qa-ticket-search-status" role="status" aria-live="polite"></p>
+        <div id="qa-ticket-search-results" class="qa-library"></div>
+      </section>
       <div id="qa-library" class="qa-library" aria-live="polite"></div>
     </aside>
     <section class="panel qa-stage" aria-labelledby="qa-issue-title">
-      <div class="qa-heading"><div><p class="eyebrow">ORIGINAL RECORDING</p><h2 id="qa-issue-title">Choose an issue or start recording</h2></div><span id="qa-state" class="soft-badge">Idle</span></div>
+      <div class="qa-heading"><div><p class="eyebrow">ORIGINAL RECORDING</p><h2 id="qa-issue-title" tabindex="-1">Choose an issue or start recording</h2></div><span id="qa-state" class="soft-badge">Idle</span></div>
       <p class="qa-muted" id="qa-state-note">The recording preserves what happened, including missing evidence.</p>
       <div class="qa-media-stage">
         <p id="qa-media-empty">Recorded video will appear here.</p>
@@ -353,7 +440,7 @@ const TEMPLATE = `
         <div class="qa-divider"></div><h3 id="qa-ticket-title">Ticket references</h3>
         <p class="qa-muted">Reference only. No tracker is contacted. Linking does not approve, replay or repair an issue.</p>
         <p id="qa-ticket-candidate" class="qa-revision"></p>
-        <label class="qa-field"><span>Ticket ID</span><input id="qa-ticket-id" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}" autocomplete="off" placeholder="QA-42" /></label>
+        <label class="qa-field"><span>Ticket ID</span><input id="qa-ticket-id" maxlength="64" pattern="[A-Za-z0-9](?:[A-Za-z0-9_]|-){0,63}" autocomplete="off" placeholder="QA-42" /></label>
         <p class="qa-muted">Use only an identifier, not a URL, ticket text or confidential information.</p>
         <div class="button-row"><button class="button button-primary" id="qa-ticket-link" disabled>Link exported package</button><button class="button button-secondary" id="qa-ticket-refresh" disabled>Refresh references</button></div>
         <p id="qa-ticket-status" class="qa-muted" role="status" aria-live="polite"></p>
@@ -390,8 +477,43 @@ export function mountIssueConsole(root, mode) {
     $("play").disabled = empty; $("pause").disabled = empty;
   });
   const tickets = new TicketReferenceState(api, { changed: () => renderTickets() });
+  const lookup = new TicketLookupState(api, { changed: () => renderLookup() });
+  let lookupRenderKey = null;
   let logoutPending = false;
+  function syncLookup() {
+    const previous = lookup.key;
+    lookup.sync({ ...state, authenticated: Boolean(api.csrf) });
+    if (previous !== lookup.key) $("ticket-search-id").value = "";
+  }
+  function renderLookup() {
+    $("ticket-search").hidden = !lookup.key;
+    $("ticket-search-submit").disabled = state.busy || lookup.busy || !lookup.key;
+    $("ticket-search-results").setAttribute("aria-busy", String(lookup.busy));
+    $("ticket-search-status").textContent = lookup.message || (lookup.busy ? "Checking exact ticket references…"
+      : lookup.loaded ? `${lookup.references.length} retained reference(s) for ${lookup.ticketId}. ${lookup.unavailableCount} unavailable reference(s) omitted. Results are a snapshot; opening rechecks availability.`
+        : "Enter a ticket ID to find its linked issues.");
+    if (state.dirty && lookup.references.length) $("ticket-search-status").textContent += " Save or reload your edits before opening a result.";
+    const key = JSON.stringify([lookup.references, lookup.busy, state.busy, state.dirty]);
+    if (key === lookupRenderKey) return;
+    lookupRenderKey = key; $("ticket-search-results").replaceChildren();
+    for (const reference of lookup.references) {
+      const button = node("button", undefined, "qa-library-item"); button.type = "button";
+      button.disabled = state.busy || lookup.busy || state.dirty;
+      button.append(node("strong", `Open issue ${reference.issueId}`),
+        node("span", `${reference.ticketId} · Package ${reference.packageId} · Revision ${reference.baseRevision}`),
+        node("span", reference.status === "stale" ? "Stale · not the current revision" : "Matches current revision · reference only"));
+      if (state.dirty) button.title = "Save or reload your edits before opening another issue";
+      button.addEventListener("click", () => mutation(async () => {
+        if (state.dirty) throw new Error("Save or reload your edits before opening another issue");
+        syncLookup(); const generation = state.generation; const issueId = await lookup.resolve(reference.id);
+        if (issueId) await openIssue(issueId, { focus: true });
+        else if (generation === state.generation && lookup.key) $("ticket-search-id").focus();
+      }));
+      $("ticket-search-results").append(button);
+    }
+  }
   function syncTickets() {
+    syncLookup(); renderLookup();
     const previous = tickets.key; tickets.sync(state);
     if (previous !== tickets.key) $("ticket-id").value = "";
   }
@@ -403,6 +525,7 @@ export function mountIssueConsole(root, mode) {
     state.imageURL = null; state.frameId = null; state.frame = null;
   }
   function resetScope() {
+    lookup.reset(); $("ticket-search-id").value = "";
     tickets.reset(); $("ticket-id").value = "";
     state.generation += 1; state.readSequence += 1; state.catalogSequence += 1;
     state.scope.abort(); state.scope = new AbortController();
@@ -553,7 +676,7 @@ export function mountIssueConsole(root, mode) {
   }
   function chooseProject(id) {
     resetScope(); state.project = state.projects.find((item) => item.id === id) || null;
-    if (!state.project) return;
+    if (!state.project) { syncLookup(); renderLookup(); return; }
     $("project").value = id;
     choices($("application"), state.project.applications.map((item) => ({ id: item.id, label: item.id })), null);
     choices($("device"), state.project.devices.map((item) => ({ id: item.id, label: `${item.name || item.id} · ${item.state}` })), null);
@@ -589,11 +712,13 @@ export function mountIssueConsole(root, mode) {
     if (!issues.length) $("library").append(node("p", "No issues in this project yet.", "qa-muted"));
     if (issues.length > 200) $("library").append(node("p", "Showing the 200 most recent issues.", "qa-muted"));
   }
-  async function openIssue(id) {
-    resetScope(); const generation = state.generation;
-    const view = await api.request(`${ROOT}/issues/${id}`, { signal: state.scope.signal });
-    if (generation !== state.generation) return;
+  async function openIssue(id, { focus = false } = {}) {
+    resetScope(); const generation = state.generation; const projectId = state.project?.id;
+    if (focus) $("issue-title").focus();
+    const view = await readSelectedIssue({ api, id, projectId, signal: state.scope.signal, current: () => generation === state.generation });
+    if (!view) return;
     state.view = view; renderView(); renderLibrary();
+    if (focus) $("issue-title").focus();
     await refreshRepairs();
     await tickets.refresh();
     if (view.issue.state === "recording") await liveFrame(generation);
@@ -834,12 +959,17 @@ export function mountIssueConsole(root, mode) {
     // Clear displayed/private state immediately, even while another operation
     // is pending or the logout request fails. Never restore it in a catch.
     resetScope(); state.projects = []; state.issues = []; state.project = null;
-    const pending = api.logout(); state.principal = null;
+    const pending = api.logout(); state.principal = null; lookup.reset(); renderLookup();
     memory.set("repro-qa-csrf", null); memory.set("repro-qa-principal", null);
     $("workspace").hidden = true; $("login-panel").hidden = false; $("logout").hidden = true; $("identity").textContent = "Shared coordinator";
     try { await pending; } catch { notice("Local session cleared, but server sign-out could not be confirmed. Retry signing out before leaving a shared browser."); $("logout").hidden = false; }
     finally { logoutPending = false; $("logout").disabled = false; $("login-form").querySelector("button").disabled = false; }
   });
+  $("ticket-search-form").addEventListener("submit", (event) => {
+    event.preventDefault(); if (state.busy) return;
+    syncLookup(); lookup.search($("ticket-search-id").value);
+  });
+  $("ticket-search-id").addEventListener("input", () => { lookup.clear(); renderLookup(); });
   $("project").addEventListener("change", () => chooseProject($("project").value));
   $("application").addEventListener("change", applicationChanged);
   $("device").addEventListener("change", deviceNote); $("build").addEventListener("change", controls);
@@ -928,8 +1058,8 @@ export function mountIssueConsole(root, mode) {
   $("seek").addEventListener("input", () => player.seek(Number($("seek").value)));
   $("play").addEventListener("click", () => player.play()); $("pause").addEventListener("click", () => player.pause());
   const timer = setInterval(() => pollIssueWorkspace({ state, api, tickets, syncTickets, renderTickets,
-    refreshView, liveFrame, refreshCatalog, resetScope, notice }), 1000);
-  const dispose = () => { tickets.reset(); renderTickets(); clearInterval(timer); state.scope.abort(); player.dispose(); clearImage(); };
+    refreshView, liveFrame, refreshCatalog, resetScope, notice, lookup }), 1000);
+  const dispose = () => { lookup.reset(); renderLookup(); tickets.reset(); renderTickets(); clearInterval(timer); state.scope.abort(); player.dispose(); clearImage(); };
   window.addEventListener("pagehide", dispose, { once: true });
   document.addEventListener("visibilitychange", () => { if (document.hidden) player.pause(); });
   controls();
