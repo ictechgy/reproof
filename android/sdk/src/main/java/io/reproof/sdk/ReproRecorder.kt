@@ -10,6 +10,35 @@ import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
+/** Same-directory publication. Each call owns its temporary; the last successful rename wins. */
+internal fun atomicWriteFile(
+    destination: File,
+    bytes: ByteArray,
+    write: (FileOutputStream, ByteArray) -> Unit = { output, content -> output.write(content) },
+) {
+    val temporary = File.createTempFile(".${destination.name}.", ".tmp", destination.absoluteFile.parentFile)
+    var published = false
+    try {
+        FileOutputStream(temporary).use { output ->
+            write(output, bytes)
+            output.fd.sync()
+        }
+        if (!temporary.renameTo(destination)) {
+            throw IllegalStateException("Could not publish ${destination.name}")
+        }
+        published = true
+    } finally {
+        // After rename the old path is no longer ours; never delete a path reused by another call.
+        if (!published) {
+            try {
+                temporary.delete()
+            } catch (_: SecurityException) {
+                // Best-effort cleanup must not hide the original write or publication failure.
+            }
+        }
+    }
+}
+
 /** Explicit trusted policy. Identifiers are semantic IDs, never user content.
  * Invalid policy construction throws a fixed programmer-error message.
  */
@@ -441,14 +470,7 @@ class ReproRecorder private constructor(
     }
 
     private fun atomicWrite(destination: File, bytes: ByteArray) {
-        val temporary = File(destination.parentFile, "${destination.name}.tmp")
-        FileOutputStream(temporary).use { output ->
-            output.write(bytes)
-            output.fd.sync()
-        }
-        if (!temporary.renameTo(destination)) {
-            throw IllegalStateException("Could not publish ${destination.name}")
-        }
+        atomicWriteFile(destination, bytes)
     }
 
     private fun invalidateSession() {

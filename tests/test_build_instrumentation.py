@@ -59,6 +59,7 @@ class BuildInstrumentationPreparationTests(unittest.TestCase):
         self.assertIn('class ReproPrivacyConfig(', recorder.read_text())
         self.assertIn('class ReproStartState(', recorder.read_text())
         self.assertIn('internal fun publishSessionExport(', recorder.read_text())
+        self.assertIn('internal fun atomicWriteFile(', recorder.read_text())
         import xml.etree.ElementTree as ET
         merged = ET.parse(staged / 'app/reproof-instrumentation/AndroidManifest.xml').getroot()
         self.assertEqual(len(merged.findall('application/provider')), 1)
