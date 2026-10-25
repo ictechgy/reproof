@@ -1302,6 +1302,32 @@
           "gate": "software"
         }
       ]
+    },
+    "TICKET_REFERENCES": {
+      "available": true,
+      "checks": [
+        {
+          "id": "project-ticket-reference-workflow",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_ticket_references",
+            "tests.test_locator_proposals",
+            "tests.test_issue_workflow",
+            "tests.test_issue_package"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 90,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }
