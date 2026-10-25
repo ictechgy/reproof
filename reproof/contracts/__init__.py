@@ -4,7 +4,7 @@ These validators only accept data; they never execute commands, resolve URLs,
 or grant authority.  Legacy capture/bundle APIs remain in :mod:`reproof.core`.
 """
 from .versions import (CONTRACT_VERSION, ContractError, digest, validate_id, validate_version,
-                       bounded_int, bounded_number, validate_digest)
+                       bounded_int, bounded_number, validate_digest, validate_external_ticket_id)
 from .project import (
     validate_application_identity, validate_build_identity, validate_fixture_recipe,
     validate_project_revision, validate_recipe, validate_variable,

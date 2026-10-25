@@ -14,6 +14,13 @@ network access. No external source transfer occurs.
 - `sessionId`, `recordingDigest`
 - Optional `text`, which is discarded completely, including from ID hashes.
 
+`ticketId` uses the same external identifier rule as the authenticated
+[ticket-reference API](TICKET-REFERENCES.md): 1–64 ASCII alphanumeric, underscore
+or hyphen characters, beginning with an alphanumeric character. Values such as
+`QA-42`, `123` and `qa_one` remain exact and case-sensitive, including in draft
+identity. This does not broaden internal tenant, project, application or build
+identifiers, and never accepts a URL or ticket prose as an identifier.
+
 The service supplies the authenticated tenant and a tuple of locally authorized
 `RegisteredCapsule` snapshots. **Do not construct this registry from ticket
 attachments or let a ticket register its own project.** The host remains

@@ -124,6 +124,29 @@ class SDKReviewTests(unittest.TestCase):
             changed = normalize_export(**files)
             self.assertEqual(linked_review(**dict(args, envelope=changed), binding=binding)['status'], 'abstained')
 
+    def test_joined_external_ticket_ids_remain_review_only_and_case_sensitive(self):
+        for platform in ('android', 'ios'):
+            _, envelope, binding, raw, entry = sample_join(platform, ROOT)
+            original = json.loads(raw)
+            drafts = set()
+            for ticket_id in ('QA-42', 'qa-42', '123', '0', 'A', 'qa_one', 'Q_' + 'a' * 62):
+                with self.subTest(platform=platform, ticket_id=ticket_id):
+                    args = dict(envelope=envelope, binding=binding,
+                        ticket=canonical(dict(original, ticketId=ticket_id)),
+                        tenant_id='local_demo', entry=entry)
+                    result = linked_review(**args)
+                    self.assertEqual(result['status'], 'review-required')
+                    self.assertEqual(result, linked_review(**args))
+                    self.assertEqual(result['draft']['status'], 'review-required')
+                    drafts.add(result['draft']['draftId'])
+                    for value in (result, result['draft']):
+                        self.assertFalse(value['approved'])
+                        self.assertFalse(value['aiTransfer'])
+                        self.assertEqual(value['executionAuthority'], 'none')
+                    self.assertFalse(result['repairReady'])
+            with self.subTest(platform=platform):
+                self.assertEqual(len(drafts), 7)
+
     def test_separate_registry_strictness_preserved(self):
         _, env, binding, ticket, entry = sample_join('android', ROOT)
         for bad in (replace(entry, run_id='bad'), replace(entry, profile_digest='0' * 64),

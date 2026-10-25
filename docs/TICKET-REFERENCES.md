@@ -51,8 +51,10 @@ provider or verify a ticket exists.
 ```
 
 `ticketId` is 1–64 ASCII alphanumeric, underscore or hyphen characters and must
-start with an alphanumeric character. Package IDs use the existing contract ID
-syntax. Revision is an integer from 1 to 64, not a boolean. Unknown keys, URLs,
+start with an alphanumeric character. Case is preserved and significant; the
+[intake adapter](TICKET-INTAKE-DEMO.md) uses the same rule. Package IDs retain
+the existing internal contract ID syntax. Revision is an integer from 1 to 64,
+not a boolean. Unknown keys, URLs,
 free text, tracker credentials, requester-supplied project/source identities,
 custom audit fields, or approval flags are rejected. Do not put confidential
 information in ticket identifiers.
