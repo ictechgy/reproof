@@ -27,6 +27,81 @@ struct RLAppLogRetryPolicy {
     mutating func finished(success: Bool) { failures = success ? 0 : min(3, failures + 1) }
 }
 
+/// Main-thread-owned gate shared by startup and subsequent snapshots.
+/// Apply failure before releasing the gate, so the next snapshot cannot claim
+/// completeness after a failed publication. A successful write never clears loss.
+struct RLAppLogWriteGate {
+    private(set) var writing = false
+    private(set) var lostEvents = false
+
+    mutating func begin() -> Bool {
+        guard !writing else { return false }
+        writing = true
+        return true
+    }
+
+    mutating func markLost() -> Bool {
+        guard !lostEvents else { return false }
+        lostEvents = true
+        return true
+    }
+
+    mutating func finish(success: Bool) -> Bool {
+        let lossChanged = success ? false : markLost()
+        writing = false
+        return lossChanged
+    }
+}
+
+/// Immutable session identity, captured on main before any asynchronous work.
+/// The marker identifies a journal, not its completeness: publish it after every
+/// successful journal write, including recovery with lostEvents set to true.
+struct RLAppLogPublication {
+    private let identity: [String: Any]
+    private let directory: URL
+    private let markerURL: URL
+
+    init(base: URL, applicationID: String, runID: String, sessionID: String,
+         profileDigest: String, startedAtMs: Int) {
+        identity = [
+            "schemaVersion": 1,
+            "platform": "ios",
+            "applicationId": applicationID,
+            "runId": runID,
+            "sessionId": sessionID,
+            "profileDigest": profileDigest,
+            "startedAtMs": startedAtMs
+        ]
+        directory = base.appendingPathComponent("app-logs", isDirectory: true)
+            .appendingPathComponent(sessionID, isDirectory: true)
+        markerURL = base.appendingPathComponent("app-log-session.json")
+    }
+
+    func write(events: [[String: Any]], truncated: Bool, lostEvents: Bool,
+               maxBytes: Int,
+               createDirectory: (URL) throws -> Void = {
+                   try FileManager.default.createDirectory(at: $0, withIntermediateDirectories: true)
+               },
+               writeDurably: (Data, URL) throws -> Void) throws {
+        var journal = identity
+        journal["endSequence"] = events.count
+        journal["truncated"] = truncated
+        journal["lostEvents"] = lostEvents
+        journal["events"] = events
+        guard JSONSerialization.isValidJSONObject(journal) else {
+            throw NSError(domain: "RLAutomaticRecorder.appLog", code: 1)
+        }
+        let data = try JSONSerialization.data(withJSONObject: journal, options: [.sortedKeys])
+        guard data.count <= maxBytes else {
+            throw NSError(domain: "RLAutomaticRecorder.appLog", code: 1)
+        }
+        let marker = try JSONSerialization.data(withJSONObject: identity, options: [.sortedKeys])
+        try createDirectory(directory)
+        try writeDurably(data, directory.appendingPathComponent("app-log.json"))
+        try writeDurably(marker, markerURL)
+    }
+}
+
 /// The automatic UIKit recorder is intentionally a closed, debug-only adapter.
 /// `RLAutoConfig` is emitted by the build preparer in the same application
 /// target. The legacy replay profile and the configured observation profile
@@ -178,20 +253,17 @@ public final class RLAutomaticRecorder: NSObject {
     private var lifecycleObservers: [NSObjectProtocol] = []
     private var appLogEnabled = false
     private var appLogStarted = false
-    private var appLogSessionID = ""
-    private var appLogStartedAtMs = 0
     private var appLogStartUptime: TimeInterval = 0
-    private var appLogDirectory: URL?
+    private var appLogPublication: RLAppLogPublication?
     private var appLogEvents: [AppLogEvent] = []
     private var appLogSequence = 0
     private var appLogBytes = 0
     private var appLogTruncated = false
-    private var appLogLostEvents = false
     private var appLogObservers: [NSObjectProtocol] = []
     private var appLogScreenTimer: Timer?
     private var observedScreen: ObservedScreen?
     private var appLogSnapshotScheduled = false
-    private var appLogSnapshotWriting = false
+    private var appLogWriteGate = RLAppLogWriteGate()
     private var appLogSnapshotDirty = false
     private var appLogRetry = RLAppLogRetryPolicy()
     private var retryCount = 0
@@ -640,48 +712,26 @@ public final class RLAutomaticRecorder: NSObject {
         let session = UUID().uuidString.lowercased()
         let startedMillis = Int(Date().timeIntervalSince1970 * 1000.0)
         let base = applicationSupportDirectory()
-        let directory = base.appendingPathComponent("app-logs", isDirectory: true)
-            .appendingPathComponent(session, isDirectory: true)
+        appLogPublication = RLAppLogPublication(base: base, applicationID: applicationID,
+                                               runID: runID, sessionID: session,
+                                               profileDigest: profileDigest, startedAtMs: startedMillis)
 
         appLogStarted = true
-        appLogSessionID = session
-        appLogStartedAtMs = startedMillis
         appLogStartUptime = ProcessInfo.processInfo.systemUptime
-        appLogDirectory = directory
         appLogEvents.removeAll(keepingCapacity: true)
         appLogSequence = 0
         appLogBytes = 0
         appLogTruncated = false
-        appLogLostEvents = false
         appLogSnapshotScheduled = false
-        appLogSnapshotWriting = false
+        appLogWriteGate = RLAppLogWriteGate()
         appLogSnapshotDirty = false
         appLogRetry = RLAppLogRetryPolicy()
 
         registerAppLogObservers()
-        let initialData = appLogData(events: [], truncated: false, lostEvents: false)
-        let markerData = appLogMarkerData()
-        if let initialData, let markerData {
-            appLogIOQueue.async { [weak self] in
-                guard let self else { return }
-                var success = false
-                do {
-                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                    try self.writeDurably(initialData, to: directory.appendingPathComponent("app-log.json"))
-                    try self.writeDurably(markerData, to: base.appendingPathComponent("app-log-session.json"))
-                    success = true
-                } catch {
-                    success = false
-                }
-                if !success {
-                    DispatchQueue.main.async {
-                        self.markAppLogLost()
-                    }
-                }
-            }
-        } else {
-            markAppLogLost()
-        }
+        // Startup is the first bounded snapshot attempt, not an independent I/O
+        // task. Keep the gate held until its main-thread completion applies loss.
+        appLogSnapshotDirty = true
+        startAppLogSnapshotWrite()
 
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.pollAppScreenOnMain()
@@ -772,8 +822,7 @@ public final class RLAutomaticRecorder: NSObject {
 
     private func markAppLogLost() {
         guard appLogStarted else { return }
-        guard !appLogLostEvents else { return }
-        appLogLostEvents = true
+        guard appLogWriteGate.markLost() else { return }
         appLogRetry.changed()
         enqueueAppLogSnapshot()
     }
@@ -815,10 +864,10 @@ public final class RLAutomaticRecorder: NSObject {
     }
 
     private func enqueueAppLogSnapshot() {
-        guard appLogStarted, appLogDirectory != nil else { return }
+        guard appLogStarted, appLogPublication != nil else { return }
         guard appLogRetry.canSchedule() else { return }
         appLogSnapshotDirty = true
-        guard !appLogSnapshotScheduled, !appLogSnapshotWriting else { return }
+        guard !appLogSnapshotScheduled, !appLogWriteGate.writing else { return }
         appLogSnapshotScheduled = true
         let delay = appLogRetry.failures == 0 ? 0.05 : 0.2
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -829,82 +878,35 @@ public final class RLAutomaticRecorder: NSObject {
     private func startAppLogSnapshotWrite() {
         guard Thread.isMainThread else { return }
         appLogSnapshotScheduled = false
-        guard appLogStarted, !appLogSnapshotWriting, appLogSnapshotDirty,
-              let directory = appLogDirectory else { return }
+        guard appLogStarted, appLogSnapshotDirty,
+              let publication = appLogPublication,
+              appLogWriteGate.begin() else { return }
         appLogSnapshotDirty = false
-        appLogSnapshotWriting = true
         appLogRetry.beginAttempt()
         let events = appLogEvents
         let truncated = appLogTruncated
-        let lostEvents = appLogLostEvents
-        let runID = self.runID
-        let sessionID = appLogSessionID
-        let profileDigest = self.profileDigest
-        let startedAtMs = appLogStartedAtMs
+        let lostEvents = appLogWriteGate.lostEvents
         appLogIOQueue.async { [weak self] in
             guard let self else { return }
             var success = false
             do {
-                guard let data = self.appLogData(events: events, truncated: truncated,
-                                                 lostEvents: lostEvents, runID: runID,
-                                                 sessionID: sessionID, profileDigest: profileDigest,
-                                                 startedAtMs: startedAtMs),
-                      data.count <= Self.maxAppLogBytes else {
-                    throw NSError(domain: "RLAutomaticRecorder.appLog", code: 1)
-                }
-                try self.writeDurably(data, to: directory.appendingPathComponent("app-log.json"))
+                try publication.write(events: events.map { $0.object() }, truncated: truncated,
+                                      lostEvents: lostEvents, maxBytes: Self.maxAppLogBytes,
+                                      writeDurably: self.writeDurably)
                 success = true
             } catch {
                 success = false
             }
             DispatchQueue.main.async {
-                self.appLogSnapshotWriting = false
+                let lossChanged = self.appLogWriteGate.finish(success: success)
                 self.appLogRetry.finished(success: success)
-                if !success {
-                    self.markAppLogLost()
-                    self.appLogSnapshotDirty = true
-                }
+                if lossChanged { self.appLogRetry.changed() }
+                if !success { self.appLogSnapshotDirty = true }
                 if self.appLogSnapshotDirty {
                     self.enqueueAppLogSnapshot()
                 }
             }
         }
-    }
-
-    private func appLogMarkerData() -> Data? {
-        let object: [String: Any] = [
-            "schemaVersion": 1,
-            "platform": "ios",
-            "applicationId": applicationID,
-            "runId": runID,
-            "sessionId": appLogSessionID,
-            "profileDigest": profileDigest,
-            "startedAtMs": appLogStartedAtMs
-        ]
-        return try? jsonData(object)
-    }
-
-    private func appLogData(events: [AppLogEvent], truncated: Bool, lostEvents: Bool,
-                            runID: String = "", sessionID: String = "",
-                            profileDigest: String = "", startedAtMs: Int = 0) -> Data? {
-        let selectedRunID = runID.isEmpty ? self.runID : runID
-        let selectedSessionID = sessionID.isEmpty ? appLogSessionID : sessionID
-        let selectedDigest = profileDigest.isEmpty ? self.profileDigest : profileDigest
-        let selectedStartedAtMs = startedAtMs == 0 ? appLogStartedAtMs : startedAtMs
-        let object: [String: Any] = [
-            "schemaVersion": 1,
-            "platform": "ios",
-            "applicationId": applicationID,
-            "runId": selectedRunID,
-            "sessionId": selectedSessionID,
-            "profileDigest": selectedDigest,
-            "startedAtMs": selectedStartedAtMs,
-            "endSequence": events.count,
-            "truncated": truncated,
-            "lostEvents": lostEvents,
-            "events": events.map { $0.object() }
-        ]
-        return try? jsonData(object)
     }
 
     private func appLogElapsedMs() -> Int {

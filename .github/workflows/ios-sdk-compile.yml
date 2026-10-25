@@ -7,6 +7,14 @@ on:
       - '.github/workflows/ios-sdk-compile.yml'
       - 'scripts/check-ios-sdk-export.py'
       - 'reproof/sdk_review.py'
+      - 'reproof/ios_instrumentation_templates/**'
+      - 'reproof/app_logs.py'
+      - 'tests/test_ios_app_log_retry.py'
+      - 'tests/test_ios_app_logs_runtime.py'
+      - 'tests/fixtures/ios-app-logs/**'
+      - 'tests/fixtures/ios-auto-runtime/**'
+      - 'tests/release_inventory.json'
+      - 'scripts/release-check.py'
   push:
     branches: [main]
     paths:
@@ -14,6 +22,14 @@ on:
       - '.github/workflows/ios-sdk-compile.yml'
       - 'scripts/check-ios-sdk-export.py'
       - 'reproof/sdk_review.py'
+      - 'reproof/ios_instrumentation_templates/**'
+      - 'reproof/app_logs.py'
+      - 'tests/test_ios_app_log_retry.py'
+      - 'tests/test_ios_app_logs_runtime.py'
+      - 'tests/fixtures/ios-app-logs/**'
+      - 'tests/fixtures/ios-auto-runtime/**'
+      - 'tests/release_inventory.json'
+      - 'scripts/release-check.py'
 
 permissions:
   contents: read
@@ -52,6 +68,13 @@ jobs:
           export REPRO_SDK_TEST_EXPORT_DIRECTORY="$RUNNER_TEMP/reproof-sdk-synthetic-export"
           xcrun swift test --package-path ios/SDK --disable-automatic-resolution 2>&1 | tee "$RUNNER_TEMP/reproof-sdk-logs/swift-tests.log"
           grep -E 'Executed [1-9][0-9]* tests?, with 0 failures' "$RUNNER_TEMP/reproof-sdk-logs/swift-tests.log"
+      - name: Verify automatic app-log recovery and UIKit compile without running an app
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$REPRO_PYTHON" scripts/release-check.py --goal IOS_APP_LOG_PUBLICATION \
+            --effects filesystem,process,native-compile \
+            | tee "$RUNNER_TEMP/reproof-sdk-logs/app-log-publication.json"
       - name: Validate exact Foundation writer bytes with unchanged sample-only host
         shell: bash
         run: |
@@ -79,6 +102,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-sdk-compile-test-logs
-          path: ${{ runner.temp }}/reproof-sdk-logs/*.log
+          path: |
+            ${{ runner.temp }}/reproof-sdk-logs/*.log
+            ${{ runner.temp }}/reproof-sdk-logs/*.json
           if-no-files-found: warn
           retention-days: 7

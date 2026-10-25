@@ -14,6 +14,31 @@ Android base: `files/repro`. iOS base: `Library/Application Support/Reproof`.
 - Write an initial empty log before publishing its identity marker. Atomic replacement, session-specific files, ordered background IO. Marker is immutable for that log session. Host pins full marker before and after snapshot collection. A snapshot is the latest durably written prefix; it is not a final replay boundary.
 - Keep observations through background/foreground and replay invalidation. Do not claim process-kill persistence or OS termination callbacks are guaranteed.
 
+## iOS publication recovery
+
+The automatic iOS recorder serializes startup and later snapshots through one
+main-thread-owned in-flight gate. Startup counts as the first of at most three
+consecutive failed attempts in the existing retry burst; a new event or status
+revision can open another bounded burst. Repeated finish/flush requests alone do
+not restart an exhausted burst. Failure makes `lostEvents` sticky before the gate
+allows the next snapshot, and later successful writes never clear it.
+
+Each attempt captures one immutable session identity and writes the bounded
+journal before its matching identity marker, including when recovering a missing
+or stale marker. The marker identifies the session, not completeness: the host
+can collect a matching `lostEvents: true` prefix without accepting it as complete
+replay evidence. These two file replacements are not one atomic transaction;
+permanent storage failure and process termination may still prevent recovery.
+
+The `IOS_APP_LOG_PUBLICATION` check runs the actual Foundation publication helper,
+write gate, and retry policy with injected directory/journal/marker failures,
+and validates emitted file pairs using the unchanged host collector. The gate
+fixture exercises main-owner ordering synchronously; the actual UIKit/Objective-C
+template is separately typechecked, not executed in an app. This is not device,
+simulator-lifecycle, or process-kill durability proof. The strict check rejects
+zero-test and skipped-test results rather than reporting unavailable Xcode as a
+pass.
+
 ## Events
 
 Every event has EXACT keys: `seq`, `elapsedMs`, `type`, `name`, `component`, `componentId`, `target`.
