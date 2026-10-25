@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import hashlib
+import math
 import os
 from pathlib import Path
 import plistlib
@@ -17,6 +18,7 @@ import time
 import uuid
 from .model import LiveError,check
 from .authority import HELPER_VERSION,NATIVE_PROTOCOL_VERSION
+from .clock_sync import MAX_NS,TrustedClockSample
 from ..storage import Lease
 from ..core import ContractError,digest
 from ..ios_storage import app_info, tree_manifest
@@ -87,7 +89,7 @@ def _exact_flat_mapping(actual,expected):
                     for key,value in expected.items()))
 
 
-def require_ios_helper_v2(document):
+def require_ios_helper_v2(document,*,simulator_startup_budget=False):
     targets=[target for _,target in _targets(document) if target.get('BlueprintName')=='ReproLiveTests']
     check(len(targets)==1,'startup_rejected','iOS helper artifact is ambiguous',400)
     bundle=Path(targets[0].get('TestBundlePath','')).resolve()
@@ -102,6 +104,10 @@ def require_ios_helper_v2(document):
           and value.get('ReproLiveProtocolVersion')==NATIVE_PROTOCOL_VERSION
           and value.get('ReproLiveHelperVersion')==HELPER_VERSION,
           'startup_rejected','iOS helper artifact has an incompatible version',400)
+    if simulator_startup_budget:
+        check(type(value.get('ReproLiveSimulatorStartupBudgetVersion')) is int
+              and value['ReproLiveSimulatorStartupBudgetVersion']==1,
+              'startup_rejected','Rebuild the Simulator helper with startup budget support',400)
 
 
 class DemoProvider:
@@ -143,6 +149,9 @@ class IosProvider:
         self.device_authority=None;self.provider_incarnation=None
         self.native_handshake=None;self.handshake_ready=None;self._startup_permit=None
         self._startup_lock=threading.RLock();self._startup_accepting=False;self._startup_deadline=0.0
+        self._startup_generation=0;self._ready_generation=None;self._started_generation=None
+        self._ready_complete=False;self._startup_transport_deadline_ms=None
+        self._startup_clock_sync=None;self._startup_clock_sample=None;self._startup_continuous_ceiling_ns=None
         self.frame_clock=None;self.last_native_frame=0
         self._owned_process=None;self._abort_lock=threading.Lock()
     def bind_authority(self,device_authority,provider_incarnation):
@@ -158,10 +167,77 @@ class IosProvider:
               and time.monotonic() < self._startup_deadline,
               'startup_rejected','iOS helper startup window is closed',409)
         self._check_permit(self._startup_permit)
+        if self._startup_transport_deadline_ms is not None:
+            self._startup_transport_remaining()
+
+    def _startup_transport_remaining(self):
+        check(self._startup_transport_deadline_ms is not None and self._startup_clock_sync is not None,
+              'startup_rejected','iOS startup transport budget is unavailable',409)
+        sample=self._sample_startup_clock()
+        remaining=(self._startup_transport_deadline_ms*1_000_000-sample.nanoseconds-sample.uncertainty_ns)/1_000_000_000
+        check(math.isfinite(remaining) and remaining>0,
+              'startup_rejected','iOS startup transport budget is exhausted',409)
+        return remaining
 
     def _require_startup_window(self):
         with self._startup_lock:
             self._startup_window_open_locked()
+
+    def _require_startup_generation(self,generation):
+        with self._startup_lock:
+            check(generation==self._startup_generation,'startup_rejected','iOS startup generation changed',409)
+            self._startup_window_open_locked()
+
+    def _capture_startup_clock(self,lab):
+        # Capture the original ceiling BEFORE staging or XCTest preparation.
+        # Simulator and Darwin host share mach_continuous_time; monotonic
+        # epochs must not be equated, and suspension must consume this budget.
+        synchronizer=lab.authority.clock_sync
+        sample=synchronizer.sample()
+        check(type(sample) is TrustedClockSample
+              and re.fullmatch(r'mach-continuous-[1-9][0-9]*-[1-9][0-9]*',sample.clock_id) is not None,
+              'startup_rejected','Simulator startup requires the qualified Darwin clock',409)
+        check(self._startup_continuous_ceiling_ns is None,
+              'startup_rejected','iOS startup clock is already fixed',409)
+        self._startup_clock_sync=synchronizer;self._startup_clock_sample=sample
+        self._startup_continuous_ceiling_ns=(sample.nanoseconds-sample.uncertainty_ns
+                                            +math.floor(IOS_STARTUP_TIMEOUT_SECONDS*1_000_000_000))
+
+    def _sample_startup_clock(self):
+        check(self._startup_clock_sync is not None and self._startup_clock_sample is not None,
+              'startup_rejected','iOS startup clock is unavailable',409)
+        sample=self._startup_clock_sync.sample();initial=self._startup_clock_sample
+        check(type(sample) is TrustedClockSample and sample._issuer is initial._issuer
+              and sample.clock_id==initial.clock_id and sample.boot_digest==initial.boot_digest,
+              'startup_rejected','Simulator startup clock changed',409)
+        return sample
+
+    def _initialize_startup_budget(self,permit):
+        """One conservative, boot-scoped Simulator transport deadline, not authority."""
+        self._require_startup_window()
+        check(self._startup_transport_deadline_ms is None,
+              'startup_rejected','iOS startup budget is already fixed',409)
+        check(self._startup_continuous_ceiling_ns is not None,
+              'startup_rejected','iOS startup clock is unavailable',409)
+        sample=self._sample_startup_clock()
+        deadline=min(permit.deadline_ns,self._startup_continuous_ceiling_ns)
+        # Floor and reserve a millisecond for the native wire quantization.
+        deadline_ms=deadline//1_000_000-1
+        check(0<deadline_ms<=MAX_NS//1_000_000
+              and deadline_ms*1_000_000>sample.nanoseconds+sample.uncertainty_ns,
+              'startup_rejected','iOS startup transport budget is exhausted',409)
+        self._require_startup_window()
+        self._startup_transport_deadline_ms=deadline_ms
+        return deadline_ms
+
+    def _startup_remaining_timeout(self,maximum,*,generation=None):
+        if generation is not None:self._require_startup_generation(generation)
+        else:self._require_startup_window()
+        remaining=min(maximum,self._startup_deadline-time.monotonic(),
+                      self._startup_transport_remaining())
+        check(math.isfinite(remaining) and remaining>0,
+              'startup_rejected','iOS startup transport budget is exhausted',409)
+        return remaining
 
     def _abort_startup(self):
         with self._startup_lock:
@@ -174,11 +250,17 @@ class IosProvider:
     def start_authorized(self,session,lab,permit):
         self._check_permit(permit)
         self._startup_permit=permit;self.handshake_ready=threading.Event()
-        with self._startup_lock:
-            self._startup_accepting=True
-            self._startup_deadline=time.monotonic()+IOS_STARTUP_TIMEOUT_SECONDS
         succeeded=False
         try:
+            with self._startup_lock:
+                self._startup_accepting=False
+                self._startup_generation+=1;self._ready_generation=None;self._started_generation=None
+                self._ready_complete=False;self._startup_transport_deadline_ms=None
+                self._startup_clock_sync=None;self._startup_clock_sample=None;self._startup_continuous_ceiling_ns=None
+                self._capture_startup_clock(lab)
+                self._startup_deadline=time.monotonic()+IOS_STARTUP_TIMEOUT_SECONDS
+                self._startup_accepting=True
+                self._initialize_startup_budget(permit)
             self.start(session,lab,permit=permit)
             while True:
                 self._require_startup_window()
@@ -259,7 +341,9 @@ class IosProvider:
         if self.temp is None:self.temp=tempfile.TemporaryDirectory(prefix='repro-live-')
         config=prepare_xctestrun(self.products,'ReproLiveTests',Path(self.temp.name)/'live.xctestrun')
         with config.open('rb') as stream:document=plistlib.load(stream)
-        if self.device_authority is not None:require_ios_helper_v2(document)
+        if self.device_authority is not None:
+            require_ios_helper_v2(document,simulator_startup_budget=True)
+            self._require_startup_window()
         for _,target in _targets(document):
             target.setdefault('EnvironmentVariables',{}).update(REPRO_LIVE_URL=f'{lab.base_url}/bridge/{self.sid}',
                 REPRO_LIVE_TOKEN=self.token,REPRO_TARGET_BUNDLE=self.bundle)
@@ -279,6 +363,8 @@ class IosProvider:
                     REPRO_LIVE_HELPER_INCARNATION=permit.helper_incarnation,
                     REPRO_LIVE_HOST_INCARNATION=permit.host_incarnation,
                     REPRO_LIVE_PROVIDER_INCARNATION=permit.provider_incarnation)
+                target['EnvironmentVariables']['REPRO_LIVE_SIMULATOR_STARTUP_DEADLINE_MS']=str(
+                    self._startup_transport_deadline_ms)
             if self.auto_profile is not None:
                 target['EnvironmentVariables'].update(REPRO_LIVE_AUTO_RUN_ID=self.auto_run_id,
                     REPRO_LIVE_AUTO_PROFILE_DIGEST=self.auto_profile.digest)
@@ -288,7 +374,7 @@ class IosProvider:
         command=['/usr/bin/xcodebuild','test-without-building','-xctestrun',str(config),'-destination',f'id={self.udid}',
                  '-resultBundlePath',str(Path(self.temp.name)/'result.xcresult'),'-parallel-testing-enabled','NO',
                  '-only-testing:ReproLiveTests/LiveControlTests/testControlSession']
-        if self.device_authority is not None:self._check_permit(permit)
+        if self.device_authority is not None:self._require_startup_window()
         self._start_runner(command)
         self.monitor=threading.Thread(target=self._monitor,daemon=True);self.monitor.start()
     def _start_runner(self,command):
@@ -350,9 +436,9 @@ class IosProvider:
             return result
         finally:
             with self.lock:self.pending.pop(command['id'],None)
-    def _simulator_json(self,relative,max_bytes=1024*1024):
+    def _simulator_json(self,relative,max_bytes=1024*1024,*,timeout=15):
         result=subprocess.run(['/usr/bin/xcrun','simctl','get_app_container',self.udid,self.bundle,'data'],
-                              capture_output=True,text=True,timeout=15)
+                              capture_output=True,text=True,timeout=timeout)
         check(result.returncode==0,'app_unavailable','Installed Simulator app data is unavailable')
         root=Path(result.stdout.strip()).resolve();path=(root/relative).resolve()
         check(path.is_relative_to(root) and path.is_file() and not path.is_symlink()
@@ -422,13 +508,18 @@ class IosProvider:
         result = self.collect_app_logs()
         self._check_permit(permit)
         return result
-    def collect_app_logs(self):
+    def collect_app_logs(self,*,startup_generation=None):
         from ..app_logs import collect_app_logs,IDENTITY_KEYS
         check(self.automatic_app_logs and self.auto_profile is not None and self.auto_run_id is not None,
               'unsupported_operation','Automatic app logs are not configured',400)
         profile=self.auto_profile.data
         try:
-            value=collect_app_logs(self._read_app_log_json,platform='ios',application_id=self.bundle,
+            reader=self._read_app_log_json
+            if startup_generation is not None:
+                from ..app_logs import MAX_APP_LOG_BYTES
+                reader=lambda relative:self._simulator_json('Library/Application Support/Reproof/'+relative,
+                    MAX_APP_LOG_BYTES,timeout=self._startup_remaining_timeout(15,generation=startup_generation))
+            value=collect_app_logs(reader,platform='ios',application_id=self.bundle,
                 profile_digest=self.auto_profile.digest,run_id=self.auto_run_id,
                 click_targets=set(profile['tapTargets'])|({profile['backTarget']} if profile.get('backTarget') else set()),
                 screen_targets=set(profile['screenTargets'].values()),expected_marker=self.app_log_marker)
@@ -436,11 +527,20 @@ class IosProvider:
             raise LiveError('app_log_unavailable','A matching app log snapshot is not available yet',409) from None
         self.app_log_marker={key:value[key] for key in IDENTITY_KEYS}
         return value
-    def _wait_for_app_log_marker(self,timeout=10):
+    def _wait_for_app_log_marker(self,timeout=10,*,startup_generation=None):
         deadline=time.monotonic()+min(timeout,10)
         while time.monotonic()<deadline:
-            try:return self.collect_app_logs()
-            except LiveError:time.sleep(.1)
+            if startup_generation is not None:self._startup_remaining_timeout(10,generation=startup_generation)
+            try:
+                result=(self.collect_app_logs() if startup_generation is None else
+                        self.collect_app_logs(startup_generation=startup_generation))
+                if startup_generation is not None:self._require_startup_generation(startup_generation)
+                return result
+            except LiveError:
+                remaining=deadline-time.monotonic()
+                if startup_generation is not None:
+                    remaining=min(remaining,self._startup_remaining_timeout(10,generation=startup_generation))
+                if remaining>0:time.sleep(min(.1,remaining))
         raise LiveError('app_log_unavailable','Automatic app logging did not become ready',409)
     def bridge(self,operation,body):
         if operation=='next':
@@ -458,9 +558,15 @@ class IosProvider:
             _require_ios_helper_actions(self.profile,
                 body.get('capabilities') if isinstance(body,dict) else None)
             if self.device_authority is not None:
-                try:
-                    with self._startup_lock:
-                        self._startup_window_open_locked()
+                with self._startup_lock:
+                    self._startup_window_open_locked()
+                    generation=self._startup_generation
+                    check(self._ready_generation!=generation,
+                          'startup_rejected','Duplicate iOS ready callback',409)
+                    check(body.get('hostIncarnation')==self._startup_permit.host_incarnation,
+                          'native_protocol_mismatch','iOS helper host incarnation differs',400)
+                    self._ready_generation=generation
+                    try:
                         handshake=self.device_authority.bind_native_handshake(
                             self._startup_permit,protocol_version=body.get('protocolVersion'),
                             helper_version=body.get('helperVersion'),helper_incarnation=body.get('helperIncarnation'),
@@ -468,39 +574,57 @@ class IosProvider:
                             native_clock_id=body.get('nativeClockId'),native_time_ms=body.get('nativeTimeMs'))
                         self._startup_window_open_locked()
                         self.native_handshake=handshake
-                except ContractError:
-                    raise LiveError('native_protocol_mismatch','iOS helper protocol is incompatible',400) from None
-                if getattr(self,'frame_clock',None) is not None:
-                    self.frame_clock.configure(self.native_handshake,body.get('capabilities'))
+                    except ContractError:
+                        raise LiveError('native_protocol_mismatch','iOS helper protocol is incompatible',400) from None
+                    if getattr(self,'frame_clock',None) is not None:
+                        self.frame_clock.configure(self.native_handshake,body.get('capabilities'))
                 expected_identity=getattr(self,'_pending_install_identity',None)
                 if expected_identity is not None:
-                    self._require_startup_window()
+                    self._require_startup_generation(generation)
                     install=subprocess.run(['/usr/bin/xcrun','simctl','install',self.udid,str(self._install_app)],
-                                           capture_output=True,timeout=90)
+                                           capture_output=True,timeout=self._startup_remaining_timeout(90,generation=generation))
                     check(install.returncode==0,'app_changed','Could not install the selected Simulator app')
-                    self._require_startup_window()
-                    self.identity=installed_identity(self.udid,self.bundle)
-                    check(self.identity==expected_identity,'app_changed','Installed Simulator app differs from selected app')
-                    self._pending_install_identity=None
-                self._require_startup_window()
-                return {'ok':True,'authority':self.device_authority.native_grant(
-                    self._startup_permit,self.native_handshake).wire()}
+                    self._require_startup_generation(generation)
+                    installed=installed_identity(self.udid,self.bundle,
+                        timeout=self._startup_remaining_timeout(15,generation=generation))
+                    check(installed==expected_identity,'app_changed','Installed Simulator app differs from selected app')
+                    with self._startup_lock:
+                        self._require_startup_generation(generation)
+                        self.identity=installed
+                        self._pending_install_identity=None
+                with self._startup_lock:
+                    self._require_startup_generation(generation)
+                    result={'ok':True,'authority':self.device_authority.native_grant(
+                        self._startup_permit,self.native_handshake).wire()}
+                    self._ready_complete=True
+                    return result
             else:
                 if self.app_logs_only:self._wait_for_app_log_marker()
                 elif self.auto_profile is not None:self._wait_for_auto_marker()
             return {'ok':True}
         if operation=='started':
-            if self.device_authority is not None:self._require_startup_window()
-            check(self.device_authority is not None and self.native_handshake is not None,
-                  'native_protocol_mismatch','iOS startup authority is unavailable',400)
-            expected=self.device_authority.native_grant(
-                self._startup_permit,self.native_handshake).wire()
-            check(isinstance(body,dict) and set(body)=={'authority'}
-                  and _exact_flat_mapping(body.get('authority'),expected),
-                  'authority_rejected','iOS startup acknowledgement is not bound',409)
-            self._check_permit(self._startup_permit)
-            if self.app_logs_only: self._wait_for_app_log_marker()
-            if self.handshake_ready is not None:self.handshake_ready.set()
+            with self._startup_lock:
+                if self.device_authority is not None:self._startup_window_open_locked()
+                check(self.device_authority is not None and self.native_handshake is not None,
+                      'native_protocol_mismatch','iOS startup authority is unavailable',400)
+                generation=self._startup_generation
+                expected=self.device_authority.native_grant(
+                    self._startup_permit,self.native_handshake).wire()
+                check(isinstance(body,dict) and set(body)=={'authority'}
+                      and _exact_flat_mapping(body.get('authority'),expected),
+                      'authority_rejected','iOS startup acknowledgement is not bound',409)
+                self._require_startup_generation(generation)
+                check(self._ready_complete and self._ready_generation==generation,
+                      'startup_rejected','iOS ready callback is incomplete',409)
+                check(self._started_generation!=generation,
+                      'startup_rejected','Duplicate iOS started callback',409)
+                self._started_generation=generation
+            if self.app_logs_only:
+                self._wait_for_app_log_marker(self._startup_remaining_timeout(10,generation=generation),
+                                             startup_generation=generation)
+            with self._startup_lock:
+                self._require_startup_generation(generation)
+                if self.handshake_ready is not None:self.handshake_ready.set()
             return {'ok':True}
         if operation=='ack':
             with self.lock:
@@ -637,8 +761,8 @@ def demo_device():
             'capabilities':dict(CAPABILITIES,media='demo-svg',recovery=True),'factory':DemoProvider}
 
 
-def installed_identity(udid,bundle):
-    result=subprocess.run(['/usr/bin/xcrun','simctl','get_app_container',udid,bundle,'app'],capture_output=True,timeout=15)
+def installed_identity(udid,bundle,*,timeout=15):
+    result=subprocess.run(['/usr/bin/xcrun','simctl','get_app_container',udid,bundle,'app'],capture_output=True,timeout=timeout)
     check(result.returncode==0,'app_unavailable','Install the target app before starting Live')
     app=Path(result.stdout.decode().strip())
     return {'bundle':bundle,'artifactDigest':digest(tree_manifest(app))}
