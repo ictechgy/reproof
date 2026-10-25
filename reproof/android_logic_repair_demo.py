@@ -210,7 +210,11 @@ def _validate_result(xml_raw, log_raw, returncode, mode):
         rows = re.findall(r'^> Task ' + re.escape(task) + r'([^\n]*)$', log, re.MULTILINE)
         _require(rows == [''], 'native_build_incomplete')
     rows = re.findall(r'^> Task ' + re.escape(TASK) + r'([^\n]*)$', log, re.MULTILINE)
-    _require(rows == ([' FAILED'] if failures else ['']), 'test_task_incomplete')
+    # Gradle plain output can print a start row before the terminal FAILED row
+    # (observed in hosted run 40205773342). Accept only this ordered pair or
+    # the single terminal row; all exact XML, exit and build checks still apply.
+    _require(rows in ([' FAILED'], ['', ' FAILED']) if failures else rows == [''],
+             'test_task_incomplete')
     failed_tasks = re.findall(r'^> Task (\S+) FAILED$', log, re.MULTILINE)
     _require(failed_tasks == ([TASK] if failures else []), 'unexpected_task_failure')
     _require(len(re.findall(r'^BUILD (?:SUCCESSFUL|FAILED) in .+$', log, re.MULTILINE)) == 1
