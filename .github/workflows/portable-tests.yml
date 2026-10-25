@@ -49,6 +49,8 @@ jobs:
         run: python scripts/release-check.py --goal TICKET_INTAKE --effects filesystem,process
       - name: Run frozen native-logic input and result contracts without native execution
         run: python scripts/release-check.py --goal NATIVE_LOGIC_CONTRACTS --effects filesystem,process
+      - name: Run frozen Android logic input and result contracts without Gradle execution
+        run: python scripts/release-check.py --goal ANDROID-LOGIC-CONTRACTS --effects filesystem,process
       # Official PyPI build tooling only; not a runtime dependency or publish step.
       - name: Prepare pinned package-test builder
         run: |
