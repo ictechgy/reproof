@@ -1432,6 +1432,87 @@
           "gate": "software"
         }
       ]
+    },
+    "ANDROID-LOGIC-CONTRACTS": {
+      "available": true,
+      "checks": [
+        {
+          "id": "android-logic-frozen-input-and-result-contracts",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_android_logic_repair_demo"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "ANDROID-LOGIC": {
+      "available": true,
+      "checks": [
+        {
+          "id": "android-sample-kotlin-fixed",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_android_logic_repair_runtime.AndroidLogicRuntimeTests.test_fixed_candidate"
+          ],
+          "environment": "linux-preinstalled-jdk17-android-sdk35-host-junit",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 600,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "android-sample-kotlin-wrong",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_android_logic_repair_runtime.AndroidLogicRuntimeTests.test_wrong_candidate"
+          ],
+          "environment": "linux-preinstalled-jdk17-android-sdk35-host-junit",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 600,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "android-sample-kotlin-noop",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_android_logic_repair_runtime.AndroidLogicRuntimeTests.test_noop_candidate"
+          ],
+          "environment": "linux-preinstalled-jdk17-android-sdk35-host-junit",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 600,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }

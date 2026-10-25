@@ -1,0 +1,67 @@
+name: Android sample host logic proof
+
+on:
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'examples/android-logic-repair/**'
+      - 'reproof/**'
+      - 'tests/test_android_logic_repair*.py'
+      - 'tests/release_inventory.json'
+      - 'scripts/release-check.py'
+      - '.github/workflows/android-logic.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'examples/android-logic-repair/**'
+      - 'reproof/**'
+      - 'tests/test_android_logic_repair*.py'
+      - 'tests/release_inventory.json'
+      - 'scripts/release-check.py'
+      - '.github/workflows/android-logic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sample-host-logic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify preinstalled JDK and Android SDK, and official wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$JAVA_HOME_17_X64/bin/java"
+          test -x "$JAVA_HOME_17_X64/bin/javac"
+          test -f "$ANDROID_HOME/platforms/android-35/android.jar"
+          test -d "$ANDROID_HOME/build-tools/35.0.0"
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          echo '7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172  android/gradle/wrapper/gradle-wrapper.jar' | sha256sum --check --strict
+      - name: Execute real sample buggy-flavor JUnit causal checks
+        shell: bash
+        env:
+          REPRO_ANDROID_LOGIC_OUTPUT: ${{ runner.temp }}/reproof-android-logic
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPRO_ANDROID_LOGIC_OUTPUT"
+          python3 scripts/release-check.py --goal ANDROID-LOGIC \
+            --effects filesystem,process,native-compile \
+            | tee "$REPRO_ANDROID_LOGIC_OUTPUT/release-report.json"
+      - name: Retain successful and rejected raw host evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-sample-host-logic-evidence
+          path: |
+            ${{ runner.temp }}/reproof-android-logic/*-report.json
+            ${{ runner.temp }}/reproof-android-logic/**/*.log
+            ${{ runner.temp }}/reproof-android-logic/**/*.xml
+          if-no-files-found: warn
+          retention-days: 7

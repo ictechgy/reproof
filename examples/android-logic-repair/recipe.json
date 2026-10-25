@@ -1,0 +1,26 @@
+{
+  "agp": "8.13.2",
+  "baselineActual": 2,
+  "buildTools": "35.0.0",
+  "candidateExpressions": [
+    "2",
+    "3",
+    "1"
+  ],
+  "compileSdk": 35,
+  "editableFile": "android/sample/src/main/java/io/reproof/sample/CounterLogic.kt",
+  "expectedValue": 1,
+  "flavor": "buggy",
+  "gradle": "8.14.5",
+  "javaMajor": 17,
+  "kind": "host-android-sample-logic",
+  "kotlin": "2.2.10",
+  "maxOutputBytes": 2097152,
+  "oracleFile": "android/sample/src/test/java/io/reproof/sample/CounterLogicTest.kt",
+  "schemaVersion": 1,
+  "task": ":sample:testBuggyDebugUnitTest",
+  "testCase": "io.reproof.sample.CounterLogicTest.addingOneItemIncrementsCountByOne",
+  "testCount": 1,
+  "timeoutSeconds": 240,
+  "wrongActual": 3
+}

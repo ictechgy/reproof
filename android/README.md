@@ -169,3 +169,12 @@ The sample's observable fixture starts with `name=""` and `count="0"`.
 Adding once displays `2` in `buggyDebug` and `1` in `fixedDebug`. The intentional
 source condition is in `CounterLogic.kt`, making it straightforward for the
 host agent to patch and rebuild.
+
+## Host-only causal sample proof
+
+The [bounded Android logic repair exercise](../docs/ANDROID-LOGIC-REPAIR.md)
+runs the existing `:sample:testBuggyDebugUnitTest` oracle against fresh copies
+of the original, deliberately wrong, and fixed Kotlin logic while keeping the
+buggy flavor. Its separate `ANDROID-LOGIC-CONTRACTS` goal is portable;
+`ANDROID-LOGIC` requires the real host JDK/SDK/Gradle execution. Neither is an
+Android UI, device, capture, or AI acceptance claim.

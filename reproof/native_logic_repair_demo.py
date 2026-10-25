@@ -218,9 +218,9 @@ def _stop(process):
         time.sleep(0.02)
 
 
-def _command(argv, cwd, log_path, home, timeout):
+def _command(argv, cwd, log_path, home, timeout, *, environment=None):
     """Internal fixed argv only. No shell, inherited secrets, or arbitrary provider."""
-    environment = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'HOME': str(home),
+    environment = environment if environment is not None else {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'HOME': str(home),
                    'TMPDIR': str(home), 'LANG': 'C', 'LC_ALL': 'C',
                    'DEVELOPER_DIR': DEVELOPER_DIR}
     cancelled = False
