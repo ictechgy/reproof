@@ -91,6 +91,45 @@ class TicketIntakeTests(unittest.TestCase):
         self.assertEqual(self.intake(registry=())['status'], 'abstained')
         self.assertEqual(self.intake(registry=(self.entry, self.entry))['reason'], 'correlation_ambiguous')
 
+    def test_unrelated_historical_log_policy_does_not_change_draft(self):
+        ticket, historical = fixture(
+            mutate_original=lambda original: original.update(projectRevision='prior_revision'),
+            mutate_log=lambda log: log.update(sessionId=RUN))
+        ticket['sessionId'] = RUN
+        project = copy.deepcopy(historical.project)
+        project['revision'] = 'prior_revision'
+        historical = replace(historical, project=project, session_id=RUN)
+        # The historical capsule, revision and collector session are consistent.
+        self.assertEqual(self.intake(ticket, (historical,))['status'], 'review-required')
+        project['evidencePolicy']['logs'] = False
+        self.assertEqual(self.intake(ticket, (historical,))['reason'], 'logs_denied')
+
+        expected = self.intake()
+        self.assertEqual(expected['status'], 'review-required')
+        for registry in ((historical, self.entry), (self.entry, historical)):
+            with self.subTest(historical_first=registry[0] is historical):
+                self.assertEqual(self.intake(registry=registry), expected)
+
+    def test_same_session_log_denial_is_not_hidden_by_another_match(self):
+        project = copy.deepcopy(self.entry.project)
+        project['evidencePolicy']['logs'] = False
+        disabled = replace(self.entry, project=project)
+        for registry in ((disabled, self.entry), (self.entry, disabled)):
+            with self.subTest(disabled_first=registry[0] is disabled):
+                self.assertEqual(self.intake(registry=registry)['reason'], 'logs_denied')
+
+    def test_wrong_session_abstains_before_capsule_inspection(self):
+        unrelated = replace(self.entry, session_id=RUN, capsule=b'not a capsule')
+        self.assertEqual(self.intake(registry=(unrelated,))['reason'], 'correlation_unresolved')
+
+    def test_unrelated_session_does_not_hide_malformed_registry(self):
+        invalid = [(object(), 'registry_invalid'),
+                   (replace(self.entry, project={}, session_id=RUN), 'input_invalid')]
+        for entry, reason in invalid:
+            for registry in ((entry, self.entry), (self.entry, entry)):
+                with self.subTest(reason=reason, invalid_first=registry[0] is entry):
+                    self.assertEqual(self.intake(registry=registry)['reason'], reason)
+
     def test_trusted_log_bindings_are_not_ticket_authority(self):
         for field, value in [('run_id', SESSION), ('session_id', RUN),
                              ('profile_digest', 'b' * 64), ('app_log_digest', 'b' * 64)]:

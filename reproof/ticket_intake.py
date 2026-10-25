@@ -81,7 +81,9 @@ def _ticket(raw):
 def _selected(entry, ticket):
     _need(type(entry) is RegisteredCapsule, 'registry_invalid')
     project = contracts.validate_project_revision(entry.project)
-    return entry.tenant_id == ticket['tenantId'] and project['id'] == ticket['projectId']
+    # Trusted collector sessions scope policy/capsule checks, not ticket prose.
+    return (entry.tenant_id == ticket['tenantId'] and project['id'] == ticket['projectId']
+            and entry.session_id == ticket['sessionId'])
 
 
 def _validate(entry, ticket):
