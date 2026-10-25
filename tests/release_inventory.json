@@ -1095,7 +1095,8 @@
             "-m",
             "unittest",
             "tests.test_runtime_resources",
-            "tests.test_ios_sdk_package"
+            "tests.test_ios_sdk_package",
+            "tests.test_instrumentation_runtime"
           ],
           "environment": "local-python-standard-library",
           "effects": [

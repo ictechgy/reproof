@@ -56,6 +56,40 @@ class InstrumentationRuntimeTemplateTests(unittest.TestCase):
         source = (ROOT / "android" / "sdk" / "src" / "main" / "java" / "io" / "reproof" / "sdk" / "ReproRecorder.kt").read_text()
         self.assertIn("fun lastEventSequence(): Int = synchronized(lock) { nextSequence - 1 }", source)
 
+    def test_recorder_export_uses_session_bound_helper_and_keeps_legacy_publication(self):
+        # Supporting source wiring contract, not a substitute for the JVM helper tests.
+        source = (ROOT / "android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt").read_text()
+        freeze = source[source.index("fun freezeAndExport("):source.index("fun capturePath()")]
+        self.assertNotIn("callback(publishedCaptureFile)", freeze)
+        self.assertIn("fun freezeAndExport(callback: (File) -> Unit = {}): Boolean", freeze)
+        self.assertIn("if (!isEnabled || frozen) return false", freeze)
+        self.assertLess(freeze.index("executor.execute"), freeze.index("publishSessionExport("))
+        self.assertIn("sessionDirectory = sessionDirectory", freeze)
+        self.assertIn("writeCapture = ::writeCapture", freeze)
+        self.assertIn("writeMetadata(finalized = true, incomplete = incomplete, destination = destination)", freeze)
+        self.assertIn("callback = callback", freeze)
+        self.assertEqual(freeze.count("catch (_: Throwable)"), 2)
+        self.assertEqual(freeze.count("markWriteFailure()"), 2)
+        helper = source[source.index("internal fun publishSessionExport("):source.index("class ReproRecorder")]
+        self.assertIn('val capture = File(sessionDirectory, "capture.json")', helper)
+        calls = [helper.index(call) for call in (
+            "writeCapture(capture)",
+            'finalizeMetadata(File(sessionDirectory, "session.json"))',
+            "callback(capture)",
+        )]
+        self.assertEqual(calls, sorted(calls))
+        self.assertNotIn("catch (", helper)
+        accessor = source[source.index("fun capturePath()"):source.index("fun close()")]
+        self.assertIn("return publishedCaptureFile", accessor)
+        writer = source[source.index("private fun writeCapture("):source.index("private fun writeMetadata(")]
+        self.assertIn("atomicWrite(destination, bytes)", writer)
+        self.assertIn("atomicWrite(publishedCaptureFile, bytes)", writer)
+        self.assertIn("destination: File = metadataFile", source)
+        self.assertIn("atomicWrite(destination, metadata.toString(2).toByteArray(StandardCharsets.UTF_8))", source)
+        runtime = DEBUG_RUNTIME.read_text()
+        self.assertIn("recorder.freezeAndExport { capture ->", runtime)
+        self.assertIn("writeDiagnostics(session, capture)", runtime)
+
     def test_recorder_admission_precedes_side_effects_and_raw_serialization(self):
         source = (ROOT / "android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt").read_text()
         adapter = source[source.index("private fun admitLegacy"):source.index("class ReproRecorder")]
@@ -109,7 +143,8 @@ class InstrumentationRuntimeTemplateTests(unittest.TestCase):
             self.assertIn(resource, manifest["files"])
             self.assertTrue((ROOT / resource).is_file())
         recorder = (ROOT / "android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt").read_text()
-        for declaration in ("class ReproPrivacyConfig(", "class ReproStartState(", "class ReproRecorder"):
+        for declaration in ("class ReproPrivacyConfig(", "class ReproStartState(", "class ReproRecorder",
+                            "internal fun publishSessionExport("):
             self.assertIn(declaration, recorder)
 
 

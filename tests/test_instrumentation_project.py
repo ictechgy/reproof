@@ -44,6 +44,7 @@ class InstrumentationProjectTests(unittest.TestCase):
             'android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt').read_bytes())
         self.assertIn('class ReproPrivacyConfig(', recorder.read_text())
         self.assertIn('class ReproStartState(', recorder.read_text())
+        self.assertIn('internal fun publishSessionExport(', recorder.read_text())
         self.assertFalse((staged / 'app/src/release/java/io/reproof/sdk/ReproRecorder.kt').exists())
         self.assertTrue((staged / 'app/src/release/java/io/reproof/autotrace/ReproAuto.kt').is_file())
         self.assertIn('android.permission.DUMP', (staged / 'app/src/debug/AndroidManifest.xml').read_text())

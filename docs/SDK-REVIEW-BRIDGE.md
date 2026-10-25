@@ -10,11 +10,18 @@ build identity, approval, or execution authority.
 
 - Android: `android/sdk` is a Gradle Android library (`com.android.library`,
   namespace `io.reproof.sdk`, minSdk 26). The existing sample demonstrates an
-  application dependency and `ReproRecorder` calls. After `freezeAndExport`,
-  collect the exact capture JSON and its session's `session.json`. A callback or
+  application dependency and `ReproRecorder` calls. The `freezeAndExport` callback
+  receives `files/repro/<session-id>/capture.json` after its sibling `session.json`
+  is finalized; collect that exact pair, including when consuming it later.
+  The return value only accepts the asynchronous request. The legacy
+  `capturePath()` and root `files/repro/capture.json` publication remain latest-only
+  conveniences that later sessions can replace. A callback or
   published path alone is insufficient: metadata must say finalized, with
   incomplete/lostEvents/unsupported all false. Android metadata has no sequence
   boundary, so capture's own endSequence is checked against its event stream.
+  This path fix preserves the existing fail-closed host and bridge checks; it
+  does not solve cross-recorder contention on the shared latest-file temporary
+  path or establish native/device export correctness.
 - iOS: [`ios/SDK`](../ios/SDK/README.md) is a public, local Foundation Swift
   package with explicit bounded annotation policies. `ios/Recorder/Recorder.swift`
   is the thin sample-specific `ReproCase` adapter. Collect the session-specific

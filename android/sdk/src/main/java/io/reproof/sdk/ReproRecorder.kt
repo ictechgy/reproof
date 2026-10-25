@@ -153,6 +153,19 @@ private fun admitLegacy(policy: () -> ReproPrivacyConfig, raw: JSONObject): Reco
     null
 }
 
+/** Ordered export boundary. Runs on the caller's thread and propagates every failure. */
+internal fun publishSessionExport(
+    sessionDirectory: File,
+    writeCapture: (File) -> Unit,
+    finalizeMetadata: (File) -> Unit,
+    callback: (File) -> Unit,
+) {
+    val capture = File(sessionDirectory, "capture.json")
+    writeCapture(capture)
+    finalizeMetadata(File(sessionDirectory, "session.json"))
+    callback(capture)
+}
+
 /**
  * Small, opt-in recorder for an annotated app session.
  *
@@ -209,7 +222,6 @@ class ReproRecorder private constructor(
     private val startedElapsedMs = if (isEnabled) android.os.SystemClock.elapsedRealtime() else 0L
     private val sessionDirectory by lazy { File(appContext.filesDir, "repro/$sessionId") }
     private val eventsFile by lazy { File(sessionDirectory, "events.jsonl") }
-    private val captureFile by lazy { File(sessionDirectory, "capture.json") }
     private val publishedCaptureFile by lazy { File(appContext.filesDir, "repro/capture.json") }
     private val currentSessionFile by lazy { File(appContext.filesDir, "repro/current-session") }
     private val metadataFile by lazy { File(sessionDirectory, "session.json") }
@@ -289,6 +301,8 @@ class ReproRecorder private constructor(
     /**
      * Freezes the session immediately, then writes a durable capture in order.
      * The callback runs on the recorder executor and never on the main thread.
+     * It receives this session's capture.json after its sibling session.json is finalized,
+     * not the replaceable latest-capture path returned by capturePath().
      */
     fun freezeAndExport(callback: (File) -> Unit = {}): Boolean {
         synchronized(lock) {
@@ -299,10 +313,15 @@ class ReproRecorder private constructor(
             try {
                 executor.execute {
                     try {
-                        writeCapture()
-                        val incomplete = synchronized(lock) { lostEvents || unsupported }
-                        writeMetadata(finalized = true, incomplete = incomplete)
-                        callback(publishedCaptureFile)
+                        publishSessionExport(
+                            sessionDirectory = sessionDirectory,
+                            writeCapture = ::writeCapture,
+                            finalizeMetadata = { destination ->
+                                val incomplete = synchronized(lock) { lostEvents || unsupported }
+                                writeMetadata(finalized = true, incomplete = incomplete, destination = destination)
+                            },
+                            callback = callback,
+                        )
                     } catch (_: Throwable) {
                         // Metadata remains incomplete when final publication fails.
                         markWriteFailure()
@@ -315,7 +334,7 @@ class ReproRecorder private constructor(
         return true
     }
 
-    /** Returns the latest published capture path, when a report has completed. */
+    /** Legacy latest-published path; another session may replace it after a report completes. */
     fun capturePath(): File {
         check(isEnabled) { "Recorder is disabled" }
         return publishedCaptureFile
@@ -379,7 +398,7 @@ class ReproRecorder private constructor(
         }
     }
 
-    private fun writeCapture() {
+    private fun writeCapture(destination: File) {
         val snapshot: List<RecordedEvent>
         val wasTruncated: Boolean
         val wasLost: Boolean
@@ -404,11 +423,11 @@ class ReproRecorder private constructor(
             .put("endSequence", snapshot.lastOrNull()?.sequence ?: 0)
             .put("startedAtMs", startedAtMs)
         val bytes = capture.toString().toByteArray(StandardCharsets.UTF_8)
-        atomicWrite(captureFile, bytes)
+        atomicWrite(destination, bytes)
         atomicWrite(publishedCaptureFile, bytes)
     }
 
-    private fun writeMetadata(finalized: Boolean, incomplete: Boolean) {
+    private fun writeMetadata(finalized: Boolean, incomplete: Boolean, destination: File = metadataFile) {
         val metadata = JSONObject()
             .put("schemaVersion", 1)
             .put("sessionId", sessionId)
@@ -418,7 +437,7 @@ class ReproRecorder private constructor(
             .put("incomplete", incomplete)
             .put("lostEvents", synchronized(lock) { lostEvents })
             .put("unsupported", synchronized(lock) { unsupported })
-        atomicWrite(metadataFile, metadata.toString(2).toByteArray(StandardCharsets.UTF_8))
+        atomicWrite(destination, metadata.toString(2).toByteArray(StandardCharsets.UTF_8))
     }
 
     private fun atomicWrite(destination: File, bytes: ByteArray) {

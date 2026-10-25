@@ -4,6 +4,9 @@ import android.content.Context
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.File
+import java.io.IOException
+import java.nio.file.Files
 
 /** Pure JVM tests: deliberately never instantiate Context, JSONObject or a recorder. */
 class ReproPrivacyConfigTest {
@@ -148,5 +151,159 @@ class ReproPrivacyConfigTest {
             allowedStartScreens = setOf("warehouse"), tapTargets = setOf("commit"),
             scrollTargets = emptyMap(), backTarget = "return")
         ReproRecorder(context, ReproPrivacyConfig(), state())
+    }
+
+    @Suppress("unused")
+    private fun exportCompatibility(recorder: ReproRecorder) {
+        val accepted: Boolean = recorder.freezeAndExport()
+        recorder.freezeAndExport { capture: File -> capture.name }
+        val latest: File = recorder.capturePath()
+    }
+}
+
+/** Tests the production export orchestration with synthetic files, not Android JSON or fsync. */
+class ReproSessionExportTest {
+    private fun withExportRoot(test: (File) -> Unit) {
+        val root = Files.createTempDirectory("repro-session-export-").toFile()
+        try { test(root) } finally { root.deleteRecursively() }
+    }
+
+    @Test fun retainedCallbackKeepsItsCaptureAndMetadataAfterLaterPublication() = withExportRoot { root ->
+        val published = File(root, "capture.json")
+        val callbacks = mutableListOf<File>()
+        val order = mutableListOf<String>()
+        val callerThread = Thread.currentThread()
+        for (id in listOf("first", "second")) {
+            val directory = File(root, id).apply { check(mkdirs()) }
+            publishSessionExport(
+                sessionDirectory = directory,
+                writeCapture = { destination ->
+                    assertSame(callerThread, Thread.currentThread())
+                    assertEquals(File(directory, "capture.json"), destination)
+                    destination.writeText("capture:$id")
+                    published.writeText(destination.readText())
+                    order += "$id:capture"
+                },
+                finalizeMetadata = { destination ->
+                    assertSame(callerThread, Thread.currentThread())
+                    assertEquals(File(directory, "session.json"), destination)
+                    destination.writeText("metadata:$id")
+                    order += "$id:metadata"
+                },
+                callback = { capture ->
+                    assertSame(callerThread, Thread.currentThread())
+                    assertEquals("capture:$id", capture.readText())
+                    assertEquals("metadata:$id", File(capture.parentFile, "session.json").readText())
+                    callbacks += capture
+                    order += "$id:callback"
+                },
+            )
+        }
+        assertEquals(listOf("first:capture", "first:metadata", "first:callback",
+            "second:capture", "second:metadata", "second:callback"), order)
+        assertEquals(2, callbacks.size)
+        assertEquals(File(root, "first/capture.json"), callbacks[0])
+        assertEquals(File(root, "second/capture.json"), callbacks[1])
+        assertNotEquals(published, callbacks[0])
+        assertEquals("capture:second", published.readText())
+        // Delayed consumption of the first callback must not read the second export.
+        assertEquals("capture:first", callbacks[0].readText())
+        assertEquals("metadata:first", File(callbacks[0].parentFile, "session.json").readText())
+        assertEquals("metadata:second", File(callbacks[1].parentFile, "session.json").readText())
+        assertFalse(File(root, "session.json").exists())
+    }
+
+    @Test fun newerPublicationBeforeFirstCallbackCannotReplaceItsSessionPair() = withExportRoot { root ->
+        val published = File(root, "capture.json")
+        val first = File(root, "first").apply { check(mkdirs()) }
+        val second = File(root, "second").apply { check(mkdirs()) }
+        val callbacks = mutableListOf<File>()
+        publishSessionExport(first,
+            writeCapture = { destination ->
+                destination.writeText("capture:first")
+                published.writeText(destination.readText())
+            },
+            finalizeMetadata = { destination ->
+                destination.writeText("metadata:first")
+                // Deterministic interleaving: the latest slot changes before callback A runs.
+                publishSessionExport(second,
+                    writeCapture = { newer ->
+                        newer.writeText("capture:second")
+                        published.writeText(newer.readText())
+                    },
+                    finalizeMetadata = { it.writeText("metadata:second") },
+                    callback = { callbacks += it },
+                )
+            },
+            callback = { capture ->
+                assertEquals("capture:second", published.readText())
+                assertEquals("capture:first", capture.readText())
+                assertEquals("metadata:first", File(capture.parentFile, "session.json").readText())
+                callbacks += capture
+            },
+        )
+        assertEquals(listOf(File(second, "capture.json"), File(first, "capture.json")), callbacks)
+    }
+
+    @Test fun captureFailureSkipsMetadataAndCallback() = withExportRoot { root ->
+        val failure = IOException("synthetic capture failure")
+        var captureWrites = 0
+        var metadataWrites = 0
+        var callbacks = 0
+        try {
+            publishSessionExport(root,
+                writeCapture = { destination ->
+                    captureWrites += 1
+                    destination.writeText("partial capture")
+                    throw failure
+                },
+                finalizeMetadata = { metadataWrites += 1 },
+                callback = { callbacks += 1 },
+            )
+            fail("Expected the original capture failure")
+        } catch (error: IOException) { assertSame(failure, error) }
+        assertEquals(1, captureWrites)
+        assertEquals(0, metadataWrites)
+        assertEquals(0, callbacks)
+    }
+
+    @Test fun metadataFailureSkipsCallback() = withExportRoot { root ->
+        val failure = IOException("synthetic metadata failure")
+        var captureWrites = 0
+        var metadataWrites = 0
+        var callbacks = 0
+        try {
+            publishSessionExport(root,
+                writeCapture = { destination ->
+                    captureWrites += 1
+                    destination.writeText("capture")
+                },
+                finalizeMetadata = { destination ->
+                    metadataWrites += 1
+                    assertTrue(File(destination.parentFile, "capture.json").isFile)
+                    destination.writeText("incomplete metadata")
+                    throw failure
+                },
+                callback = { callbacks += 1 },
+            )
+            fail("Expected the original metadata failure")
+        } catch (error: IOException) { assertSame(failure, error) }
+        assertEquals(1, captureWrites)
+        assertEquals(1, metadataWrites)
+        assertEquals(0, callbacks)
+    }
+
+    @Test fun callbackFailurePropagatesOnceAfterBothWriters() = withExportRoot { root ->
+        val failure = IllegalStateException("synthetic callback failure")
+        val order = mutableListOf<String>()
+        try {
+            publishSessionExport(root,
+                writeCapture = { order += "capture" },
+                finalizeMetadata = { order += "metadata" },
+                callback = { order += "callback"; throw failure },
+            )
+            fail("Expected the original callback failure")
+        } catch (error: IllegalStateException) { assertSame(failure, error) }
+        assertEquals(listOf("capture", "metadata", "callback"), order)
     }
 }
