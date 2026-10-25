@@ -34,6 +34,23 @@ entry names. The Report button freezes the session and writes an atomic
 `capture.json` under the app-private `files/repro/<session-id>/` directory and
 publishes the latest completed capture at `files/repro/capture.json` for the
 host collector.
+`freezeAndExport { capture -> ... }` now passes the session-specific file, not
+that replaceable latest slot. Its sibling `session.json` has been finalized
+before the callback runs on the recorder executor. A later session's export
+does not replace this callback file or its sibling metadata. Both writers must
+succeed before the callback is invoked; a `true` return means the asynchronous
+request was accepted, not that export succeeded or that the session is complete.
+Consumers must still check the capture and metadata's matching session identity
+and completeness flags.
+
+The callback's `(File) -> Unit` API and default callback are unchanged, but code
+that assumed its file was the root latest slot must use `capturePath()` instead.
+That legacy accessor still returns `files/repro/capture.json`, which another
+session may replace; do not use it for delayed same-session consumption. The
+wire format and latest-file publication are unchanged. This callback-identity
+fix does not serialize different recorder instances or fix their shared latest
+publication temporary file, and makes no concurrent-publication guarantee.
+
 Events are appended as ordered JSONL as they happen, so a process killed before
 Report still leaves a crash-recovery trail. Password-like targets are not in the
 SDK allowlist, and the recorder stops when it reaches ten minutes or 20 MiB.
@@ -103,7 +120,11 @@ templates. The SDK test source set compiles the actual debug runtime templates
 with an inert test-only configuration; these files are not production SDK
 sources and are not packaged in its AAR. These JVM
 tests exercise the pure admission policy with mutation, bound and non-coercion
-canaries; they do not instantiate Android `Context` or `JSONObject`. Source-copy
+canaries and the actual export-orchestration helper with synthetic temporary
+files. Export tests cover delayed and interleaved sessions, writer failures,
+callback ordering/count/thread and exception propagation; they do not instantiate
+Android `Context` or `JSONObject`, exercise native atomic writes, or run a recorder.
+Source-copy
 and ordering assertions are supporting Python checks, not runtime proof. Real
 CI compilation/JVM results are required before merging this change. Native
 Android JSON-adapter behavior, device recording and export remain unverified by
