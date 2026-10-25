@@ -1,0 +1,2 @@
+# Preserve captured native diagnostic bytes, including its original blank EOF.
+tests/fixtures/native-logic-repair/xcode-16.4/test.log -text whitespace=-blank-at-eof

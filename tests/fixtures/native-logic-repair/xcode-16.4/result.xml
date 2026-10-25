@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<testsuites>
+<testsuite name="TestResults" errors="0" tests="1" failures="1" time="0.3622575">
+<testcase classname="ReproLogicTests.SubmissionLogicTests" name="testDuplicateIsRejected" time="0.3622575">
+<failure message="failed"></failure>
+</testcase>
+</testsuite>
+</testsuites>

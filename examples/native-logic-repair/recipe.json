@@ -1,0 +1,28 @@
+{
+  "assertionCount": 2,
+  "buildTimeoutSeconds": 90,
+  "candidateExpressions": [
+    "true",
+    "false",
+    "!submitted"
+  ],
+  "editableFile": "ios/Sample/SubmissionLogic.swift",
+  "failureAssertions": {
+    "baseline": {
+      "assertion": "XCTAssertFalse",
+      "line": 13
+    },
+    "wrong": {
+      "assertion": "XCTAssertTrue",
+      "line": 12
+    }
+  },
+  "kind": "host-swift-sample-logic",
+  "maxOutputBytes": 2097152,
+  "oracleFile": "ios/LogicTests/LogicTests.swift",
+  "schemaVersion": 1,
+  "testCase": "ReproLogicTests.SubmissionLogicTests/testDuplicateIsRejected",
+  "testCount": 1,
+  "testFilter": "^ReproLogicTests\\.SubmissionLogicTests/testDuplicateIsRejected$",
+  "testTimeoutSeconds": 30
+}
