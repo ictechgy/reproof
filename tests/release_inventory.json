@@ -1222,7 +1222,17 @@
             "tests.test_ios_abort_cleanup",
             "tests.test_android_locator_geometry",
             "tests.test_worker_profiles",
-            "tests.test_ios_cleanup_ack"
+            "tests.test_ios_cleanup_ack",
+            "tests.test_android_startup_wait",
+            "tests.test_android_startup_model",
+            "tests.test_ios_startup_wait",
+            "tests.test_live_authority_integration",
+            "tests.test_live_authority",
+            "tests.test_host_authority_boundaries",
+            "tests.test_retained_ios_startup",
+            "tests.test_live_android_profile",
+            "tests.test_android_observation_live",
+            "tests.test_native_buffer_transport"
           ],
           "environment": "local-python-standard-library",
           "effects": [

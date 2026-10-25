@@ -20,6 +20,17 @@ from .retained_startup import RetainedStartupBinding
 
 MAX_VIDEO_SINKS = 32
 
+# Public startup diagnostics are fixed host-owned text, never provider/native
+# exception messages, instrumentation output, or transport payloads.
+ANDROID_STARTUP_DIAGNOSTICS = {
+    'android_startup_timeout': 'Android helper startup timed out',
+    'android_startup_process_exited': 'Android instrumentation exited before startup completed',
+    'android_startup_metadata_rejected': 'Android helper startup metadata was rejected',
+    'android_startup_transport_unavailable': 'Android helper startup transport is unavailable',
+    'android_startup_cancelled': 'Android helper startup was cancelled',
+    'android_startup_authority_invalid': 'Android helper startup authority is no longer valid',
+}
+
 
 @dataclass(frozen=True, slots=True)
 class TrustedDeviceReservation:
@@ -861,6 +872,9 @@ class Lab:
                 'createdAt':s['createdAt'],'expiresAt':int(time.time()*1000+max(0,min(s['lastActivity']+self.idle_timeout,s['createdMonotonic']+self.max_session_seconds)-self.clock())*1000),
                 'idleTimeoutSeconds':self.idle_timeout,'maxSessionSeconds':self.max_session_seconds,'closeReason':s.get('closeReason'),
                 'activePointerIds':sorted(s.get('activePointers',{})),'pointerTimeoutSeconds':10}
+        if (s.get('errorCode') in ANDROID_STARTUP_DIAGNOSTICS
+                and s.get('error')==ANDROID_STARTUP_DIAGNOSTICS[s['errorCode']]):
+            result['errorCode']=s['errorCode']
         if s.get('releaseRecordingId') is not None:
             result['releaseRecordingId']=s['releaseRecordingId']
         return result
@@ -1101,7 +1115,10 @@ class Lab:
                         else:
                             device.update(state='available' if released else 'quarantined',sessionId=None)
                         self._persist_devices()
-            if not clean_rejection:self.fail(sid,'Provider could not start')
+            if not clean_rejection:
+                code=(error.code if isinstance(error,LiveError)
+                      and error.code in ANDROID_STARTUP_DIAGNOSTICS else None)
+                self.fail(sid,'Provider could not start',error_code=code)
         return self.get_session(sid,owner)
 
     @staticmethod
@@ -2270,11 +2287,19 @@ class Lab:
             s['cancel'].set()
             if s['replay']['state']=='running':s['replay']['state']='cancelling'
             return copy.deepcopy(s['replay'])
-    def fail(self,sid,message):
+    def fail(self,sid,message,*,error_code=None):
         s=self._session(sid)
         recorder=None
         with s['lock']:
             if s['state'] in {'closed','draining'}:return
+            # Keep the first sanitized startup result if a late poller also
+            # reports failure. The existing revocation/cleanup path still runs.
+            if (s.get('errorCode') in ANDROID_STARTUP_DIAGNOSTICS
+                    and s.get('error')==ANDROID_STARTUP_DIAGNOSTICS[s['errorCode']]):
+                error_code=s['errorCode']
+            if error_code in ANDROID_STARTUP_DIAGNOSTICS:
+                message=ANDROID_STARTUP_DIAGNOSTICS[error_code]
+                s['errorCode']=error_code
             handle=s.get('deviceAuthority')
             if handle is not None:
                 try:handle.revoke_dispatches()
