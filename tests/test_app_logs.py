@@ -1,7 +1,8 @@
 import copy
 import unittest
 from reproof.core import ContractError
-from reproof.app_logs import collect_app_logs, validate_app_log, validate_app_log_marker
+from reproof.app_logs import (IDENTITY_KEYS, app_log_extends, collect_app_logs,
+                             validate_app_log, validate_app_log_marker)
 
 RUN = '11111111-2222-4333-8444-555555555555'
 SESSION = '22222222-3333-4444-8555-666666666666'
@@ -76,6 +77,41 @@ class AppLogContractTests(unittest.TestCase):
             if change:
                 with self.subTest(change=change), self.assertRaises(ContractError):collect_app_logs(read, **args)
             else:self.assertEqual(collect_app_logs(read, **args), snapshot())
+
+    def test_snapshot_extension_allows_empty_repeated_and_flagged_prefixes_without_mutation(self):
+        empty = dict(marker(), events=[], endSequence=0, lostEvents=False, truncated=False)
+        short = snapshot(); short.update(events=short['events'][:2], endSequence=2)
+        full = snapshot()
+        flagged = dict(full, lostEvents=True, truncated=True)
+        values = [empty, short, short, full, flagged, flagged]
+        before = copy.deepcopy(values)
+        for previous, current in zip(values, values[1:]):
+            self.assertTrue(app_log_extends(self.validate(previous), self.validate(current)))
+        self.assertEqual(values, before)
+
+    def test_snapshot_extension_requires_all_identity_fields(self):
+        changes = {'platform': 'ios', 'applicationId': 'io.reproof.other',
+            'runId': SESSION, 'sessionId': RUN, 'profileDigest': 'b' * 64, 'startedAtMs': 101}
+        for field, value in changes.items():
+            current = snapshot(); current[field] = value
+            current = validate_app_log(current, {key: current[key] for key in IDENTITY_KEYS},
+                click_targets={'add'}, screen_targets={'main'})
+            with self.subTest(field=field):
+                self.assertFalse(app_log_extends(self.validate(snapshot()), current))
+
+    def test_snapshot_extension_rejects_reordered_changed_or_shrunken_events(self):
+        short = snapshot(); short.update(events=short['events'][:2], endSequence=2)
+        changed = snapshot(); changed['events'][0]['name'] = 'started'
+        reordered = snapshot()
+        reordered['events'][2]['name'], reordered['events'][3]['name'] = 'returned', 'began'
+        for current in (short, changed, reordered):
+            self.assertFalse(app_log_extends(self.validate(snapshot()), self.validate(current)))
+
+    def test_snapshot_extension_never_clears_individual_loss_flags(self):
+        for flag in ('lostEvents', 'truncated'):
+            previous = snapshot(); previous[flag] = True
+            with self.subTest(flag=flag):
+                self.assertFalse(app_log_extends(self.validate(previous), self.validate(snapshot())))
 
 
 if __name__=='__main__':unittest.main()

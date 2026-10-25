@@ -12,8 +12,9 @@ import re
 
 from . import contracts
 from .app_logs import (APP_LOG_MIME, IDENTITY_KEYS, MAX_APP_LOG_BYTES,
+                       MAX_APP_LOG_SNAPSHOTS, MAX_APP_LOG_SNAPSHOT_BYTES,
                        MAX_APP_LOG_EVENTS, MAX_APP_LOG_DURATION_MS,
-                       LIFECYCLE_NAMES, validate_app_log, validate_app_log_marker)
+                       LIFECYCLE_NAMES, app_log_extends, validate_app_log, validate_app_log_marker)
 from .execution.wire import ProtocolError, canonical
 from .project_repair import RepairError, _require
 from .storage import _unique_object
@@ -22,8 +23,8 @@ from .storage import _unique_object
 EVENT_FIELDS = frozenset({'seq', 'elapsedMs', 'type', 'name', 'component', 'target'})
 REQUIRED_EVENT_FIELDS = frozenset({'seq', 'type', 'name'})
 MAX_DIAGNOSTIC_BYTES = 384 * 1024
-MAX_SOURCE_OBJECTS = 64
-MAX_SOURCE_BYTES = 8 * 1024 * 1024
+MAX_SOURCE_OBJECTS = MAX_APP_LOG_SNAPSHOTS
+MAX_SOURCE_BYTES = MAX_APP_LOG_SNAPSHOT_BYTES
 MAX_RUNS = 16
 _TARGET = re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,79}\Z')
 
@@ -115,10 +116,7 @@ def derive_app_log_diagnostics(project, original, source_digest, policy, *, read
             key = value['sessionId']
             if key in snapshots:
                 previous, digests = snapshots[key]
-                _require(all(previous[field] == value[field] for field in IDENTITY_KEYS)
-                    and value['events'][:len(previous['events'])] == previous['events']
-                    and (not previous['truncated'] or value['truncated'])
-                    and (not previous['lostEvents'] or value['lostEvents']), 'diagnostics_binding')
+                _require(app_log_extends(previous, value), 'diagnostics_binding')
             else:
                 _require(len(snapshots) < MAX_RUNS, 'diagnostics_limit')
                 digests = []

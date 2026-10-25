@@ -1245,6 +1245,9 @@
             "-m",
             "unittest",
             "tests.test_ticket_intake",
+            "tests.test_ticket_intake_live",
+            "tests.test_app_logs",
+            "tests.test_repair_diagnostics",
             "tests.test_offline_repair_demo",
             "tests.test_sdk_review"
           ],

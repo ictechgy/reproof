@@ -28,15 +28,29 @@ enforce log policy, and duplicate exact matches still cause abstention.
 
 The adapter reuses project, original/specification, app-log, and closed-graph
 issue-package validation. It checks the selected build's source identity,
-project log-collection policy, revision, bundle/platform, collector run/session/profile, and the exact
+project log-collection policy, revision, bundle/platform, collector run/session/profile, and every exact
 log object sealed in the capsule. There is no timestamp-based or fuzzy match. This correlates references to an
 already authored specification, not SDK action extraction. Original evidence
 does not independently prove the installed artifact or source hash: build
 identity here relies on the trusted registry and collector, not attestation.
 Multiple matches, missing evidence, missing expected assertion, interrupted or
-unknown recording, and lost/truncated/empty logs cause abstention. Multiple log
-snapshots require upstream consolidation rather than selecting an arbitrary
-latest snapshot. This first version supports log-only capsules: media requiring
+unknown recording, and a lost/truncated/empty final log cause abstention.
+Multiple app-log observations are accepted only as a validated same-identity
+prefix chain in the original's sealed observation order, including unchanged
+repeated snapshots. Every snapshot must pass its own schema, target-policy,
+exact-byte/digest and trusted collector identity checks; all identity fields,
+including `startedAtMs`, must remain equal. Existing events cannot change,
+reorder or shrink, and loss/truncation flags cannot clear. An initial empty
+prefix is permitted only if the final log is nonempty and complete. The final
+reference must equal the service's `RegisteredCapsule.app_log_digest`; an older
+selection is rejected, not replaced with an arbitrary "latest" snapshot.
+
+The chain is bounded to 64 references and 8 MiB of referenced snapshot bytes,
+counting repeats, in addition to the existing 1 MiB per-object and 2 MiB
+archive/expanded-package limits. This validates immutable evidence; it does not
+consolidate or rewrite the original, capsule, specification or oracle. Single
+snapshots retain the same digest-only result format and separate approval path.
+This version supports log-only capsules: media requiring
 a decoder is rejected rather than bypassing normal package validation.
 
 The result contains only digests, a deterministic draft ID, and fixed status
