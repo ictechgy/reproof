@@ -120,11 +120,21 @@ are retained. Source and binary bytes are checked again after execution. Logs
 are bounded; wall-clock deadlines are enforced even if the process exits just
 as the deadline expires.
 
-Each command has an isolated environment and an owned process group. Active
-unreaped groups receive bounded termination before the leader is reaped. A
-leader already reaped by polling is never signaled again by its numeric PGID;
-only bounded absence checks follow. SIGTERM/SIGINT cancellation flags leads through
-owned-group cleanup, including on repeated termination signals. Unconfirmed
-cleanup fails closed. There is
-no claim of containment against descendants deliberately escaping their group,
-PID namespace attacks, or arbitrary candidate code.
+Each command has an isolated environment and an owned process group. On Linux
+with Python's `waitid`/`WNOWAIT` capability, natural leader exit is observed
+without reaping: the leader PID stays reserved through bounded TERM/KILL group
+cleanup, then its original exit status is collected. This requires a controlled
+host with default SIGCHLD handling and no competing child reaper (including
+other threads). Custom/ignored SIGCHLD is rejected before launch; detected lost
+wait ownership fails closed without further termination signals. The checks do
+not make competing reapers safe or provide a sandbox.
+
+On unsupported platforms/interpreters (including the current macOS Python 3.12
+CI runner), polling remains the fallback. Once polling reaps a naturally exited
+leader, its numeric PGID receives no further termination signals, only bounded
+absence checks. **Same-group descendants can remain alive on this fallback**;
+unconfirmed cleanup rejects the command rather than reporting success.
+SIGTERM/SIGINT cancellation flags lead through owned-group cleanup, including
+on repeated termination signals. Descendants deliberately escaping their group,
+PID namespace attacks, and arbitrary candidate code remain out of scope on both
+paths. No interpreter upgrade or stronger containment is claimed.

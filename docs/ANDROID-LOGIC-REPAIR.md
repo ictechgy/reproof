@@ -85,3 +85,22 @@ runtime tests and release harness. Adding this workflow does not establish that
 it has run. This implementation was prepared locally without the native
 Android toolchain; an authorized published hosted run remains necessary before
 claiming actual runtime compatibility or causal success.
+
+## Process cleanup limits
+
+The shared native command runner uses Linux `waitid`/`WNOWAIT` when available to
+observe natural leader exit without reaping it. The reserved leader PID allows
+bounded TERM/KILL cleanup of remaining same-group children before collecting the
+leader's original exit status. It requires a controlled host with default
+SIGCHLD handling and no competing child reaper, including other threads.
+Custom/ignored SIGCHLD is rejected before launch; detected wait-ownership loss
+rejects the command without further termination signals. These checks do not
+make competing reapers safe.
+
+Unsupported platforms/interpreters retain polling (including macOS Python 3.12
+used by the Swift CI). A naturally exited leader may already be reaped, so its
+numeric PGID is not sent further termination signals. Bounded absence checks
+fail closed with `cleanup_unconfirmed` if the group remains. **Same-group
+descendants can remain alive on this fallback**; rejection is not proof of
+termination. Group-escaping descendants remain out of scope on either path.
+This is not a sandbox, and no interpreter or security boundary is changed.

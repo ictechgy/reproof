@@ -336,6 +336,192 @@ class NativeLogicBindingTests(unittest.TestCase):
 
 
 class NativeLogicProcessTests(unittest.TestCase):
+    def test_nondefault_sigchld_is_rejected_before_spawn(self):
+        for handler in (demo.signal.SIG_IGN, lambda *_: None):
+            with self.subTest(handler=handler), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                real_getsignal = demo.signal.getsignal
+                with patch.object(demo.signal, 'getsignal', side_effect=lambda sig:
+                        handler if sig == demo.signal.SIGCHLD else real_getsignal(sig)), \
+                        patch.object(demo.subprocess, 'Popen') as spawn, \
+                        self.assertRaises(demo.NativeLogicError) as caught:
+                    demo._command(['not-executed'], root, root / 'command.log', root, 1)
+                self.assertEqual(caught.exception.code, 'process_ownership_lost')
+                spawn.assert_not_called()
+
+    def test_wait_ownership_loss_never_enters_cleanup(self):
+        class Lost:
+            pid = 123456789
+            returncode = None
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.object(demo, '_can_observe_exit', return_value=True), \
+                    patch.object(demo.subprocess, 'Popen', return_value=Lost()), \
+                    patch.object(demo, '_observe_exit', side_effect=demo.NativeLogicError('process_ownership_lost')), \
+                    patch.object(demo.os, 'killpg') as signal_group, \
+                    self.assertRaises(demo.NativeLogicError) as caught:
+                demo._command(['not-executed'], root, root / 'command.log', root, 1)
+            self.assertEqual(caught.exception.code, 'process_ownership_lost')
+            signal_group.assert_not_called()
+
+    def test_fallback_poll_ownership_error_never_signals(self):
+        class Lost:
+            pid = 123456789
+            returncode = None
+            def poll(self):
+                raise ChildProcessError
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.object(demo, '_can_observe_exit', return_value=False), \
+                    patch.object(demo.subprocess, 'Popen', return_value=Lost()), \
+                    patch.object(demo.os, 'killpg') as signal_group, \
+                    self.assertRaises(demo.NativeLogicError) as caught:
+                demo._command(['not-executed'], root, root / 'command.log', root, 1)
+            self.assertEqual(caught.exception.code, 'process_ownership_lost')
+            signal_group.assert_not_called()
+
+    @unittest.skipUnless(demo._can_observe_exit(), 'Linux waitid capability required')
+    def test_cleanup_rechecks_wait_ownership_before_each_signal(self):
+        class Lost:
+            pid = 123456789
+            returncode = None
+        for observations, expected in (([ChildProcessError], []),
+                ([None, ChildProcessError], [demo.signal.SIGTERM])):
+            with self.subTest(expected=expected), \
+                    patch.object(demo.os, 'waitid', side_effect=observations), \
+                    patch.object(demo.time, 'sleep'), \
+                    patch.object(demo.os, 'killpg') as signal_group, \
+                    self.assertRaises(demo.NativeLogicError) as caught:
+                demo._stop(Lost(), preserve_wait=True)
+            self.assertEqual(caught.exception.code, 'process_ownership_lost')
+            self.assertEqual([call.args[1] for call in signal_group.call_args_list], expected)
+
+    @unittest.skipUnless(demo._can_observe_exit(), 'Linux waitid capability required')
+    def test_waitpid_ownership_loss_after_signals_stops_all_group_checks(self):
+        class Lost:
+            pid = 123456789
+            returncode = None
+        with patch.object(demo.os, 'waitid', return_value=None), \
+                patch.object(demo.os, 'waitpid', side_effect=ChildProcessError), \
+                patch.object(demo.time, 'sleep'), \
+                patch.object(demo.os, 'killpg') as signal_group, \
+                self.assertRaises(demo.NativeLogicError) as caught:
+            demo._stop(Lost(), preserve_wait=True)
+        self.assertEqual(caught.exception.code, 'process_ownership_lost')
+        self.assertEqual([call.args[1] for call in signal_group.call_args_list],
+                         [demo.signal.SIGTERM, demo.signal.SIGKILL])
+
+    def test_missing_waitid_capability_uses_polling_fallback(self):
+        with patch.object(demo.sys, 'platform', 'darwin'):
+            self.assertFalse(demo._can_observe_exit())
+        real_hasattr = hasattr
+        with patch('builtins.hasattr', side_effect=lambda obj, name:
+                False if obj is demo.os and name == 'WNOWAIT' else real_hasattr(obj, name)):
+            self.assertFalse(demo._can_observe_exit())
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            with patch.object(demo, '_can_observe_exit', return_value=False), \
+                    patch.object(demo, '_observe_exit') as observe:
+                code, raw = demo._command([sys.executable, '-c', 'print("fallback"); exit(3)'],
+                    root, root / 'command.log', root, 2)
+            self.assertEqual((code, raw), (3, b'fallback\n'))
+            observe.assert_not_called()
+
+    def test_output_limit_stops_owned_process(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            with patch.object(demo, 'MAX_OUTPUT', 16), self.assertRaises(demo.NativeLogicError) as caught:
+                demo._command([sys.executable, '-c',
+                    'import time; print("x" * 100, flush=True); time.sleep(2)'],
+                    root, root / 'command.log', root, 1)
+            self.assertEqual(caught.exception.code, 'output_limit')
+
+    @unittest.skipUnless(demo._can_observe_exit(), 'Linux waitid capability required')
+    def test_natural_exit_cleans_child_preserves_code_and_fallback_rejects(self):
+        # Isolate Linux subreaping in a bounded harness, so orphan zombies do not
+        # depend on container PID 1. Only the named grandchild is reaped by the
+        # helper thread; the command runner exclusively owns its direct child.
+        harness = r'''
+import ctypes, json, os, pathlib, signal, sys, tempfile, threading, time
+from unittest.mock import patch
+from reproof import native_logic_repair_demo as demo
+assert ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) == 0
+with tempfile.TemporaryDirectory() as temporary:
+    root = pathlib.Path(temporary)
+    statuses = []
+    def reap_descendant():
+        deadline = time.monotonic() + 5
+        while not (root / 'child.pid').exists() and time.monotonic() < deadline:
+            time.sleep(.005)
+        pid = int((root / 'child.pid').read_text())
+        while time.monotonic() < deadline:
+            try:
+                found, status = os.waitpid(pid, os.WNOHANG)
+                if found:
+                    statuses.append(os.waitstatus_to_exitcode(status))
+                    return
+            except ChildProcessError:
+                pass  # Not adopted until the command leader exits.
+            time.sleep(.005)
+    descendant = "import os,pathlib,signal,time; " + (
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); " if sys.argv[2] == 'ignore' else '') + (
+        "pathlib.Path('child.tmp').write_text(str(os.getpid())); os.replace('child.tmp', 'child.pid'); time.sleep(2)")
+    leader = ("import pathlib,subprocess,sys,time; subprocess.Popen([sys.executable,'-c',"
+        + repr(descendant) + "]); "
+        "deadline=time.monotonic()+1\n"
+        "while not pathlib.Path('child.pid').exists() and time.monotonic()<deadline: time.sleep(.005)\n"
+        "print('leader done', flush=True); sys.exit(7)")
+    thread = threading.Thread(target=reap_descendant)
+    thread.start()
+    events = []
+    real_killpg, real_waitpid = os.killpg, os.waitpid
+    def killpg(pid, sig):
+        events.append(['signal', int(sig)])
+        return real_killpg(pid, sig)
+    def waitpid(pid, flags):
+        result = real_waitpid(pid, flags)
+        if threading.current_thread() is threading.main_thread() and result[0]:
+            events.append(['reap', pid])
+        return result
+    with patch.object(demo, '_can_observe_exit', return_value=sys.argv[1] == 'waitid'), \
+            patch.object(demo.os, 'killpg', side_effect=killpg), \
+            patch.object(demo.os, 'waitpid', side_effect=waitpid):
+        try:
+            code, raw = demo._command([sys.executable, '-c', leader], root, root/'out', root, 4)
+            result = {'code': code, 'raw': raw.decode()}
+        except demo.NativeLogicError as error:
+            result = {'error': error.code}
+        result['child_reaped_at_return'] = bool(statuses)
+    thread.join(5)
+    assert not thread.is_alive() and len(statuses) == 1, statuses
+    result.update(status=statuses[0], events=events)
+    print(json.dumps(result))
+'''
+        for mode, behavior in (('waitid', 'term'), ('waitid', 'ignore'), ('fallback', 'term')):
+            with self.subTest(mode=mode, behavior=behavior):
+                run = subprocess.run([sys.executable, '-c', harness, mode, behavior],
+                    cwd=ROOT, capture_output=True, text=True, timeout=8)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                result = json.loads(run.stdout)
+                if mode == 'waitid':
+                    self.assertEqual(result['code'], 7)
+                    self.assertEqual(result['raw'], 'leader done\n')
+                    self.assertEqual(result['status'], -int(demo.signal.SIGTERM if behavior == 'term'
+                                                           else demo.signal.SIGKILL))
+                    self.assertTrue(result['child_reaped_at_return'])
+                else:
+                    self.assertEqual(result['error'], 'cleanup_unconfirmed')
+                    self.assertEqual(result['status'], 0)
+                    self.assertFalse(result['child_reaped_at_return'])
+                reaped = False
+                for kind, value in result['events']:
+                    if kind == 'reap':
+                        reaped = True
+                    elif reaped:
+                        self.assertEqual(value, 0, 'termination signal after leader reap')
+                if mode == 'fallback':
+                    self.assertTrue(all(value == 0 for kind, value in result['events'] if kind == 'signal'))
+
     def test_command_timeout_stops_owned_process(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -383,6 +569,7 @@ class NativeLogicProcessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             with patch.object(demo.subprocess, 'Popen', return_value=Completed()), \
+                    patch.object(demo, '_can_observe_exit', return_value=False), \
                     patch.object(demo.time, 'monotonic', side_effect=[0, 1]), \
                     patch.object(demo, '_stop'), self.assertRaises(demo.NativeLogicError) as caught:
                 demo._command(['not-executed'], root, root / 'command.log', root, .5)
