@@ -66,7 +66,8 @@ def _ticket(raw):
         {'schemaVersion', 'ticketId', *IDENTITY},
         {'schemaVersion', 'ticketId', 'text', *IDENTITY}), 'ticket_invalid')
     _need(type(value['schemaVersion']) is int and value['schemaVersion'] == 1, 'ticket_invalid')
-    for key in ('ticketId', 'tenantId', 'projectId', 'applicationId', 'buildId'):
+    contracts.validate_external_ticket_id(value['ticketId'])
+    for key in ('tenantId', 'projectId', 'applicationId', 'buildId'):
         contracts.validate_id(value[key])
     for key in ('sourceDigest', 'recordingDigest'):
         contracts.validate_digest(value[key])

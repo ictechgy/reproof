@@ -7,12 +7,11 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import re
 import time
 from contextlib import contextmanager
 
 from .. import contracts
-from ..contracts.versions import bounded_int, exact, require, validate_digest, validate_id
+from ..contracts.versions import bounded_int, exact, validate_digest, validate_id
 from ..issue_package import PackageError
 from .model import check
 
@@ -83,9 +82,7 @@ class TicketReferenceMixin:
 
     def link_ticket_reference(self, principal, issue_id, body):
         exact(body, ("ticketId", "packageId", "baseRevision", "baseSpecificationDigest"))
-        require(type(body["ticketId"]) is str
-                and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", body["ticketId"]) is not None,
-                "Ticket reference must be a bounded identifier, not text or a URL")
+        contracts.validate_external_ticket_id(body["ticketId"])
         validate_id(body["packageId"])
         bounded_int(body["baseRevision"], "base revision", 1, 64)
         validate_digest(body["baseSpecificationDigest"])

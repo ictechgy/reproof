@@ -113,10 +113,13 @@ class TicketReferenceTests(TicketReferenceFixture, unittest.TestCase):
     def test_contract_rejects_ticket_text_urls_secrets_and_unbounded_fields(self):
         issue, body, _ = self.fixture()
         invalid = [dict(body, ticketId=value) for value in (
-            '', 'x' * 65, 'https://tracker/QA-42?token=secret', 'QA 42', 'QA\n42', '../QA', '<script>', 42)]
+            '', 'x' * 65, 'https://tracker/QA-42?token=secret', 'QA 42', 'QA\n42',
+            'QA\r42', 'QA\t42', 'QA\x0042', 'QA\x7f42', 'QA-42\n', '../QA', '<script>',
+            'QA.42', '_QA', '-42', 'ＱＡ-42', 'é', 42, True, None, [], {})]
         invalid += [dict(body, **value) for value in (
             {'baseRevision': True}, {'baseRevision': 0}, {'baseRevision': 65},
             {'baseSpecificationDigest': 'a' * 65}, {'packageId': 'package_' + 'a' * 64},
+            {'packageId': 'QA-42'}, {'packageId': '123'},
             {'ticketText': 'private ticket'}, {'url': 'https://tracker/42'},
             {'sourceDigest': '1' * 64}, {'tenantId': 'untrusted'}, {'actor': 'admin'},
             {'approval': True}, {'oracle': 'secret'})]
@@ -401,10 +404,16 @@ class TicketReferenceTests(TicketReferenceFixture, unittest.TestCase):
 
     def test_persistence_survives_restart_without_restoring_authority(self):
         issue, body, _ = self.fixture()
-        first = self.link(issue, body)
+        tickets = ('QA-42', 'qa-42', '123', '0', 'A', 'qa_one', 'Q_' + 'a' * 62)
+        saved = {ticket_id: self.link(issue, dict(body, ticketId=ticket_id)) for ticket_id in tickets}
+        self.assertEqual(len({item['reference']['id'] for item in saved.values()}), len(tickets))
         self.workflow.close()
         self.workflow = support.IssueWorkflow(self.env.root / 'browser-issues', self.env.lab, self.access, (self.runtime,))
-        self.assertEqual(self.link(issue, body), first)
+        for ticket_id, first in saved.items():
+            with self.subTest(ticket_id=ticket_id):
+                self.assertEqual(first['reference']['ticketId'], ticket_id)
+                self.assertEqual(self.link(issue, dict(body, ticketId=ticket_id)), first)
+        self.assertEqual({item['ticketId'] for item in self.history(issue)['references']}, set(tickets))
         self.assertIsNone(self.workflow.get(self.owner, issue)['approval'])
         self.assertIsNone(self.workflow.get(self.owner, issue)['campaign'])
 
@@ -466,6 +475,33 @@ class TicketReferenceHttpTests(TicketReferenceFixture, unittest.TestCase):
             self.assertEqual(caught.exception.status, 403)
         with self.assertRaises(LiveError) as caught: self.client.call(path, {**body, 'ticketText': SECRET})
         self.assertEqual(caught.exception.status, 400)
+
+    def test_http_cli_and_storage_preserve_external_ticket_identity(self):
+        issue, body, _ = self.fixture()
+        path = '/api/release/issues/' + issue + '/ticket-references'
+        tickets = ('QA-42', 'qa-42', '123', '0', 'A', 'qa_one', 'Q_' + 'a' * 62)
+        ids = set()
+        for ticket_id in tickets:
+            with self.subTest(ticket_id=ticket_id):
+                linked = self.client.call(path, dict(body, ticketId=ticket_id))
+                result = self.cli('ticket-link', issue, '--ticket-id', ticket_id,
+                    '--package-id', body['packageId'], '--revision', str(body['baseRevision']),
+                    '--specification-digest', body['baseSpecificationDigest'])
+                self.assertEqual(result, linked)
+                self.assertEqual(result['reference']['ticketId'], ticket_id)
+                ids.add(result['reference']['id'])
+        self.assertEqual(len(ids), len(tickets))
+        history = self.cli('ticket-references', issue)
+        self.assertEqual(history, self.client.call(path))
+        self.assertEqual({item['ticketId'] for item in history['references']}, set(tickets))
+        self.assertEqual({item['ticketId'] for item in self.workflow._all('ticket-reference')}, set(tickets))
+        for value in ('https://tracker/QA-42?token=' + SECRET, 'QA 42', 'QA\n42',
+                      'x' * 65, 123, True, None, [], {}):
+            with self.subTest(value=value), self.assertRaises(LiveError) as caught:
+                self.client.call(path, dict(body, ticketId=value))
+            self.assertEqual(caught.exception.status, 400)
+            self.assertNotIn(SECRET, str(caught.exception))
+        self.assertEqual(len(self.workflow._all('ticket-reference')), len(tickets))
 
     def test_http_authentication_csrf_and_browser_logout_are_enforced(self):
         issue, body, _ = self.fixture()

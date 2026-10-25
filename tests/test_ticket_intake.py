@@ -75,6 +75,40 @@ class TicketIntakeTests(unittest.TestCase):
         self.assertEqual(first['executionAuthority'], 'none')
         self.assertNotIn('assertions', json.dumps(first))
 
+    def test_external_ticket_ids_preserve_case_and_exact_identity(self):
+        draft_ids = set()
+        for ticket_id in ('QA-42', 'qa-42', '123', '0', 'A', 'qa_one', 'Q_' + 'a' * 62):
+            with self.subTest(ticket_id=ticket_id):
+                ticket = dict(self.ticket, ticketId=ticket_id)
+                result = self.intake(ticket)
+                self.assertEqual(result['status'], 'review-required')
+                self.assertEqual(result, self.intake(ticket))
+                self.assertEqual(result['draftId'], contracts.digest({
+                    'ticket': {key: value for key, value in ticket.items() if key != 'schemaVersion'},
+                    'references': result['references']}))
+                draft_ids.add(result['draftId'])
+        self.assertEqual(len(draft_ids), 7)
+
+    def test_external_ticket_ids_reject_text_controls_unicode_and_non_strings(self):
+        for value in ('', 'x' * 65, 'https://tracker/QA-42?token=' + CANARY,
+                      'QA 42', 'QA\n42', 'QA\r42', 'QA\t42', 'QA\x0042', 'QA\x7f42',
+                      'QA-42\n', '../QA', 'QA.42', '_QA', '-42', 'ＱＡ-42', 'é',
+                      123, True, None, [], {}):
+            with self.subTest(value=value):
+                result = self.intake(dict(self.ticket, ticketId=value))
+                self.assertEqual(result['reason'], 'input_invalid')
+                self.assertNotIn(CANARY, json.dumps(result))
+                self.assertNotIn('draftId', result)
+
+    def test_external_ticket_rule_does_not_broaden_internal_identity_fields(self):
+        for field in ('tenantId', 'projectId', 'applicationId', 'buildId'):
+            for value in ('QA-42', '123'):
+                with self.subTest(field=field, value=value):
+                    result = self.intake(dict(self.ticket, **{field: value}))
+                    self.assertEqual(result['reason'], 'input_invalid')
+                    with self.assertRaises(contracts.ContractError):
+                        contracts.validate_id(value)
+
     def test_single_snapshot_keeps_the_exact_digest_only_output_contract(self):
         contents = inspect_archive(io.BytesIO(self.entry.capsule))
         references = {'projectDigest': contracts.digest(self.entry.project),

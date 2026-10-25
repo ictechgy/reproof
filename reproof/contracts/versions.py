@@ -5,6 +5,7 @@ from pathlib import PurePosixPath
 from reproof.core import ContractError
 CONTRACT_VERSION = 1
 ID_RE = re.compile('[a-z][a-z0-9_-]{0,63}\\Z')
+EXTERNAL_TICKET_ID_RE = re.compile('[A-Za-z0-9][A-Za-z0-9_-]{0,63}\\Z')
 HEX64_RE = re.compile('[0-9a-f]{64}\\Z')
 MAX_EPOCH_MS = 32503680000000
 
@@ -17,6 +18,12 @@ def require(condition, message):
 
 def validate_id(value, field='id'):
     require(type(value) is str and ID_RE.fullmatch(value) is not None, f'Invalid {field}')
+    return value
+
+def validate_external_ticket_id(value):
+    """Bounded, case-sensitive tracker reference, distinct from internal IDs."""
+    require(type(value) is str and EXTERNAL_TICKET_ID_RE.fullmatch(value) is not None,
+            'Ticket reference must be a bounded identifier, not text or a URL')
     return value
 
 def validate_version(value, field='schemaVersion'):
