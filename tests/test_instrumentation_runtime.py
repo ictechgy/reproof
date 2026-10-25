@@ -56,6 +56,24 @@ class InstrumentationRuntimeTemplateTests(unittest.TestCase):
         source = (ROOT / "android" / "sdk" / "src" / "main" / "java" / "io" / "reproof" / "sdk" / "ReproRecorder.kt").read_text()
         self.assertIn("fun lastEventSequence(): Int = synchronized(lock) { nextSequence - 1 }", source)
 
+    def test_recorder_atomic_write_delegates_to_same_file_owned_temporary_helper(self):
+        # Supporting source wiring only. The JVM tests exercise this production helper.
+        source = (ROOT / "android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt").read_text()
+        self.assertIn("internal fun atomicWriteFile(", source)
+        helper = source[source.index("internal fun atomicWriteFile("):source.index("class ReproPrivacyConfig(")]
+        self.assertIn("File.createTempFile(", helper)
+        self.assertIn("destination.absoluteFile.parentFile", helper)
+        operations = [helper.index(operation) for operation in (
+            "write(output, bytes)", "output.fd.sync()", "temporary.renameTo(destination)",
+        )]
+        self.assertEqual(operations, sorted(operations))
+        self.assertIn("if (!published)", helper)
+        self.assertIn("temporary.delete()", helper)
+        self.assertNotIn("destination.delete()", helper)
+        wrapper = source[source.index("private fun atomicWrite("):source.index("private fun invalidateSession(")]
+        self.assertIn("atomicWriteFile(destination, bytes)", wrapper)
+        self.assertNotIn('"${destination.name}.tmp"', source)
+
     def test_recorder_export_uses_session_bound_helper_and_keeps_legacy_publication(self):
         # Supporting source wiring contract, not a substitute for the JVM helper tests.
         source = (ROOT / "android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt").read_text()
@@ -144,7 +162,7 @@ class InstrumentationRuntimeTemplateTests(unittest.TestCase):
             self.assertTrue((ROOT / resource).is_file())
         recorder = (ROOT / "android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt").read_text()
         for declaration in ("class ReproPrivacyConfig(", "class ReproStartState(", "class ReproRecorder",
-                            "internal fun publishSessionExport("):
+                            "internal fun publishSessionExport(", "internal fun atomicWriteFile("):
             self.assertIn(declaration, recorder)
 
 

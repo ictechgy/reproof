@@ -47,9 +47,16 @@ The callback's `(File) -> Unit` API and default callback are unchanged, but code
 that assumed its file was the root latest slot must use `capturePath()` instead.
 That legacy accessor still returns `files/repro/capture.json`, which another
 session may replace; do not use it for delayed same-session consumption. The
-wire format and latest-file publication are unchanged. This callback-identity
-fix does not serialize different recorder instances or fix their shared latest
-publication temporary file, and makes no concurrent-publication guarantee.
+wire format and latest-file publication are unchanged. Each atomic write now
+uses an exclusively created temporary file beside its destination, so overlapping
+recorders cannot publish or remove each other's temporary bytes. The file is
+synced and closed before rename; a failed write, sync or rename leaves the prior
+destination in place and attempts to remove only that call's temporary file.
+Cleanup is best effort, so a crash or denied deletion can leave a temporary file.
+Different recorder instances are not serialized: the last successful rename wins,
+not necessarily the newest session. `current-session`, latest capture and session
+metadata are independent writes, not a cross-file transaction. This does not add
+directory syncing or a crash-durability guarantee beyond the existing file sync.
 
 Events are appended as ordered JSONL as they happen, so a process killed before
 Report still leaves a crash-recovery trail. Password-like targets are not in the
@@ -122,11 +129,16 @@ sources and are not packaged in its AAR. These JVM
 tests exercise the pure admission policy with mutation, bound and non-coercion
 canaries and the actual export-orchestration helper with synthetic temporary
 files. Export tests cover delayed and interleaved sessions, writer failures,
-callback ordering/count/thread and exception propagation; they do not instantiate
-Android `Context` or `JSONObject`, exercise native atomic writes, or run a recorder.
-Source-copy
-and ordering assertions are supporting Python checks, not runtime proof. Real
-CI compilation/JVM results are required before merging this change. Native
+callback ordering/count/thread and exception propagation. Separate JVM tests call
+the actual atomic-file helper, including its default writer, file sync and rename,
+against temporary host files. A writer seam deterministically overlaps two calls
+and injects partial-write and closed-descriptor sync failures; rename refusal and
+temporary creation failure also preserve existing data. These tests check owned
+temporary cleanup without deleting another writer's live file or an unrelated
+temporary. They do not instantiate Android `Context` or `JSONObject` or run a
+recorder, and host filesystem behavior does not prove Android device behavior.
+Source-copy and ordering assertions are supporting Python checks, not runtime
+proof. Real CI compilation/JVM results are required before merging this change. Native
 Android JSON-adapter behavior, device recording and export remain unverified by
 these tests; no device, installation, signing or production qualification is
 claimed.

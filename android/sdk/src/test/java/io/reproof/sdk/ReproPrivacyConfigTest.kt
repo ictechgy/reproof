@@ -307,3 +307,134 @@ class ReproSessionExportTest {
         assertEquals(listOf("capture", "metadata", "callback"), order)
     }
 }
+
+/** Tests the actual file publication helper; no Android Context, JSON or recorder is used. */
+class ReproAtomicWriteTest {
+    private fun withPublicationRoot(test: (File) -> Unit) {
+        val root = Files.createTempDirectory("repro-atomic-write-").toFile()
+        try { test(root) } finally { root.deleteRecursively() }
+    }
+
+    @Test fun defaultWriterCreatesAndReplacesEachRecorderDestination() = withPublicationRoot { root ->
+        for (name in listOf("capture.json", "current-session", "session.json")) {
+            val destination = File(root, name)
+            val first = byteArrayOf(0, 1, 127, -1)
+            atomicWriteFile(destination, first)
+            assertArrayEquals(first, destination.readBytes())
+            atomicWriteFile(destination, ByteArray(0))
+            assertEquals(0L, destination.length())
+        }
+        assertEquals(setOf("capture.json", "current-session", "session.json"),
+            root.listFiles()!!.map { it.name }.toSet())
+    }
+
+    @Test fun overlappingWritersPublishOnlyTheirOwnBytes() = withPublicationRoot { root ->
+        val destination = File(root, "capture.json").apply { writeText("previous") }
+        lateinit var firstTemporary: File
+        lateinit var secondTemporary: File
+        atomicWriteFile(destination, "first".toByteArray()) { firstOutput, firstBytes ->
+            firstOutput.write(firstBytes)
+            firstTemporary = root.listFiles()!!.single { it != destination }
+            assertEquals(root, firstTemporary.parentFile)
+            // B completes while A's write is still open. No threads or timing assumptions.
+            atomicWriteFile(destination, "second".toByteArray()) { secondOutput, secondBytes ->
+                secondOutput.write(secondBytes)
+                secondTemporary = root.listFiles()!!.single { it != destination && it != firstTemporary }
+                assertNotEquals(firstTemporary, secondTemporary)
+                assertEquals("first", firstTemporary.readText())
+                assertEquals("second", secondTemporary.readText())
+                assertEquals("previous", destination.readText())
+            }
+            assertEquals("second", destination.readText())
+            assertFalse(secondTemporary.exists())
+            assertEquals("first", firstTemporary.readText())
+        }
+        // A publishes last, even though B started later. There is no session-order guarantee.
+        assertEquals("first", destination.readText())
+        assertFalse(firstTemporary.exists())
+        assertEquals(listOf(destination), root.listFiles()!!.toList())
+    }
+
+    @Test fun partialWriteFailurePreservesDestinationAndUnrelatedTemporary() = withPublicationRoot { root ->
+        val destination = File(root, "capture.json").apply { writeText("previous") }
+        val unrelated = File(root, "capture.json.tmp").apply { writeText("not ours") }
+        val failure = IOException("synthetic partial write failure")
+        try {
+            atomicWriteFile(destination, "replacement".toByteArray()) { output, bytes ->
+                output.write(bytes, 0, 3)
+                throw failure
+            }
+            fail("Expected the original write failure")
+        } catch (error: IOException) { assertSame(failure, error) }
+        assertEquals("previous", destination.readText())
+        assertEquals("not ours", unrelated.readText())
+        assertEquals(setOf(destination, unrelated), root.listFiles()!!.toSet())
+    }
+
+    @Test fun failedOverlappingWriterCannotRemoveAnotherWritersTemporary() = withPublicationRoot { root ->
+        val destination = File(root, "current-session").apply { writeText("previous") }
+        val failure = IOException("synthetic overlapping write failure")
+        atomicWriteFile(destination, "first".toByteArray()) { firstOutput, firstBytes ->
+            firstOutput.write(firstBytes)
+            val firstTemporary = root.listFiles()!!.single { it != destination }
+            try {
+                atomicWriteFile(destination, "second".toByteArray()) { output, bytes ->
+                    output.write(bytes)
+                    assertEquals(3, root.listFiles()!!.size)
+                    throw failure
+                }
+                fail("Expected the second writer to fail")
+            } catch (error: IOException) { assertSame(failure, error) }
+            assertEquals("previous", destination.readText())
+            assertEquals("first", firstTemporary.readText())
+            assertEquals(setOf(destination, firstTemporary), root.listFiles()!!.toSet())
+        }
+        assertEquals("first", destination.readText())
+        assertEquals(listOf(destination), root.listFiles()!!.toList())
+    }
+
+    @Test fun syncFailureDoesNotPublishAndCleansOwnedTemporary() = withPublicationRoot { root ->
+        val destination = File(root, "capture.json").apply { writeText("previous") }
+        try {
+            atomicWriteFile(destination, "replacement".toByteArray()) { output, bytes ->
+                output.write(bytes)
+                // Exercise the helper's actual fd.sync failure, not a replacement sync callback.
+                output.close()
+            }
+            fail("Expected syncing the closed descriptor to fail")
+        } catch (_: IOException) { }
+        assertEquals("previous", destination.readText())
+        assertEquals(listOf(destination), root.listFiles()!!.toList())
+    }
+
+    @Test fun renameFailurePreservesDestinationAndCleansOnlyOwnedTemporary() = withPublicationRoot { root ->
+        val destination = File(root, "capture.json").apply { check(mkdir()) }
+        val existing = File(destination, "keep").apply { writeText("previous") }
+        val unrelated = File(root, "capture.json.tmp").apply { writeText("not ours") }
+        try {
+            // A file cannot replace a nonempty directory: exercise the real renameTo failure.
+            atomicWriteFile(destination, "replacement".toByteArray())
+            fail("Expected publication to fail")
+        } catch (error: IllegalStateException) {
+            assertEquals("Could not publish capture.json", error.message)
+        }
+        assertTrue(destination.isDirectory)
+        assertEquals("previous", existing.readText())
+        assertEquals("not ours", unrelated.readText())
+        assertEquals(setOf(destination, unrelated), root.listFiles()!!.toSet())
+    }
+
+    @Test fun temporaryCreationFailureNeverCallsWriterOrChangesParent() = withPublicationRoot { root ->
+        val blockedParent = File(root, "not-a-directory").apply { writeText("previous") }
+        var called = false
+        try {
+            atomicWriteFile(File(blockedParent, "capture.json"), "replacement".toByteArray()) { _, _ ->
+                called = true
+            }
+            fail("Expected temporary creation to fail")
+        } catch (_: IOException) { }
+        assertFalse(called)
+        assertEquals("previous", blockedParent.readText())
+        assertEquals(listOf(blockedParent), root.listFiles()!!.toList())
+    }
+}
