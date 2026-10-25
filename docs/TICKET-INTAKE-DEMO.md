@@ -20,6 +20,12 @@ attachments or let a ticket register its own project.** The host remains
 responsible for authorization, retention, and pinning the snapshot throughout
 the call. Registry dataclasses are data, not authentication capabilities.
 
+Candidates must match the tenant, project and trusted collector session before
+their log policy or capsule is inspected. A different session's historical log
+policy cannot block the requested session. Registry entry types and project
+schemas still fail closed, even for unrelated sessions; selected snapshots still
+enforce log policy, and duplicate exact matches still cause abstention.
+
 The adapter reuses project, original/specification, app-log, and closed-graph
 issue-package validation. It checks the selected build's source identity,
 project log-collection policy, revision, bundle/platform, collector run/session/profile, and the exact
