@@ -146,3 +146,12 @@ A maintainer may propose one stable target change, then explicitly apply it as a
 new unapproved revision. Assertions and original evidence remain unchanged. This
 is not automatic candidate generation or runtime fallback; see the linked
 contract, limits and pilot verification boundary before enabling a workflow.
+
+## Project-scoped ticket references
+
+Maintainers can now [link a bounded ticket identifier to an explicitly exported
+package](TICKET-REFERENCES.md) through authenticated HTTP and the `ticket-link` /
+`ticket-references` CLI commands. Links bind exact current project, source,
+recording, specification and capsule digests, with bounded immutable audit and
+stale/retention checks. They neither authenticate an external ticket provider nor
+create approval, replay or repair authority.

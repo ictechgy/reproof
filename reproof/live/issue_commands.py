@@ -29,6 +29,13 @@ def add_issue_parser(commands):
         if name == 'export': child.add_argument('--output', type=Path, required=True)
         if name in {'stop', 'cancel', 'replay'}:
             child.add_argument('--wait', action='store_true'); child.add_argument('--wait-timeout', type=int, default=180)
+    for name in ('ticket-references', 'ticket-link'):
+        child = operations.add_parser(name); child.add_argument('id'); leaves.append(child)
+        if name == 'ticket-link':
+            child.add_argument('--ticket-id', required=True)
+            child.add_argument('--package-id', required=True)
+            child.add_argument('--revision', type=int, required=True)
+            child.add_argument('--specification-digest', required=True)
     start = operations.add_parser('start'); leaves.append(start)
     for name in ('project', 'application', 'build', 'device'): start.add_argument('--' + name, required=True)
     start.add_argument('--preparation', action='append', default=[]); start.add_argument('--unprepared', action='store_true')
@@ -77,6 +84,10 @@ def run_issue_command(args):
     elif args.operation == 'replay': result = client.call(path + '/replay', {
         'deviceId': args.device, 'clientId': args.client_id or 'cli_' + uuid.uuid4().hex,
         'specificationDigest': args.specification_digest})
+    elif args.operation == 'ticket-references': result = client.call(path + '/ticket-references')
+    elif args.operation == 'ticket-link': result = client.call(path + '/ticket-references', {
+        'ticketId': args.ticket_id, 'packageId': args.package_id,
+        'baseRevision': args.revision, 'baseSpecificationDigest': args.specification_digest})
     elif args.operation == 'export': result = client.export_package(args.id, args.output)
     elif args.operation == 'import': result = client.import_package(args.project, args.file)
     elif args.operation == 'start': result = client.call('/api/release/issues', {

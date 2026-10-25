@@ -135,6 +135,8 @@ def dispatch(handler,principal,parts):
             contracts.validate_id(issue_id)
             if len(route)==2 and method=='GET':
                 return handler.respond(200,workflow.get(principal,issue_id))
+            if len(route)==3 and route[2]=='ticket-references' and method=='GET':
+                return handler.respond(200,workflow.ticket_references(principal,issue_id))
             if len(route)==3 and route[2]=='locator-proposals' and method=='GET':
                 return handler.respond(200,workflow.locator_proposals(principal,issue_id))
             if len(route)==4 and route[2]=='media' and method=='GET':
@@ -151,6 +153,7 @@ def dispatch(handler,principal,parts):
                 methods={'input':workflow.input,'specifications':workflow.save_specification,
                          'approve':workflow.approve,'replay':workflow.replay,
                          'locator-proposals':workflow.propose_locator,
+                         'ticket-references':workflow.link_ticket_reference,
                          'locator-decisions':workflow.decide_locator}
                 if action in methods:
                     return handler.respond(202 if action=='replay' else 200,methods[action](principal,issue_id,body))
