@@ -57,13 +57,76 @@ final class RecorderTests: XCTestCase {
         try XCTUnwrap(FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
             .first { $0.lastPathComponent != "capture.json" })
     }
+    private struct FinalizationFlag: Decodable { let finalized: Bool }
+    private func finalizedFlag(_ url: URL) throws -> Bool {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == CocoaError.Code.fileReadNoSuchFile.rawValue {
+            // A missing file is expected negative evidence, not an XCTest failure.
+            return false
+        }
+        // Present malformed/unreadable documents must not be treated as absent.
+        return try JSONDecoder().decode(FinalizationFlag.self, from: data).finalized
+    }
+    private func hasFinalizedPair(_ session: URL) throws -> Bool {
+        let metadataFinal = try finalizedFlag(session.appendingPathComponent("metadata.json"))
+        let markerFinal = try finalizedFlag(session.appendingPathComponent("finalized.json"))
+        return metadataFinal && markerFinal
+    }
     private func assertNotFinalized() throws {
-        let session = try sessionDirectory()
+        XCTAssertFalse(try hasFinalizedPair(sessionDirectory()))
+    }
+
+    func testFinalizationHelperDistinguishesAbsenceFalseFlagsAndTruePair() throws {
+        let session = root.appendingPathComponent("helper", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
         let metadata = session.appendingPathComponent("metadata.json")
         let marker = session.appendingPathComponent("finalized.json")
-        let metadataFinal = (try? json(metadata)["finalized"] as? Bool) ?? false
-        let markerFinal = (try? json(marker)["finalized"] as? Bool) ?? false
-        XCTAssertFalse(metadataFinal && markerFinal)
+        let falseFlag = Data("{\"finalized\":false}".utf8)
+        let trueFlag = Data("{\"finalized\":true}".utf8)
+        XCTAssertFalse(try hasFinalizedPair(session))
+        try assertNotFinalized()
+        try falseFlag.write(to: metadata)
+        XCTAssertFalse(try hasFinalizedPair(session))
+        try assertNotFinalized()
+        try falseFlag.write(to: marker)
+        XCTAssertFalse(try hasFinalizedPair(session))
+        try trueFlag.write(to: metadata)
+        XCTAssertFalse(try hasFinalizedPair(session))
+        try falseFlag.write(to: metadata)
+        try trueFlag.write(to: marker)
+        XCTAssertFalse(try hasFinalizedPair(session))
+        try trueFlag.write(to: metadata)
+        XCTAssertTrue(try hasFinalizedPair(session))
+        try FileManager.default.removeItem(at: metadata)
+        XCTAssertFalse(try hasFinalizedPair(session))
+    }
+
+    func testFinalizationHelperRejectsPresentMalformedAndUnreadableDocuments() throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        let metadata = root.appendingPathComponent("metadata.json")
+        let marker = root.appendingPathComponent("finalized.json")
+        let falseFlag = Data("{\"finalized\":false}".utf8)
+        let malformed = ["{", "[]", "{}", "{\"finalized\":\"false\"}", "{\"finalized\":1}", "{\"finalized\":null}"]
+        try falseFlag.write(to: marker)
+        for text in malformed {
+            try Data(text.utf8).write(to: metadata)
+            XCTAssertThrowsError(try hasFinalizedPair(root))
+        }
+        try falseFlag.write(to: metadata)
+        for text in malformed {
+            try Data(text.utf8).write(to: marker)
+            XCTAssertThrowsError(try hasFinalizedPair(root))
+        }
+        try FileManager.default.removeItem(at: metadata)
+        try FileManager.default.createDirectory(at: metadata, withIntermediateDirectories: false)
+        XCTAssertThrowsError(try hasFinalizedPair(root))
+        try FileManager.default.removeItem(at: metadata)
+        try falseFlag.write(to: metadata)
+        try FileManager.default.removeItem(at: marker)
+        try FileManager.default.createDirectory(at: marker, withIntermediateDirectories: false)
+        XCTAssertThrowsError(try hasFinalizedPair(root))
     }
 
     func testSampleV2KeysPathsAndActionOrder() throws {
