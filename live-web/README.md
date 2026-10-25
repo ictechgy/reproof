@@ -17,6 +17,15 @@ The API provides devices, sessions/control/input/frame/close, recording start/st
 
 ## Ticket references
 
+**Find linked issues** beside the Issue library searches an exact, case-sensitive
+1–64 character ticket ID in the selected project via the authenticated lookup
+endpoint. It shows up to 64 matching references (including unavailable references
+in the bound), never partial results. Select a retained result to recheck its
+availability and open its issue; multiple results are not auto-selected. Save or
+reload unsaved edits first. Search results are memory-only snapshots and clear
+on navigation, project/permission changes, logout, query edits and failed workspace
+polling. No provider is contacted and search grants no execution authority.
+
 The authenticated issue workbench has a reference-only ticket panel. Explicitly
 export the displayed saved revision, enter a bounded ticket ID, then select
 **Link exported package**. The panel shows the exact selected package ID, revision

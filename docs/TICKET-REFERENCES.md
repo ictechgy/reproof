@@ -168,8 +168,24 @@ More matches returns `ticket_lookup_limit` (409), never a partial/truncated
 result; use issue-scoped history instead. A cooperative 30-second lookup budget
 is checked between issue validations and before return (`ticket_lookup_timeout`,
 408); it does not interrupt an individual storage read. There is no pagination
-or new database migration. The browser's existing issue-scoped history is
-unchanged; project lookup is available through API/CLI only.
+or new database migration.
+
+In the authenticated browser workbench, choose a project and use **Find linked
+issues** in the Issue library. Enter the exact ticket ID (case and whitespace
+are not normalized). Each retained reference is shown separately with its issue,
+package, revision and stale/current label; no match is selected automatically.
+Unavailable references are counted without metadata. A limit or timeout error
+never displays partial results. Both required capabilities must be present.
+
+Results and query input are memory-only and clear on navigation, project or
+permission changes, sign-out and page exit. Editing the query cancels the old
+search; newer queries supersede delayed responses. Failed workspace polling also
+invalidates results. Results are explicitly snapshots, not live retention
+promises: selecting one repeats the exact lookup before loading its issue, and
+the issue response must still match the selected project and issue ID. Removed
+or expired references cannot be followed from an old result. Save or reload
+unsaved specification edits before opening a result. Search and navigation do
+not link, export, approve or start replay/repair; no tracker is contacted.
 
 ## Portable verification boundary
 

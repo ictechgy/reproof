@@ -376,3 +376,5 @@ h3 { font-size: 11px; font-weight: 650; letter-spacing: .01em; }
 
 .qa-ticket-list { display: grid; gap: 10px; max-height: 340px; overflow: auto; }
 .qa-ticket-list .qa-result { display: grid; gap: 8px; overflow-wrap: anywhere; }
+
+#qa-ticket-search, #qa-ticket-search-form { display: grid; gap: 10px; min-width: 0; }
