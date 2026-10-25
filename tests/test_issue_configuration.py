@@ -89,13 +89,15 @@ class ObservationHttpTests(unittest.TestCase):
         self.handle = self.env.service.start_prepared_recording(device_id="device", owner="owner", controller_id="browser",
             registration=self.env.registration, application_id="ios_app", build_id="original", preparations=self.env.preparations())
         self.addCleanup(lambda: self.env.service.stop(self.handle))
-        self.mode = "partial"; self.received = []
+        self.mode = "partial"; self.received = []; self.responses = []
+        self.before_response = lambda _request: None
         owner = self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_): pass
             def do_POST(self):
                 request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 owner.received.append(request)
+                owner.before_response(request)
                 captured = int(time.time() * 1000)
                 envelope = {"schemaVersion": 1, "id": "screen", "providerIncarnation": "owned_observation",
                     "applicationId": "ios_app", "intervalMs": {"start": captured, "end": captured},
@@ -103,9 +105,12 @@ class ObservationHttpTests(unittest.TestCase):
                     "limits": {"nodes": 1, "bytes": 4096, "depth": 1}, "truncated": True, "errors": [],
                     "completeness": "partial", "coverage": "snapshot"}
                 if owner.mode == "wrong-provider": envelope["providerIncarnation"] = "other_provider"
+                if owner.mode == "echo-request-application": envelope["applicationId"] = request["applicationId"]
                 if owner.mode == "slow": time.sleep(.2)
                 body = json.dumps({"schemaVersion": 1, "requestId": request["requestId"] if owner.mode != "wrong-request" else "different",
                     "envelope": envelope, "values": {"text": "observed-error"}, "absentProperties": []}).encode()
+                if owner.mode == "replay": body = owner.responses[-1]
+                owner.responses.append(body)
                 try:
                     self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(body)))
                     self.end_headers(); self.wfile.write(body)
@@ -119,9 +124,9 @@ class ObservationHttpTests(unittest.TestCase):
     def close_server(self):
         self.server.shutdown(); self.server.server_close(); self.thread.join(2)
 
-    def request(self, timeout=3):
+    def request(self, timeout=3, application_id="ios_app"):
         now = int(time.time() * 1000)
-        return ObservationRequest("screen", "defect", "ios_app", {"class": "snapshot", "windowMs": {"start": now, "end": now},
+        return ObservationRequest("screen", "defect", application_id, {"class": "snapshot", "windowMs": {"start": now, "end": now},
             "maxUncertaintyMs": 0, "maxAgeMs": 60000, "scope": "root", "properties": ["text"]}, now,
             time.monotonic() + timeout, self.handle.session_id, "owner", self.env.lab)
 
@@ -131,7 +136,107 @@ class ObservationHttpTests(unittest.TestCase):
         self.assertTrue(result.envelope["truncated"])
         self.assertEqual(result.envelope["completeness"], "partial")
         self.assertEqual(len(self.received), 1)
-        self.assertNotIn("owner", self.received[0])
+        self.assertEqual(set(self.received[0]), {"schemaVersion", "requestId", "projectDigest", "observationId",
+            "applicationId", "sessionId", "anchorMs", "requirement"})
+        self.assertEqual(self.received[0]["schemaVersion"], 1)
+        self.assertEqual(result.absent_properties, ())
+        binding = self.env.lab.release_binding(self.handle.session_id, "owner")
+        self.assertNotEqual(binding["providerIncarnation"], result.envelope["providerIncarnation"])
+
+    def test_wrong_application_is_rejected_before_http(self):
+        self.mode = "echo-request-application"
+        with self.assertRaises(contracts.ContractError) as error:
+            self.adapter.observe(self.request(application_id="private_unselected_app"))
+        self.assertEqual(self.received, [])
+        self.assertNotIn("private_unselected_app", str(error.exception))
+
+    def test_missing_local_project_or_application_binding_fails_before_http(self):
+        for field in ("projectDigest", "applicationId"):
+            with self.subTest(field=field):
+                binding = self.env.lab.release_binding(self.handle.session_id, "owner")
+                del binding[field]
+                with mock.patch.object(self.env.lab, "release_binding", return_value=binding):
+                    with self.assertRaises(contracts.ContractError) as error: self.adapter.observe(self.request())
+                self.assertEqual(error.exception.code, "observation_binding")
+                self.assertNotIn(field, str(error.exception))
+                self.assertEqual(self.received, [])
+
+    def test_each_inflight_release_binding_change_is_rejected(self):
+        for field, changed in (
+            ("projectId", "other_project"), ("projectRevision", 2), ("projectDigest", "f" * 64),
+            ("applicationId", "other_app"), ("buildId", "other_build"), ("artifactDigest", "f" * 64),
+            ("recordingId", "other_recording"), ("providerIncarnation", "other_device_provider"),
+        ):
+            with self.subTest(field=field):
+                binding = self.env.lab.release_binding(self.handle.session_id, "owner")
+                self.assertNotEqual(binding[field], changed)
+                self.received.clear()
+                # Reuse one mutable result to require an independent pre-call
+                # snapshot, not merely a second read of the same dictionary.
+                self.before_response = lambda _request: binding.update({field: changed})
+                with mock.patch.object(self.env.lab, "release_binding", return_value=binding) as release_binding:
+                    with self.assertRaises(contracts.ContractError) as error:
+                        self.adapter.observe(self.request())
+                self.assertEqual(len(self.received), 1)
+                self.assertEqual(release_binding.call_args_list, [mock.call(self.handle.session_id, "owner")] * 2)
+                self.assertNotIn(changed if type(changed) is str else str(changed), str(error.exception))
+
+    def test_live_device_provider_change_is_rejected_without_conflating_observation_provider(self):
+        session = self.env.lab._session(self.handle.session_id, "owner")
+        original = session["providerIncarnation"]
+        def change_provider(_request):
+            with session["lock"]: session["providerIncarnation"] = "other_device_provider"
+        self.before_response = change_provider
+        try:
+            with self.assertRaises(contracts.ContractError) as error: self.adapter.observe(self.request())
+            self.assertEqual(error.exception.code, "observation_binding")
+            self.assertEqual(len(self.received), 1)
+            self.assertEqual(json.loads(self.responses[0])["envelope"]["providerIncarnation"], "owned_observation")
+        finally:
+            with session["lock"]: session["providerIncarnation"] = original
+
+    def test_unavailable_binding_after_http_is_not_returned_as_evidence(self):
+        binding = self.env.lab.release_binding(self.handle.session_id, "owner")
+        failure = contracts.ContractError("Release binding is unavailable")
+        with mock.patch.object(self.env.lab, "release_binding", side_effect=[binding, failure]):
+            with self.assertRaises(contracts.ContractError) as error: self.adapter.observe(self.request())
+        self.assertIs(error.exception, failure)
+        self.assertEqual(len(self.received), 1)
+
+    def test_returned_response_cannot_outlive_absolute_deadline(self):
+        for elapsed in (0, .1):
+            with self.subTest(elapsed=elapsed):
+                request = self.request()
+                with mock.patch("reproof.live.issue_configuration.time") as clock:
+                    clock.monotonic.return_value = time.monotonic()
+                    self.before_response = lambda _request: setattr(clock.monotonic, "return_value", request.deadline_monotonic + elapsed)
+                    with self.assertRaises(contracts.ContractError): self.adapter.observe(request)
+                self.assertEqual(len(self.received), 1)
+                self.received.clear()
+
+    def test_binding_recheck_cannot_extend_absolute_deadline(self):
+        request = self.request()
+        binding = self.env.lab.release_binding(self.handle.session_id, "owner")
+        reads = []
+        with mock.patch("reproof.live.issue_configuration.time") as clock:
+            clock.monotonic.return_value = time.monotonic()
+            def read_binding(session_id, owner):
+                reads.append((session_id, owner))
+                if len(reads) == 2: clock.monotonic.return_value = request.deadline_monotonic
+                return copy.deepcopy(binding)
+            with mock.patch.object(self.env.lab, "release_binding", side_effect=read_binding):
+                with self.assertRaises(contracts.ContractError) as error: self.adapter.observe(request)
+        self.assertEqual(error.exception.code, "observation_timeout")
+        self.assertEqual(reads, [(self.handle.session_id, "owner")] * 2)
+        self.assertEqual(len(self.received), 1)
+
+    def test_prior_response_cannot_be_replayed_for_a_new_request(self):
+        self.adapter.observe(self.request())
+        self.mode = "replay"
+        with self.assertRaises(contracts.ContractError): self.adapter.observe(self.request())
+        self.assertEqual(len(self.received), 2)
+        self.assertNotEqual(self.received[0]["requestId"], self.received[1]["requestId"])
+        self.assertEqual(self.responses[0], self.responses[1])
 
     def test_wrong_request_or_provider_cannot_become_observation_evidence(self):
         for mode in ("wrong-request", "wrong-provider"):

@@ -264,6 +264,31 @@ Historical sessions can still be closed, and their replay jobs can still be
 cancelled. These operations preserve the existing producer/fixture cleanup
 requirements and do not grant new input authority.
 
+## Loopback observation binding
+
+The configured loopback observation adapter keeps its existing schema-version-1
+configuration and HTTP request/response format. Before sending a request, it
+snapshots the session's local `Lab.release_binding` and checks the configured
+project digest and requested application ID. After receiving and validating the
+response, it reads the binding again for the same session and owner and requires
+exact equality with the snapshot. This includes project ID, revision and digest,
+application ID, build ID, artifact digest, recording ID, and the device provider
+incarnation. A changed or unavailable binding, or an exhausted original absolute
+deadline, rejects the response instead of returning evidence.
+
+The observation service's configured provider incarnation remains separate from
+the device provider incarnation. The response must echo the new request's exact
+`requestId` and match the registered observation identity. Local release binding
+details are not added to the wire format, and binding failures do not echo those
+details. Partial/truncated coverage and measured values remain unchanged; identity
+checks do not prove payload truth or upgrade evidence coverage.
+
+This is a local before/after consistency check, not a new authority or protocol.
+`Lab.release_binding` exposes no generation or source identity, so this check
+does not provide generation fencing, source attestation, or detection of a change
+that is reverted between the two reads. It does not hold the session lock across
+HTTP or replace downstream active-session/authority and evidence-admission gates.
+
 ## Acceptance boundary
 
 G5 tests use owned temporary credentials, subprocesses, and loopback HTTP.
