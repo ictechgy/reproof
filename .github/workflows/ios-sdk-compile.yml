@@ -4,6 +4,17 @@ on:
   pull_request:
     paths:
       - 'ios/**'
+      - 'examples/native-logic-repair/**'
+      - 'reproof/native_logic_repair_demo.py'
+      - 'scripts/qa-native-logic-repair.py'
+      - 'tests/test_native_logic_repair*.py'
+      - 'reproof/project_repair.py'
+      - 'reproof/ios_core.py'
+      - 'reproof/ios_cases.py'
+      - 'reproof/ticket_intake.py'
+      - 'reproof/issue_package.py'
+      - 'reproof/contracts/**'
+      - 'reproof/execution/artifacts.py'
       - '.github/workflows/ios-sdk-compile.yml'
       - 'scripts/check-ios-sdk-export.py'
       - 'reproof/sdk_review.py'
@@ -19,6 +30,17 @@ on:
     branches: [main]
     paths:
       - 'ios/**'
+      - 'examples/native-logic-repair/**'
+      - 'reproof/native_logic_repair_demo.py'
+      - 'scripts/qa-native-logic-repair.py'
+      - 'tests/test_native_logic_repair*.py'
+      - 'reproof/project_repair.py'
+      - 'reproof/ios_core.py'
+      - 'reproof/ios_cases.py'
+      - 'reproof/ticket_intake.py'
+      - 'reproof/issue_package.py'
+      - 'reproof/contracts/**'
+      - 'reproof/execution/artifacts.py'
       - '.github/workflows/ios-sdk-compile.yml'
       - 'scripts/check-ios-sdk-export.py'
       - 'reproof/sdk_review.py'
@@ -68,6 +90,15 @@ jobs:
           export REPRO_SDK_TEST_EXPORT_DIRECTORY="$RUNNER_TEMP/reproof-sdk-synthetic-export"
           xcrun swift test --package-path ios/SDK --disable-automatic-resolution 2>&1 | tee "$RUNNER_TEMP/reproof-sdk-logs/swift-tests.log"
           grep -E 'Executed [1-9][0-9]* tests?, with 0 failures' "$RUNNER_TEMP/reproof-sdk-logs/swift-tests.log"
+      - name: Prove bounded sample Swift logic repair with the unchanged XCTest oracle
+        shell: bash
+        env:
+          REPRO_NATIVE_LOGIC_OUTPUT: ${{ runner.temp }}/reproof-native-logic-results
+        run: |
+          set -euo pipefail
+          "$REPRO_PYTHON" scripts/release-check.py --goal NATIVE_LOGIC_RUNTIME \
+            --effects filesystem,process,native-compile \
+            | tee "$RUNNER_TEMP/reproof-sdk-logs/native-logic-runtime.json"
       - name: Verify automatic app-log recovery and UIKit compile without running an app
         shell: bash
         run: |
@@ -105,5 +136,11 @@ jobs:
           path: |
             ${{ runner.temp }}/reproof-sdk-logs/*.log
             ${{ runner.temp }}/reproof-sdk-logs/*.json
+            ${{ runner.temp }}/reproof-native-logic-results/*-report.json
+            ${{ runner.temp }}/reproof-native-logic-results/*/toolchain-*.log
+            ${{ runner.temp }}/reproof-native-logic-results/*/baseline/*.log
+            ${{ runner.temp }}/reproof-native-logic-results/*/baseline/*.xml
+            ${{ runner.temp }}/reproof-native-logic-results/*/candidate/*.log
+            ${{ runner.temp }}/reproof-native-logic-results/*/candidate/*.xml
           if-no-files-found: warn
           retention-days: 7

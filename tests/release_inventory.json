@@ -1328,6 +1328,87 @@
           "gate": "software"
         }
       ]
+    },
+    "NATIVE_LOGIC_CONTRACTS": {
+      "available": true,
+      "checks": [
+        {
+          "id": "native-logic-frozen-input-and-result-contracts",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_native_logic_repair_demo"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "NATIVE_LOGIC_RUNTIME": {
+      "available": true,
+      "checks": [
+        {
+          "id": "native-sample-swift-fixed",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_native_logic_repair_runtime.NativeLogicRuntimeTests.test_fixed_candidate"
+          ],
+          "environment": "macos-preinstalled-xcode-16.4-host-swift",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 360,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "native-sample-swift-wrong",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_native_logic_repair_runtime.NativeLogicRuntimeTests.test_wrong_candidate"
+          ],
+          "environment": "macos-preinstalled-xcode-16.4-host-swift",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 360,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "native-sample-swift-noop",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_native_logic_repair_runtime.NativeLogicRuntimeTests.test_noop_candidate"
+          ],
+          "environment": "macos-preinstalled-xcode-16.4-host-swift",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 360,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }

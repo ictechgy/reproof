@@ -138,6 +138,11 @@ Run with the device screen on and unlocked.
 
 ## Repair loop
 
+For a device-free native-language sample check, see the
+[bounded Swift logic repair exercise](docs/NATIVE-LOGIC-REPAIR.md). It compiles
+actual sample business logic against the unchanged XCTest oracle on a Mac; it
+does not claim iOS UI replay or company-app acceptance.
+
 Run the full pipeline offline with the prepared reference patch; this run is
 not recorded as an AI execution in the results:
 

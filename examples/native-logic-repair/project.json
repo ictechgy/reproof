@@ -1,0 +1,52 @@
+{
+  "applications": [
+    {
+      "bundle": "io.reproof.sample.ios",
+      "id": "sample_ios_source",
+      "platform": "ios"
+    }
+  ],
+  "builds": [
+    {
+      "applicationId": "sample_ios_source",
+      "artifactDigest": "a97f4bf31df61dfdb0fd499c372d627174836e4104d450b631bb74ed04fb1083",
+      "id": "original",
+      "provenance": "operator-attestation",
+      "revision": "pinned-swift-source-not-installed-ios-build",
+      "sourceDigest": "f59d205635568acfbde3c75dfaade5bc5530de36857695b953ea6981a756d609"
+    }
+  ],
+  "editablePaths": [
+    "ios/Sample/SubmissionLogic.swift"
+  ],
+  "evidencePolicy": {
+    "accessibility": false,
+    "aiEligible": false,
+    "fixtures": true,
+    "logs": true,
+    "pixels": false,
+    "text": false,
+    "unknownSensitive": "deny"
+  },
+  "executionClasses": [
+    "host-build"
+  ],
+  "fixtures": [],
+  "id": "native_submission_demo",
+  "observations": [
+    "first_submission",
+    "duplicate_submission"
+  ],
+  "recipes": [
+    {
+      "id": "native_submission_regression",
+      "kind": "regression",
+      "operation": "regression",
+      "productFile": "examples/native-logic-repair/recipe.json"
+    }
+  ],
+  "revision": "repository-fixture-v1",
+  "schemaVersion": 1,
+  "trustGroup": "local_demo",
+  "variables": []
+}
