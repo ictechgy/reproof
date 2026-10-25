@@ -346,7 +346,7 @@ h3 { font-size: 11px; font-weight: 650; letter-spacing: .01em; }
 .qa-edit-action { display: grid; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .qa-edit-action strong { color: var(--text); font-size: 11px; overflow-wrap: anywhere; }
 #qa-edit-actions { max-height: 420px; overflow: auto; }
-#qa-assertions, #qa-approval-panel, #qa-results-panel, #qa-repair-panel { display: grid; gap: 16px; }
+#qa-assertions, #qa-approval-panel, #qa-results-panel, #qa-repair-panel, #qa-ticket-panel { display: grid; gap: 16px; }
 .qa-repair-list { display: grid; gap: 10px; max-height: min(34vh, 340px); overflow: auto; overscroll-behavior: contain; }
 .qa-repair-list .qa-result { display: grid; gap: 8px; }
 #qa-repair-patch { max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -373,3 +373,6 @@ h3 { font-size: 11px; font-weight: 650; letter-spacing: .01em; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+.qa-ticket-list { display: grid; gap: 10px; max-height: 340px; overflow: auto; }
+.qa-ticket-list .qa-result { display: grid; gap: 8px; overflow-wrap: anywhere; }

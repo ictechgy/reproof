@@ -40,6 +40,9 @@ jobs:
         run: python scripts/release-check.py --goal NATIVE_CONTRACTS --effects filesystem,process
       - name: Run deployment preflight and loopback observation binding checks
         run: python scripts/release-check.py --goal PREFLIGHT --effects filesystem,process,loopback
+      # Uses the runner's installed Node, without a browser or extra packages.
+      - name: Run browser state and request contract checks
+        run: python scripts/release-check.py --goal WEB_CONTRACTS --effects filesystem,process
       - name: Run project-scoped ticket reference workflow checks
         run: python scripts/release-check.py --goal TICKET_REFERENCES --effects filesystem,process,loopback
       - name: Run inert ticket intake and causal local demo checks

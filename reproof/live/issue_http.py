@@ -115,6 +115,8 @@ def dispatch(handler,principal,parts):
         if route==['issues']:
             if method=='GET':return handler.respond(200,workflow.list(principal))
             return handler.respond(202,workflow.start(principal,handler.body()))
+        if len(route)==3 and route[0]=='projects' and route[2]=='ticket-lookup' and method=='POST':
+            return handler.respond(200,workflow.lookup_ticket_references(principal,route[1],handler.body()))
         if len(route)==3 and route[0]=='projects' and route[2]=='import' and method=='POST':
             check(handler.headers.get('Content-Type')=='application/zip',
                   'invalid_content_type','Expected an issue ZIP archive',415)

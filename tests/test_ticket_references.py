@@ -552,5 +552,206 @@ class TicketReferenceHttpTests(TicketReferenceFixture, unittest.TestCase):
         self.assertEqual(caught.exception.code, 'repair_not_configured')
         self.assertNotIn(SECRET, json.dumps(self.client.call(path + '/ticket-references')))
 
+    def test_authenticated_http_and_cli_find_exact_ticket_without_issue_id(self):
+        issue, body, _ = self.fixture()
+        self.link(issue, body)
+        path = '/api/release/projects/checkout/ticket-lookup'
+        expected = self.workflow.lookup_ticket_references(self.owner, 'checkout', {'ticketId': 'QA-42'})
+        self.assertEqual(self.client.call(path, {'ticketId': 'QA-42'}), expected)
+        self.assertEqual(self.cli('ticket-lookup', '--project', 'checkout', '--ticket-id', 'QA-42'), expected)
+        self.assertEqual(self.cli('ticket-lookup', '--project', 'checkout', '--ticket-id', 'qa-42'),
+                         {'references': [], 'unavailableCount': 0})
+        with self.assertRaises(LiveError) as caught: self.client.call(path)
+        self.assertEqual(caught.exception.status, 404)
+
+    def test_lookup_rejects_missing_auth_csrf_viewer_cross_project_and_logout(self):
+        path = '/api/release/projects/checkout/ticket-lookup'
+        body = {'ticketId': 'QA-42'}
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=5)
+        try:
+            connection.request('POST', path, json.dumps(body),
+                               {'Origin': self.server.origin, 'Content-Type': 'application/json'})
+            response = connection.getresponse(); response.read()
+            self.assertEqual(response.status, 401)
+        finally: connection.close()
+        viewer = IssueClient(self.server.origin, self.tokens['viewer'])
+        with self.assertRaises(LiveError) as caught: viewer.call(path, body)
+        self.assertEqual(caught.exception.status, 403)
+        csrf = self.client.csrf
+        self.client.csrf = None
+        with self.assertRaises(LiveError) as caught: self.client.call(path, body)
+        self.assertEqual(caught.exception.status, 403)
+        self.client.csrf = csrf
+        with self.assertRaises(LiveError) as caught:
+            self.client.call('/api/release/projects/other/ticket-lookup', body)
+        self.assertEqual(caught.exception.status, 403)
+        self.client.call('/api/auth/logout', {})
+        with self.assertRaises(LiveError) as caught: self.client.call(path, body)
+        self.assertEqual(caught.exception.status, 401)
+
+    def test_lookup_invalid_payload_is_sanitized_and_read_only(self):
+        before = self.workflow._all('ticket-reference')
+        path = '/api/release/projects/checkout/ticket-lookup'
+        for body in ({'ticketId': 'https://tracker/?token=' + SECRET}, {'ticketId': 123},
+                     {'ticketId': 'QA-42', 'ticketText': SECRET}, {'ticketId': 'QA-42', 'limit': 1}):
+            with self.subTest(body=body), self.assertRaises(LiveError) as caught: self.client.call(path, body)
+            self.assertEqual(caught.exception.status, 400)
+            self.assertNotIn(SECRET, str(caught.exception))
+        self.assertEqual(self.workflow._all('ticket-reference'), before)
+
+
+class TicketLookupTests(TicketReferenceFixture, unittest.TestCase):
+    def lookup(self, ticket='QA-42', project='checkout', principal=None):
+        return self.workflow.lookup_ticket_references(principal or self.owner, project, {'ticketId': ticket})
+
+    def test_exact_identity_returns_all_matching_issues_without_authority_effects(self):
+        first, body, _ = self.fixture(approved=True)
+        second, other, _ = self.fixture()
+        expected = [self.link(first, body)['reference'], self.link(second, other)['reference']]
+        for ticket in ('qa-42', 'QA-420', '123', '0', 'A', 'qa_one', 'Q_' + 'a' * 62):
+            self.link(first, {**body, 'ticketId': ticket})
+            self.assertEqual([item['ticketId'] for item in self.lookup(ticket)['references']], [ticket])
+        before = [self.workflow.get(self.owner, issue) for issue in (first, second)]
+        calls = copy.deepcopy(self.env.control['calls'])
+        result = self.lookup()
+        self.assertEqual(result, {'references': sorted(
+            [{**item, 'status': 'matches-current-revision'} for item in expected], key=lambda item: item['id']),
+            'unavailableCount': 0})
+        self.assertEqual(self.lookup('QA'), {'references': [], 'unavailableCount': 0})
+        self.assertEqual([self.workflow.get(self.owner, issue) for issue in (first, second)], before)
+        self.assertEqual(self.env.control['calls'], calls)
+        self.assertEqual(self.lookup(), result)
+
+    def test_other_project_same_ticket_is_not_read_counted_or_returned(self):
+        issue, body, _ = self.fixture()
+        reference = self.link(issue, body)['reference']
+        # Adversarial foreign index entries cannot trigger an issue/package read,
+        # affect the result limit, or contribute unavailable metadata/counts.
+        for number in range(65):
+            foreign = {**reference, 'id': f'ticketref_foreign_{number}', 'projectId': 'other',
+                       'issueId': 'foreign_issue', 'packageId': 'foreign_package'}
+            self.workflow._put('ticket-reference', foreign['id'], foreign)
+        self.assertEqual(self.lookup()['references'], [{**reference, 'status': 'matches-current-revision'}])
+        self.assertEqual(self.lookup()['unavailableCount'], 0)
+        with self.assertRaises(AccessError): self.lookup(project='other')
+
+    def test_invalid_input_and_extra_fields_are_rejected(self):
+        for body in ({}, {'ticketId': 'QA-42', 'projectId': 'other'}, {'ticketId': 'QA-42', 'limit': 1},
+                     *({'ticketId': value} for value in ('', 'QA 42', 'https://secret', 'QA-42\n', 'x' * 65,
+                                                         123, True, None, [], {}))):
+            with self.subTest(body=body), self.assertRaises(ContractError):
+                self.workflow.lookup_ticket_references(self.owner, 'checkout', body)
+        for project in ('../checkout', 'Checkout', '', None):
+            with self.subTest(project=project), self.assertRaises(ContractError): self.lookup(project=project)
+
+    def test_empty_result_still_requires_both_capabilities_and_active_identity(self):
+        with self.assertRaises(AccessError): self.lookup(principal=self.principals['viewer'])
+        authorize = self.access_store.authorize
+        def deny_export(principal, project, capability):
+            if capability == 'export.read': raise AccessError('forbidden', 'Synthetic denial')
+            return authorize(principal, project, capability)
+        with mock.patch.object(self.access_store, 'authorize', side_effect=deny_export):
+            with self.assertRaises(AccessError): self.lookup()
+        self.access_store.revoke_membership('admin', 'checkout', 'owner', 'maintainer')
+        with self.assertRaises(AccessError): self.lookup()
+
+    def test_operator_outsider_and_post_scan_credential_revocation_are_denied(self):
+        for identity in ('operator', 'outsider'):
+            self.access_store.create_identity('admin', identity)
+            if identity == 'operator':
+                self.access_store.grant_membership('admin', 'checkout', identity, 'operator')
+            credential = self.access_store.issue_principal_credential('admin', identity, lifetime_seconds=600)
+            principal = self.access_store.authenticate_principal(credential['token'])
+            with self.subTest(identity=identity), self.assertRaises(AccessError): self.lookup(principal=principal)
+        read = self.workflow._all
+        def revoke(kind):
+            result = read(kind)
+            if kind == 'ticket-reference':
+                self.access_store.revoke_credential('admin', self.owner.credential_id)
+            return result
+        with mock.patch.object(self.workflow, '_all', side_effect=revoke):
+            with self.assertRaises(AccessError): self.lookup()
+
+    def test_package_retention_hides_only_exact_matches_and_source_expiry_fails_closed(self):
+        issue, body, package = self.fixture()
+        self.link(issue, body)
+        self.link(issue, {**body, 'ticketId': 'QA-other'})
+        self.workflow.packages.tombstone(package['id'], 'checkout', authorize=lambda: True)
+        self.assertEqual(self.lookup(), {'references': [], 'unavailableCount': 1})
+        self.assertEqual(self.lookup('missing'), {'references': [], 'unavailableCount': 0})
+        with mock.patch.object(self.env.lab._evidence_store, 'lookup', return_value=None):
+            with self.assertRaises(LiveError): self.lookup()
+
+    def test_stale_revision_preserves_original_identity(self):
+        issue, body, _ = self.fixture()
+        reference = self.link(issue, body)['reference']
+        self.save(issue, self.workflow.get(self.owner, issue)['recording'], base=1)
+        self.assertEqual(self.lookup()['references'], [{**reference, 'status': 'stale'}])
+
+    def test_issue_project_binding_and_registration_changes_fail_closed(self):
+        issue, body, _ = self.fixture()
+        self.link(issue, body)
+        document = self.workflow._get('issue', issue)
+        self.workflow._put('issue', issue, {**document, 'projectId': 'other'})
+        with self.assertRaises(ContractError): self.lookup()
+        self.workflow._put('issue', issue, document)
+        project = self.runtime.registration.project
+        project['revision'] = 'changed'
+        self.access_store.register_project('admin', project)
+        with self.assertRaises(ContractError): self.lookup()
+
+    def test_bound_rejects_overflow_before_reading_any_issue_and_never_truncates(self):
+        issue, body, _ = self.fixture()
+        reference = self.link(issue, body)['reference']
+        for number in range(63):
+            item = {**reference, 'id': f'ticketref_limit_{number}'}
+            self.workflow._put('ticket-reference', item['id'], item)
+        self.assertEqual(len(self.lookup()['references']), 64)
+        item = {**reference, 'id': 'ticketref_overflow'}
+        self.workflow._put('ticket-reference', item['id'], item)
+        # Unavailable references count against the raw-match work bound too.
+        self.workflow.packages.tombstone(body['packageId'], 'checkout', authorize=lambda: True)
+        with mock.patch.object(self.workflow, '_ticket_snapshot', side_effect=AssertionError('unbounded read')):
+            with self.assertRaises(LiveError) as caught: self.lookup()
+        self.assertEqual(caught.exception.code, 'ticket_lookup_limit')
+
+    def test_final_pass_rechecks_earlier_packages_and_revocation(self):
+        issues = []
+        for _ in range(2):
+            issue, body, _ = self.fixture()
+            self.link(issue, body)
+            issues.append((issue, body))
+        issues.sort()
+        read = self.workflow._read_ticket_references
+        def expire(principal, issue_id, candidates=None):
+            result = read(principal, issue_id, candidates)
+            if issue_id == issues[-1][0]:
+                self.workflow.packages._db.execute('UPDATE packages SET expires_ms=0 WHERE id=?',
+                                                  (issues[0][1]['packageId'],))
+            return result
+        with mock.patch.object(self.workflow, '_read_ticket_references', side_effect=expire):
+            result = self.lookup()
+        self.assertEqual(result['unavailableCount'], 1)
+        self.assertEqual([item['issueId'] for item in result['references']], [issues[-1][0]])
+        def revoke(principal, issue_id, candidates=None):
+            result = read(principal, issue_id, candidates)
+            self.access_store.revoke_membership('admin', 'checkout', 'owner', 'maintainer')
+            return result
+        with mock.patch.object(self.workflow, '_read_ticket_references', side_effect=revoke):
+            with self.assertRaises(AccessError): self.lookup()
+
+    def test_restart_preserves_exact_lookup(self):
+        issue, body, _ = self.fixture()
+        self.link(issue, body)
+        before = self.lookup()
+        self.workflow.close()
+        self.workflow = support.IssueWorkflow(self.env.root / 'browser-issues', self.env.lab, self.access, (self.runtime,))
+        self.assertEqual(self.lookup(), before)
+
+    def test_deadline_fails_closed_even_for_empty_result(self):
+        with mock.patch('reproof.live.ticket_references.time.monotonic', side_effect=[0, 31]):
+            with self.assertRaises(LiveError) as caught: self.lookup()
+        self.assertEqual(caught.exception.code, 'ticket_lookup_timeout')
+
 
 if __name__ == '__main__': unittest.main()

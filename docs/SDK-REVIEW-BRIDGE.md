@@ -40,6 +40,43 @@ and iOS counter sample policy, not arbitrary target IDs or user-authored schemas
 
 ## Pure API and privacy boundary
 
+### Local read-only CLI
+
+```sh
+reproof sdk-review --platform android --session-directory /path/to/exported/session
+reproof sdk-review --platform ios --session-directory /path/to/exported/session
+# From a repository checkout, use python3 -m reproof sdk-review with the same options.
+```
+
+The selected directory must contain `capture.json` and `session.json` for
+Android, or `capture.json`, `metadata.json` and `finalized.json` for iOS.
+Use the session-specific directory, not the root/latest convenience capture.
+Extra siblings, including native `events.jsonl`, are ignored without being
+opened or traversed. The command does not search or recurse, join a ticket,
+register a collector binding, or accept service, credentials, AI, approval,
+upload or output-file options. It accepts only the repository Android default
+sample policy and iOS counter policy, not arbitrary company/custom app exports.
+
+On supported POSIX hosts, every directory component is opened without following
+symlinks. Required siblings must be regular files, each no larger than 256 KiB;
+they are opened with descriptor-relative, no-follow, nonblocking reads before
+any content is consumed. The directory identities and each required file's
+opened/named identity, size, modification time and change time are checked
+through the read. Missing files, symlinks (including ancestors), special files,
+replacement and observed mutation fail closed. These checks detect observed
+races, but are not a filesystem snapshot, native attestation or cross-file
+publication transaction. Collect a finalized session without concurrent writers.
+
+Exact file bytes reach the existing normalizer unchanged. Success prints only
+`envelope.summary()` as JSON and exits 0. Invalid exports or unsafe/unavailable
+file reads print only `{"status":"sdk_export_invalid"}` and exit 2. Invalid
+arguments exit 2 with a fixed non-echoing message; paths, tokens and parser
+details are never included. The command does not modify or persist the export,
+contact services, inspect credentials, invoke devices or transfer data to AI.
+All existing unresolved provenance and negative authority flags remain intact.
+
+### Normalization API
+
 `reproof.sdk_review.normalize_export(platform=..., capture=bytes,
 metadata=bytes, marker=bytes_or_None)` returns `ReviewEnvelope` or raises the
 fixed `ReviewInvalid('sdk_export_invalid')`. Read `envelope.summary()` for a
@@ -113,7 +150,7 @@ From a repository checkout:
 
 ```sh
 python3 scripts/qa-sdk-review.py
-python3 -m unittest tests.test_sdk_review tests.test_ticket_intake
+python3 -m unittest tests.test_sdk_review tests.test_sdk_review_cli tests.test_ticket_intake
 ```
 
 The script reads only repository fixtures and prints both platforms' results:
@@ -135,6 +172,7 @@ claims its result as SDK validation. Its local Python exercise is not native or
 AI execution either.
 
 The existing `TICKET_INTAKE` portable inventory check includes these bounded
-inert tests. Workflow triggers and permissions are unchanged. Passing portable
+inert tests and local CLI filesystem/race/privacy regressions. Workflow triggers
+and permissions are unchanged. Passing portable
 checks cannot establish SDK installation, native behavior, company deployment,
 or real AI repair acceptance.
