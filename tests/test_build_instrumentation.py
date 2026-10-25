@@ -53,6 +53,11 @@ class BuildInstrumentationPreparationTests(unittest.TestCase):
         self.assertFalse((staged / 'app/src/release/java/io/reproof/autotrace').exists())
         self.assertFalse((staged / 'app/src/debug/java/io/reproof/autotrace').exists())
         self.assertTrue((staged / 'app/reproof-instrumentation/runtime/io/reproof/autotrace/ReproHooks.kt').is_file())
+        recorder = staged / 'app/reproof-instrumentation/runtime/io/reproof/sdk/ReproRecorder.kt'
+        self.assertEqual(recorder.read_bytes(), (Path(__file__).resolve().parents[1] /
+            'android/sdk/src/main/java/io/reproof/sdk/ReproRecorder.kt').read_bytes())
+        self.assertIn('class ReproPrivacyConfig(', recorder.read_text())
+        self.assertIn('class ReproStartState(', recorder.read_text())
         import xml.etree.ElementTree as ET
         merged = ET.parse(staged / 'app/reproof-instrumentation/AndroidManifest.xml').getroot()
         self.assertEqual(len(merged.findall('application/provider')), 1)
