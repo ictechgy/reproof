@@ -12,6 +12,9 @@ settings:
     SDKROOT: iphoneos
     SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
     DEVELOPMENT_TEAM: ""
+packages:
+  ReproofSDK:
+    path: SDK
 targets:
   ReproSample:
     type: application
@@ -19,6 +22,8 @@ targets:
     sources:
       - path: Sample
       - path: Recorder
+    dependencies:
+      - package: ReproofSDK
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.reproof.sample.ios

@@ -15,14 +15,17 @@ build identity, approval, or execution authority.
   published path alone is insufficient: metadata must say finalized, with
   incomplete/lostEvents/unsupported all false. Android metadata has no sequence
   boundary, so capture's own endSequence is checked against its event stream.
-- iOS: `ios/Recorder/Recorder.swift` is an internal `final class Recorder`,
-  coupled to the sample's `ReproCase` and compiled with the sample. It is **not a
-  public SwiftPM package** or a general company-app SDK. Collect capture JSON,
-  same-session `metadata.json`, and `finalized.json` after finalization. All
-  session, fixture, start-state, timestamp and sequence boundaries must agree.
+- iOS: [`ios/SDK`](../ios/SDK/README.md) is a public, local Foundation Swift
+  package with explicit bounded annotation policies. `ios/Recorder/Recorder.swift`
+  is the thin sample-specific `ReproCase` adapter. Collect the session-specific
+  capture JSON, `metadata.json`, and `finalized.json` returned by successful
+  finalization. All session, fixture, start-state, timestamp and sequence boundaries
+  must agree. The root `capture.json` is only a compatibility convenience; custom
+  SDK policies are **not** admitted by this sample-only bridge.
 
-No native code, build, device operation, upload, service or credentials are
-required or changed by this addition. Integrating an arbitrary company app still
+The Python review bridge itself requires no native execution, device operation,
+upload, service or credentials. The separate Swift package has its own bounded
+Foundation-test and compile-only workflow. Integrating an arbitrary company app still
 requires separately authored instrumentation/policies and real-device validation.
 The bridge currently accepts only the repository Android default sample policy
 and iOS counter sample policy, not arbitrary target IDs or user-authored schemas.

@@ -266,6 +266,15 @@ enrollment, TLS/CSRF, configuration files that contain no secrets, and the
 admin CLI are covered in the
 [shared coordinator operations documentation](docs/SHARED-COORDINATOR.md).
 
+## Local iOS Foundation SDK
+
+[`ios/SDK`](ios/SDK/README.md) is a self-contained local Swift package for explicit,
+bounded annotations. The UIKit sample uses a thin adapter over its public API.
+Custom exports are not automatically replayable or trusted evidence; the host
+bridge remains sample-only. Portable wiring checks are distinct from the prepared
+macOS Foundation-test and unsigned compile-only workflow, which is not device or
+company-app acceptance.
+
 ## SDK export review bridge
 
 The [local SDK review bridge](docs/SDK-REVIEW-BRIDGE.md) validates finalized

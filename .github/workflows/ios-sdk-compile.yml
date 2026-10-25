@@ -1,0 +1,84 @@
+name: iOS SDK compile and Foundation tests
+
+on:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-sdk-compile.yml'
+      - 'scripts/check-ios-sdk-export.py'
+      - 'reproof/sdk_review.py'
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-sdk-compile.yml'
+      - 'scripts/check-ios-sdk-export.py'
+      - 'reproof/sdk_review.py'
+
+permissions:
+  contents: read
+
+jobs:
+  compile-sdk:
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify preinstalled official Xcode without installing tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          test "$(xcodebuild -version)" = $'Xcode 16.4\nBuild version 16F6'
+          xcrun swift --version
+          python_found=false
+          for candidate in "$RUNNER_TOOL_CACHE"/Python/3.12.*/x64/bin/python3 "$RUNNER_TOOL_CACHE"/Python/3.12.*/arm64/bin/python3; do
+            if test -x "$candidate" && "$candidate" -c 'import sys; assert sys.version_info[:2] == (3, 12)'; then
+              echo "REPRO_PYTHON=$candidate" >> "$GITHUB_ENV"
+              python_found=true
+              break
+            fi
+          done
+          test "$python_found" = true
+      - name: Run synthetic Foundation tests and verify nonzero XCTest execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/reproof-sdk-logs"
+          export REPRO_SDK_TEST_EXPORT_DIRECTORY="$RUNNER_TEMP/reproof-sdk-synthetic-export"
+          xcrun swift test --package-path ios/SDK --disable-automatic-resolution 2>&1 | tee "$RUNNER_TEMP/reproof-sdk-logs/swift-tests.log"
+          grep -E 'Executed [1-9][0-9]* tests?, with 0 failures' "$RUNNER_TEMP/reproof-sdk-logs/swift-tests.log"
+      - name: Validate exact Foundation writer bytes with unchanged sample-only host
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$REPRO_PYTHON" scripts/check-ios-sdk-export.py --directory "$RUNNER_TEMP/reproof-sdk-synthetic-export" 2>&1 | tee "$RUNNER_TEMP/reproof-sdk-logs/host-compatibility.log"
+      - name: Compile an independent public API consumer without running it
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun swift build --package-path ios/SDK/Consumer --disable-automatic-resolution 2>&1 | tee "$RUNNER_TEMP/reproof-sdk-logs/consumer-build.log"
+      - name: Compile unsigned sample Debug and Release for generic Simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          for configuration in Debug Release; do
+            xcodebuild -project ios/Reproof.xcodeproj -scheme ReproSample \
+              -configuration "$configuration" -destination 'generic/platform=iOS Simulator' \
+              -derivedDataPath "$RUNNER_TEMP/reproof-sdk-$configuration" \
+              -disableAutomaticPackageResolution -skipPackageUpdates \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+              build 2>&1 | tee "$RUNNER_TEMP/reproof-sdk-logs/sample-$configuration.log"
+          done
+      - name: Retain compile and executed-test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-sdk-compile-test-logs
+          path: ${{ runner.temp }}/reproof-sdk-logs/*.log
+          if-no-files-found: warn
+          retention-days: 7

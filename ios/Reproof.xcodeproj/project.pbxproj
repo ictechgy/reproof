@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BB2900000000000000000001 /* ReproofSDK in Frameworks */ = {isa = PBXBuildFile; productRef = BB2900000000000000000002 /* ReproofSDK */; };
 		09FC053362F83EB030CF0395 /* Recorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E56D978BD8FC3F2F64A7AF8 /* Recorder.swift */; };
 		41EA2A696AD2FE28A0CDC2A5 /* CounterLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DEC2FFD001689F5F5D1BF81 /* CounterLogic.swift */; };
 		6C51AB6A5314773B786B5F04 /* LogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF76C5B991EF1A9BE7359024 /* LogicTests.swift */; };
@@ -50,6 +51,15 @@
 		F026AAA30390D1D19C4253D1 /* ResetLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResetLogic.swift; sourceTree = "<group>"; };
 		F24648167A34C5F3047A0D06 /* ReproLogicTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ReproLogicTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BB2900000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (BB2900000000000000000001 /* ReproofSDK in Frameworks */,);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		2A761C541C6A33295BA37177 = {
@@ -137,6 +147,7 @@
 			buildConfigurationList = 6DE04BBE11DBFE593D684755 /* Build configuration list for PBXNativeTarget "ReproSample" */;
 			buildPhases = (
 				6A493F7EAD9E0ACD8D6E3415 /* Sources */,
+				BB2900000000000000000003 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -144,6 +155,7 @@
 			);
 			name = ReproSample;
 			packageProductDependencies = (
+				BB2900000000000000000002 /* ReproofSDK */,
 			);
 			productName = ReproSample;
 			productReference = 21875363A81CA25045530213 /* ReproSample.app */;
@@ -201,6 +213,7 @@
 			productRefGroup = 8066531468ADDD5F4FD6539D /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
+			packageReferences = (BB2900000000000000000004 /* XCLocalSwiftPackageReference "SDK" */,);
 			targets = (
 				BBEC502C5F240786F7326CFB /* ReproSample */,
 				AED7442FCF56CD88FC07D10F /* ReproLogicTests */,
@@ -254,6 +267,21 @@
 			targetProxy = 7E686F5090B615A10A0C58F5 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		BB2900000000000000000004 /* XCLocalSwiftPackageReference "SDK" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = SDK;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		BB2900000000000000000002 /* ReproofSDK */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB2900000000000000000004 /* XCLocalSwiftPackageReference "SDK" */;
+			productName = ReproofSDK;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		12DD960D4309AC80545368C0 /* Debug */ = {
