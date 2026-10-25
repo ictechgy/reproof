@@ -98,6 +98,18 @@ class AndroidLogicContractTests(unittest.TestCase):
         with self.assertRaises(demo.NativeLogicError):
             self.validate(transform=lambda r: (r[0], r[1].split(b'BUILD')[0], r[2]))
 
+    def test_only_exact_configuration_diagnostic_skips_permitted(self):
+        rows = b''.join(f'> Task :{module}:checkKotlinGradlePluginConfigurationErrors SKIPPED\n'.encode()
+                        for module in ('sample', 'sdk'))
+        for mode in ('baseline', 'wrong', 'fixed'):
+            self.validate(mode, lambda r: (r[0], rows + r[1], r[2]))
+        for invalid in (rows + rows, rows.replace(b':sdk:', b':other:'),
+                        rows.replace(b'Errors SKIPPED', b'ErrorsExtra SKIPPED'),
+                        b'> Task :sdk:compileDebugKotlin SKIPPED\n',
+                        b'SKIPPED\n', b'prefix ' + rows):
+            with self.subTest(invalid=invalid), self.assertRaises(demo.NativeLogicError):
+                self.validate(transform=lambda r: (r[0], invalid + r[1], r[2]))
+
     def test_expected_failure_summary_required(self):
         for old, new in ((b'1 test completed, 1 failed', b'0 tests completed, 1 failed'),
                          (b'1 test completed, 1 failed', b'1 test completed, 1 failed, 1 skipped'),

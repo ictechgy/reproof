@@ -215,7 +215,16 @@ def _validate_result(xml_raw, log_raw, returncode, mode):
     _require(failed_tasks == ([TASK] if failures else []), 'unexpected_task_failure')
     _require(len(re.findall(r'^BUILD (?:SUCCESSFUL|FAILED) in .+$', log, re.MULTILINE)) == 1
         and re.search(r'^BUILD ' + ('FAILED' if failures else 'SUCCESSFUL') + r' in .+$', log, re.MULTILINE), 'build_summary_missing')
-    _require(not re.search(r'^e: |Compilation error|Could not resolve|daemon disappeared|OutOfMemoryError|No tests found|\bSKIPPED\b', log, re.MULTILINE), 'test_incomplete')
+    # Kotlin's configuration-error diagnostic tasks are legitimately skipped
+    # when no configuration errors exist (observed in hosted run 40203462168).
+    # Permit only these exact metadata rows, once per module. Compilation,
+    # test execution and JUnit skipped counts remain strictly checked above.
+    execution_log = log
+    for module in ('sample', 'sdk'):
+        row = f'> Task :{module}:checkKotlinGradlePluginConfigurationErrors SKIPPED\n'
+        _require(execution_log.count(row) <= 1, 'test_incomplete')
+        execution_log = re.sub('^' + re.escape(row), '', execution_log, flags=re.MULTILINE)
+    _require(not re.search(r'^e: |Compilation error|Could not resolve|daemon disappeared|OutOfMemoryError|No tests found|\bSKIPPED\b', execution_log, re.MULTILINE), 'test_incomplete')
     if failures:
         _require(log.count("Execution failed for task ':sample:testBuggyDebugUnitTest'.") == 1
             and 'There were failing tests.' in log
