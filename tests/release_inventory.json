@@ -1258,6 +1258,47 @@
           "gate": "software"
         }
       ]
+    },
+    "IOS_APP_LOG_PUBLICATION": {
+      "available": true,
+      "checks": [
+        {
+          "id": "ios-app-log-publication",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_ios_app_log_retry"
+          ],
+          "environment": "macos-preinstalled-xcode-swift",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "ios-app-log-runtime-compile",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_ios_app_logs_runtime"
+          ],
+          "environment": "macos-preinstalled-xcode-ios-sdk",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }

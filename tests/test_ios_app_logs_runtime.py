@@ -6,18 +6,29 @@ import shutil
 import subprocess
 import unittest
 
-from reproof.core import digest
-from reproof.app_logs import validate_app_log
+from reproof.core import ContractError, digest
+from reproof.app_logs import collect_app_logs, validate_app_log
 
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "reproof" / "ios_instrumentation_templates"
 FIXTURE = ROOT / "tests" / "fixtures" / "ios-app-logs"
-XCODE_DEVELOPER = Path(os.environ.get("DEVELOPER_DIR") or subprocess.run(["xcode-select","-p"],capture_output=True,text=True,check=True).stdout.strip())
+
+def _xcode_developer():
+    configured = os.environ.get("DEVELOPER_DIR")
+    if configured:
+        return Path(configured)
+    if not shutil.which("xcode-select"):
+        return None
+    result = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True, timeout=10)
+    return Path(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip() else None
+
+
+XCODE_DEVELOPER = _xcode_developer()
 
 
 def _available():
-    return XCODE_DEVELOPER.is_dir() and shutil.which("xcrun") is not None
+    return XCODE_DEVELOPER is not None and XCODE_DEVELOPER.is_dir() and shutil.which("xcrun") is not None
 
 
 @unittest.skipUnless(_available(), "Xcode iOS SDK is unavailable")
@@ -113,19 +124,34 @@ class IOSAppLogContractFixtureTests(unittest.TestCase):
         self.assertLessEqual(len(document["events"]), 2000)
         self.assertLessEqual(len((FIXTURE / "app-log.json").read_bytes()), 1024 * 1024)
 
-    def test_recovered_prefix_with_io_loss_flag_remains_downloadable(self):
-        document = json.loads((FIXTURE / "app-log.json").read_text())
+    def test_collector_requires_marker_for_recovered_prefix_with_io_loss(self):
+        document = json.loads((FIXTURE / "app-log.json").read_bytes())
         document["lostEvents"] = True
         marker = {key: document[key] for key in {
             "schemaVersion", "platform", "applicationId", "runId", "sessionId", "profileDigest", "startedAtMs"
         }}
-        validated = validate_app_log(
-            document,
-            marker,
+        arguments = dict(
+            platform="ios", application_id=document["applicationId"],
+            run_id=document["runId"], profile_digest=document["profileDigest"],
             click_targets={"counter.add", "counter.next", "counter.reset", "counter.back"},
             screen_targets={"main", "details"},
         )
-        self.assertTrue(validated["lostEvents"])
+        # The identical loss-flagged bytes are collectible only with the matching
+        # identity marker. A marker is not a claim of complete event capture.
+        journal_bytes = json.dumps(document).encode()
+        for marker_state in (None, dict(marker, runId="33333333-3333-4333-8333-333333333333"), marker):
+            def read(relative):
+                if relative == "app-log-session.json":
+                    if marker_state is None:
+                        raise FileNotFoundError(relative)
+                    return dict(marker_state)
+                self.assertEqual(relative, "app-logs/" + document["sessionId"] + "/app-log.json")
+                return json.loads(journal_bytes)
+            if marker_state != marker:
+                with self.subTest(marker=marker_state), self.assertRaises((FileNotFoundError, ContractError)):
+                    collect_app_logs(read, **arguments)
+            else:
+                self.assertEqual(collect_app_logs(read, **arguments), document)
 
 
 if __name__ == "__main__":
