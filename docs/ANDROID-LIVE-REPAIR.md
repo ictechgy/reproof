@@ -38,6 +38,36 @@ count `2`를 확인한 뒤 **Stop** → **Analyze & repair recording**을 누른
 `--repair-agent claude`는 설정한 샘플 제품 소스와 허용된 QA 이벤트·oracle의 외부 전송을 활성화한다.
 서버 요청으로 다른 소스 경로나 모델 주소를 지정할 수 없다. 화면 이미지는 로컬에 보관한다.
 
+<a id="startup-diagnostics"></a>
+## 시작 실패 진단 (공유 authority 경로)
+
+인증된 helper handshake는 **계측 프로세스를 시작하기 직전부터 15초**의 단일
+절대 제한 시간을 사용한다. helper APK 설치 시간은 이 제한에 포함하지 않으며,
+handshake 이후 대상 앱 설치·실행은 별도 단계다. 상태 요청도 남은 시간으로 제한한다.
+원래 permit을 재검사할 뿐 갱신하지 않으며, 일시적인 연결 거절은 제한 안에서 재시도한다.
+늦은 응답이나 이벤트 신호만으로는 시작 성공을 인정하지 않는다.
+
+실패 세션의 `errorCode`와 `error`에는 다음 고정 분류·문구만 전달한다.
+
+| `errorCode` | 고정 `error` |
+| --- | --- |
+| `android_startup_timeout` | Android helper startup timed out |
+| `android_startup_process_exited` | Android instrumentation exited before startup completed |
+| `android_startup_metadata_rejected` | Android helper startup metadata was rejected |
+| `android_startup_transport_unavailable` | Android helper startup transport is unavailable |
+| `android_startup_cancelled` | Android helper startup was cancelled |
+| `android_startup_authority_invalid` | Android helper startup authority is no longer valid |
+
+이 분류는 관찰한 실패 단계이며 근본 원인 판정이 아니다. 특히 timeout을 버전 불일치나
+KVM 문제로 해석하지 않는다. 알 수 없는 예외는 기존 일반 오류로 가린다. 계측 stdout/stderr는
+계속 버리며, 이 진단에 원시 예외 문자열·토큰·응답 payload·기기 ID를 추가하지 않는다.
+기존 권한 폐기·취소·격리 및 확인된 정리 절차는 유지되므로 실패한 세션을 성공으로 취급하거나
+격리를 우회하지 않는다. 대상 앱 설치·실행 또는 후속 정리 실패는 별도 오류로 남을 수 있다.
+
+`NATIVE_CONTRACTS`의 fake-only 회귀 테스트는 이 호스트 동작을 검증한다.
+실기기·에뮬레이터·native acceptance 근거가 아니며, 과거 에뮬레이터 시작 실패의
+실제 원인을 확정하지 않는다.
+
 ## 검증 계약
 
 - `build --output`은 원본 APK·재생 드라이버 APK와 두 빌드의 소스 digest를 새 디렉터리에 고정한다.

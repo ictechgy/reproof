@@ -204,5 +204,15 @@ company-environment acceptance.
 NATIVE_CONTRACTS exercises provider boundary code with synthetic helper replies.
 It checks declared iOS action compatibility before handshake, target installation
 and startup authority, plus Android locator display geometry and incomplete/stale
-observation rejection, without starting helpers or contacting devices. Passing
-this gate is not native compilation or real-device acceptance.
+observation rejection, without starting helpers or contacting devices. The gate
+also registers Android startup diagnostic/waiter tests and related authority,
+profile, transport, and iOS startup regressions. These use fake clocks, processes,
+events, and helper replies: no sockets or native helpers are started by the added
+tests. The existing `filesystem,process` effects and 60-second check budget remain
+unchanged; the existing portable CI step runs this expanded inventory.
+
+Run `python3 scripts/release-check.py --goal NATIVE_CONTRACTS --effects filesystem,process`.
+Passing this gate is not native compilation or real-device acceptance and does
+not establish the cause of a previous emulator startup failure. See the
+[Android startup diagnostics](ANDROID-LIVE-REPAIR.md#startup-diagnostics) for the
+fixed operator-facing failure categories and their limits.

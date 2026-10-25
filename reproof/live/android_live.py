@@ -16,8 +16,9 @@ import tempfile
 import threading
 import time
 import uuid
-from .model import LiveError,check
+from .model import LiveError,check,ANDROID_STARTUP_DIAGNOSTICS
 from ..device import AdbDevice,DeviceError
+from ..adb_endpoint import AdbEndpointError
 from ..storage import sha_file
 from ..core import compile_capture,ContractError
 from ..android_profile import (AndroidAppProfile, AndroidRuntimeProfile,
@@ -28,6 +29,9 @@ from .authority import HELPER_VERSION,NATIVE_PROTOCOL_VERSION
 HELPER='io.reproof.live'
 SAMPLE='io.reproof.sample'
 REJECTED_CODES={'editable_required','stale_geometry','invalid_bounds','invalid_pointer_id','pointer_missing','pointer_exists','raw_pointer_active','invalid_duration','secure_input','text_too_long','invalid_text','unsupported_action','target_unavailable','authority_expired'}
+ANDROID_STARTUP_TIMEOUT_SECONDS=15.0
+ANDROID_STARTUP_POLL_SECONDS=.025
+
 ACTIONS=['tap','long_press','swipe','text','home','reset','pointer']
 
 
@@ -161,6 +165,8 @@ class AndroidLiveProvider:
         self.app_log_run_id=None;self.app_log_marker=None
         self.device_authority=None;self.provider_incarnation=None
         self.native_handshake=None;self.handshake_ready=None;self._startup_permit=None
+        self._startup_lock=threading.RLock();self._startup_deadline=None
+        self._startup_result=None;self._startup_transport_failed=False
         self.native_frame_buffer_bound=False;self.native_frame_buffered=False
         self.native_frame_buffer_version=None;self.native_frame_buffer_capacity=16
         self.native_frame_timing_declared=False
@@ -173,7 +179,19 @@ class AndroidLiveProvider:
     def _check_permit(self,permit):
         check(self.device_authority is not None and permit is not None,
               'authority_required','A current device authority permit is required')
-        self.device_authority.check_dispatch_permit(permit)
+        try:self.device_authority.check_dispatch_permit(permit)
+        except ContractError:
+            with self._startup_lock:
+                if self.handshake_ready is not None and self._startup_result is None:
+                    raise self._startup_error('android_startup_authority_invalid') from None
+            raise
+    def _check_target_startup(self,permit):
+        # After the handshake, retain authority/cancellation fences but do not
+        # apply its deadline to target installation or launch.
+        self._check_permit(permit)
+        check(not self.stop.is_set() and self.process is not None
+              and self.process.poll() is None,'startup_unknown',
+              'Android target startup was interrupted')
     def _install(self,apk,package,permit=None):
         if self.device_authority is not None:self._check_permit(permit)
         if self.general_profile and package==self.target_package:
@@ -203,15 +221,64 @@ class AndroidLiveProvider:
                 'selectedArtifactDigest':self.app_profile.data['artifact']['sha256'],
                 'installedArtifactDigest':actual,'installedDigestProof':'sha256sum-single-apk',
                 'splitApkSupport':'unsupported'}
+    def _startup_error(self,code):
+        return LiveError(code,ANDROID_STARTUP_DIAGNOSTICS[code],409)
+
+    def _finish_startup_locked(self,result):
+        # Only the first terminal observation wins. Events are wakeups, not proof.
+        if self._startup_result is None:
+            self._startup_result=result
+            self.handshake_ready.set()
+        return self._startup_result
+
+    def _startup_guard_locked(self):
+        result=self._startup_result
+        if result is not None and result!='ok':
+            raise self._startup_error(result)
+        code=None
+        if self.stop.is_set():code='android_startup_cancelled'
+        else:
+            try:self._check_permit(self._startup_permit)
+            except Exception:code='android_startup_authority_invalid'
+        if code is None and self.process is not None and self.process.poll() is not None:
+            code='android_startup_process_exited'
+        if code is None and (self._startup_deadline is None or time.monotonic()>=self._startup_deadline):
+            code=('android_startup_transport_unavailable' if self._startup_transport_failed
+                  else 'android_startup_timeout')
+        if code is not None:
+            self._finish_startup_locked(code)
+            raise self._startup_error(code)
+
+    def _wait_startup(self):
+        while True:
+            with self._startup_lock:
+                self._startup_guard_locked()
+                if self._startup_result=='ok' and self.native_handshake is not None:
+                    return
+                remaining=self._startup_deadline-time.monotonic()
+            # Never accept an event without the lock-protected terminal result.
+            signaled=self.handshake_ready.wait(min(ANDROID_STARTUP_POLL_SECONDS,remaining))
+            if signaled:
+                with self._startup_lock:
+                    if self._startup_result is None:
+                        self._finish_startup_locked('android_startup_metadata_rejected')
+
     def start_authorized(self,session,lab,permit):
-        self._check_permit(permit);self._startup_permit=permit
-        identity=self.device.apk_identity(self.helper_apk)
-        check(identity=={'package':HELPER,'versionCode':HELPER_VERSION},'startup_rejected',
-              'Android helper artifact has an incompatible version',400)
+        self._startup_permit=permit
         self.handshake_ready=threading.Event()
-        self.start(session,lab,permit=permit)
-        check(self.handshake_ready.wait(15) and self.native_handshake is not None,
-              'native_protocol_mismatch','Android helper handshake did not complete')
+        try:
+            try:self._check_permit(permit)
+            except Exception:
+                raise self._startup_error('android_startup_authority_invalid') from None
+            identity=self.device.apk_identity(self.helper_apk)
+            check(identity=={'package':HELPER,'versionCode':HELPER_VERSION},'startup_rejected',
+                  'Android helper artifact has an incompatible version',400)
+            self.start(session,lab,permit=permit)
+            # Target installation and launch are separate phases, not part of
+            # the handshake deadline. They continue to check the original permit.
+        except Exception:
+            self.stop.set()
+            raise
         result={'ok':True}
         if self.general_profile:
             check(self.installed_identity_evidence is not None,'app_changed',
@@ -265,35 +332,46 @@ class AndroidLiveProvider:
             check(raw.isdigit() and 1024<=int(raw)<=65535,'forward_failed','ADB did not allocate a local port')
             self.port=int(raw);self.transport=UsbBridgeClient(self.port,self.token)
         if self.device_authority is not None:self._check_permit(permit)
-        if self._managed_device:
-            self.process=self.device.start_live_instrumentation(HELPER)
-        else:
-            self.process=subprocess.Popen([self.device.adb,'-s',self.device.serial,'shell','am instrument -w -r '+HELPER+'/.LiveInstrumentation'],
-                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+        if self.device_authority is not None:
+            with self._startup_lock:
+                self._startup_deadline=time.monotonic()+ANDROID_STARTUP_TIMEOUT_SECONDS
+        try:
+            if self._managed_device:
+                self.process=self.device.start_live_instrumentation(HELPER)
+            else:
+                self.process=subprocess.Popen([self.device.adb,'-s',self.device.serial,'shell','am instrument -w -r '+HELPER+'/.LiveInstrumentation'],
+                    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+        except (OSError,DeviceError,AdbEndpointError):
+            if self.device_authority is not None:
+                with self._startup_lock:
+                    self._finish_startup_locked('android_startup_transport_unavailable')
+                raise self._startup_error('android_startup_transport_unavailable') from None
+            raise
         self.thread=threading.Thread(target=self._poll,daemon=True);self.thread.start()
         if self.device_authority is not None:
-            check(self.handshake_ready.wait(15) and self.native_handshake is not None,
-                  'native_protocol_mismatch','Android helper handshake did not complete')
+            self._wait_startup()
+            self._check_target_startup(permit)
         self._install(install_apk,self.target_package,permit)
         # These are sample-only fixture operations; no user app data is cleared.
-        if self.device_authority is not None:self._check_permit(permit)
+        if self.device_authority is not None:self._check_target_startup(permit)
         self.device.shell('am','force-stop',self.target_package)
         if self.record_sdk or self.automatic_app_logs:
             # Published captures survive a force-stop. Remove only that latest
             # pointer and active-session identity so an old report cannot be
             # mistaken for this run; session directories remain available for
             # crash recovery.
-            if self.device_authority is not None:self._check_permit(permit)
+            if self.device_authority is not None:self._check_target_startup(permit)
             cleanup=('files/repro/app-log-session.json' if self.general_profile else
                      'files/repro/capture.json files/repro/current-session')
             self.device.shell('run-as',self.target_package,'sh','-c','rm -f '+cleanup,timeout=10)
         mode='record' if self.record_sdk else 'replay'
         self.app_log_run_id=str(uuid.uuid4()) if self.automatic_app_logs else None
         log_args=['--es','repro_log_run_id',self.app_log_run_id] if self.app_log_run_id else []
-        if self.device_authority is not None:self._check_permit(permit)
+        if self.device_authority is not None:self._check_target_startup(permit)
         if self.general_profile:
             check(self.helper_ready.wait(15),'native_protocol_mismatch',
                   'Android helper did not become ready before target launch')
+            if self.device_authority is not None:self._check_target_startup(permit)
             launch_payload={'applicationId':self.app_profile.data['applicationId']}
             launched=self._execute('launch',launch_payload,permit=permit)
             check(launched.get('ok') is True,'startup_unknown',
@@ -336,31 +414,80 @@ class AndroidLiveProvider:
                 self.frame_map[session['frameSequence']]=metadata['geometryVersion']
                 while len(self.frame_map)>60:self.frame_map.popitem(last=False)
     def _poll(self):
+        # The legacy un-authorized path and post-handshake readiness keep their
+        # own budget. Only authenticated handshake shares the caller's deadline.
         deadline=time.monotonic()+30;ready=False
-        while not self.stop.wait(.025):
-            if self.process.poll() is not None:
-                self.lab.fail(self.sid,'Android instrumentation stopped; close the session');return
+        while not self.stop.wait(ANDROID_STARTUP_POLL_SECONDS):
+            with self._startup_lock:
+                startup=(self.device_authority is not None and self._startup_result!='ok')
+            transport_pending=False
             try:
+                if startup:
+                    with self._startup_lock:
+                        self._startup_guard_locked()
+                        timeout=min(2,self._startup_deadline-time.monotonic())
+                else:
+                    timeout=2
+                    if self.process.poll() is not None:
+                        self.lab.fail(self.sid,'Android instrumentation stopped; close the session');return
                 clock=getattr(self,'frame_clock',None)
                 if not ready or (clock is not None and clock.refresh_due()):
                     sent=clock.synchronizer.sample() if clock is not None else None
-                    status=self.transport.call('/status',timeout=2)
+                    if startup and self.transport is None:
+                        raise self._startup_error('android_startup_transport_unavailable')
+                    if startup:
+                        with self._startup_lock:
+                            self._startup_guard_locked()
+                            timeout=min(2,self._startup_deadline-time.monotonic())
+                            if timeout<=0:
+                                self._startup_guard_locked()
+                    transport_pending=True
+                    try:
+                        status=self.transport.call('/status',timeout=timeout)
+                    except (DeviceError,AdbEndpointError):
+                        if startup:
+                            raise self._startup_error('android_startup_transport_unavailable') from None
+                        raise
+                    transport_pending=False
+                    if startup:
+                        with self._startup_lock:self._startup_guard_locked()
                     received=clock.synchronizer.sample() if clock is not None else None
                     self._validate_native_metadata(status)
                     if clock is not None:
                         clock.accept_status(self.native_handshake,status,sent,received)
+                    if startup:
+                        with self._startup_lock:
+                            self._startup_guard_locked()
+                            if self.native_handshake is None:
+                                raise self._startup_error('android_startup_metadata_rejected')
+                            self._finish_startup_locked('ok')
+                        deadline=time.monotonic()+30
                     ready=status.get('ready') is True
                     if ready:self.helper_ready.set()
+                    if startup:continue
                     if not ready:
                         check(time.monotonic()<deadline,'startup_timeout','Android helper did not start')
                         continue
                 if self.general_profile and not self.target_launched:
                     continue
                 self._receive_frame()
-            except LiveError as exc:
-                self.lab.fail(self.sid, str(exc))
-                return
-            except Exception:
+            except Exception as exc:
+                if startup:
+                    with self._startup_lock:
+                        if transport_pending and isinstance(exc,(OSError,http.client.HTTPException)):
+                            # A socket may not exist yet. Retry without renewing
+                            # authority or resetting the absolute deadline.
+                            self._startup_transport_failed=True
+                            try:self._startup_guard_locked()
+                            except LiveError:return
+                            continue
+                        code=(exc.code if isinstance(exc,LiveError)
+                              and exc.code in ANDROID_STARTUP_DIAGNOSTICS
+                              else 'android_startup_metadata_rejected')
+                        self._finish_startup_locked(code)
+                    return
+                if isinstance(exc,LiveError):
+                    self.lab.fail(self.sid,str(exc));return
                 if ready or time.monotonic()>=deadline:
                     self.lab.fail(self.sid,'Android stream disconnected; close and reconnect the device');return
     def _validate_native_metadata(self, value):
@@ -410,20 +537,28 @@ class AndroidLiveProvider:
                       and value['capabilities']['viewsObservationLaunchVersion']==2,
                       'native_protocol_mismatch','Android helper does not support configured Views observations',400)
         if self.device_authority is not None and self.native_handshake is None:
-            permit=self._startup_permit
-            try:
-                self.native_handshake=self.device_authority.bind_native_handshake(
-                    permit,protocol_version=value.get('protocolVersion'),
-                    helper_version=value.get('helperVersion'),
-                    helper_incarnation=value.get('helperIncarnation'),
-                    provider_incarnation=value.get('providerIncarnation'),
-                    native_incarnation=value.get('nativeIncarnation'),
-                    native_clock_id=value.get('nativeClockId'),
-                    native_time_ms=value.get('nativeTimeMs'),
-                )
-            except ContractError:
-                raise LiveError('native_protocol_mismatch','Android helper protocol is incompatible',400) from None
-            if self.handshake_ready is not None:self.handshake_ready.set()
+            with self._startup_lock:
+                self._startup_guard_locked()
+                permit=self._startup_permit
+                try:
+                    handshake=self.device_authority.bind_native_handshake(
+                        permit,protocol_version=value.get('protocolVersion'),
+                        helper_version=value.get('helperVersion'),
+                        helper_incarnation=value.get('helperIncarnation'),
+                        provider_incarnation=value.get('providerIncarnation'),
+                        native_incarnation=value.get('nativeIncarnation'),
+                        native_clock_id=value.get('nativeClockId'),
+                        native_time_ms=value.get('nativeTimeMs'),
+                    )
+                except ContractError:
+                    # A concurrently expired/revoked permit is not a version
+                    # mismatch. Recheck the same permit; never renew it here.
+                    self._startup_guard_locked()
+                    code='android_startup_metadata_rejected'
+                    self._finish_startup_locked(code)
+                    raise self._startup_error(code) from None
+                self._startup_guard_locked()
+                self.native_handshake=handshake
         return value
     def observe(self):
         return self._validate_native_metadata(self.transport.call('/inspect'))
