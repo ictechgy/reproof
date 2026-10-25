@@ -13,7 +13,7 @@ class BrowserLogicTests(unittest.TestCase):
     def test_current_and_legacy_browser_logic(self):
         self.assertIsNotNone(shutil.which('node'), 'Installed Node is required')
         files = ['issue.test.mjs', 'video.test.mjs', 'pointer.test.mjs', 'stream.test.mjs']
-        result = subprocess.run(['node', '--test', *['live-web/' + name for name in files]],
+        result = subprocess.run(['node', '--test', '--test-reporter=tap', *['live-web/' + name for name in files]],
             cwd=ROOT, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout[-8000:] + result.stderr[-2000:])
         count = re.search(r'^# tests (\d+)$', result.stdout, re.MULTILINE)

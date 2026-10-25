@@ -37,6 +37,23 @@ No external ticket service is contacted. The ticket ID's namespace and meaning
 are the reviewer's responsibility; storing `QA-42` does not authenticate a
 provider or verify a ticket exists.
 
+## Browser workbench
+
+In the authenticated workbench, select an issue with a saved specification and
+use **Export package**. The **Ticket references** panel displays the returned
+package ID with the displayed revision and specification SHA-256. Enter a ticket
+ID and select **Link exported package**. This sends only the four fields below;
+it does not export implicitly or contact a tracker. **Refresh references** is a
+read-only retry, including when a link may have completed but its response failed.
+Matching/stale status is reference provenance only, never approval or verification.
+
+The package candidate exists only in browser memory. A fresh explicit export is
+required after navigation or reload, sign-out, capability/project/revision changes,
+expiry or a failed reference request. Navigation and sign-out cancel pending reads
+and links; late responses cannot restore the old issue's package or references.
+An interrupted link may have committed on the server, so refresh before retrying.
+The server remains authoritative for retention and current revision checks.
+
 ## API and immutable binding
 
 `POST /api/release/issues/{issueId}/ticket-references` accepts exactly:
@@ -114,6 +131,46 @@ linking does not extend evidence retention. A read checks retention and
 permissions again before returning. As with other APIs, previously downloaded
 information cannot be recalled.
 
+## Find an existing reference by ticket ID
+
+When the Reproof issue ID is unknown, use an exact project-scoped lookup:
+
+```sh
+python3 -m reproof live-issues ticket-lookup \
+  --project checkout --ticket-id QA-42 --credential-stdin
+```
+
+The authenticated API is `POST /api/release/projects/{projectId}/ticket-lookup`
+with exactly `{"ticketId":"QA-42"}`. POST keeps the external identifier out of
+URL paths/query strings and requires the existing browser CSRF protection. This
+is a read-only operation: it does not create a reference, contact a provider,
+export evidence, approve a specification, or start replay/repair.
+
+The response has `references` (sorted by reference ID) and `unavailableCount`,
+with the same retention and stale/current semantics as issue-scoped history.
+Each reference includes its `issueId`; multiple issues and package revisions
+can legitimately share one ticket ID. No single result is silently selected.
+Matching is case-sensitive and exact (`QA-42`, `qa-42`, and `QA-420` differ),
+and restricted to the explicitly selected project. There is no substring,
+wildcard, cross-project search, provider namespace inference, or ticket prose.
+No matches returns an empty list only after authorization succeeds.
+
+Both `specification.maintain` and `export.read` remain required, including for
+empty results. Every matching issue's resource/project binding, current source
+retention, project registration and package retention are rechecked. A stale
+registration, expired source or revoked permission fails the whole operation
+closed; unavailable linked packages are omitted and counted without metadata.
+Other projects and other ticket IDs do not contribute to results or counts.
+
+Lookup scans the existing bounded local index (8192 total documents / 8 MiB),
+with at most 64 matching stored references, including unavailable references.
+More matches returns `ticket_lookup_limit` (409), never a partial/truncated
+result; use issue-scoped history instead. A cooperative 30-second lookup budget
+is checked between issue validations and before return (`ticket_lookup_timeout`,
+408); it does not interrupt an individual storage read. There is no pagination
+or new database migration. The browser's existing issue-scoped history is
+unchanged; project lookup is available through API/CLI only.
+
 ## Portable verification boundary
 
 ```sh
@@ -135,3 +192,13 @@ PNG fixture uses an exact-byte test validator, not a native media decoder. This
 is not device, native-decoder, company-app, external-ticket, AI-provider or
 protected-repair qualification. No company data or external integrations are
 required or exercised.
+
+The UI state and request checks are included in the existing Node browser-logic
+wrapper (`python3 -m unittest tests.test_g7_browser_logic`). The separate optional
+`python3 -m unittest tests.test_ticket_reference_browser -v` smoke uses installed
+Chromium and Python Playwright with disposable profiles, synthetic issue/package
+fixtures and the authenticated loopback server. It checks mobile layout, repeated
+link identity, unchanged approval/execution, delayed navigation/sign-out responses,
+logout retry, revision changes, package expiry and permission revocation. Missing
+browser prerequisites fail explicitly; they are not a skipped pass or part of the
+stdlib portable gate. Browser coverage does not qualify native devices or trackers.

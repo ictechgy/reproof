@@ -150,8 +150,18 @@ contract, limits and pilot verification boundary before enabling a workflow.
 ## Project-scoped ticket references
 
 Maintainers can now [link a bounded ticket identifier to an explicitly exported
-package](TICKET-REFERENCES.md) through authenticated HTTP and the `ticket-link` /
-`ticket-references` CLI commands. Links bind exact current project, source,
+package](TICKET-REFERENCES.md) in the authenticated browser workbench, through HTTP, or with the `ticket-link` /
+`ticket-references` CLI commands. When only the external ticket ID is known,
+`ticket-lookup --project PROJECT_ID --ticket-id QA-42` finds exact retained
+references within that project through the authenticated API/CLI. Links bind exact current project, source,
 recording, specification and capsule digests, with bounded immutable audit and
 stale/retention checks. They neither authenticate an external ticket provider nor
 create approval, replay or repair authority.
+
+
+In the browser, explicitly export the displayed saved revision, then use the
+Ticket references panel to enter an identifier and link the shown package ID.
+Refresh reads matching/stale references and an unavailable count without exposing
+expired metadata. The memory-only package choice clears on navigation, sign-out,
+capability/revision changes, detected expiry and failed reference requests. A link
+never exports, approves, replays or repairs implicitly, and never contacts a tracker.

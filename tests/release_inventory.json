@@ -1249,7 +1249,8 @@
             "tests.test_app_logs",
             "tests.test_repair_diagnostics",
             "tests.test_offline_repair_demo",
-            "tests.test_sdk_review"
+            "tests.test_sdk_review",
+            "tests.test_sdk_review_cli"
           ],
           "environment": "local-python-standard-library",
           "effects": [
@@ -1405,6 +1406,28 @@
             "native-compile"
           ],
           "timeoutSeconds": 360,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "WEB_CONTRACTS": {
+      "available": true,
+      "checks": [
+        {
+          "id": "current-and-legacy-browser-logic",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_g7_browser_logic"
+          ],
+          "environment": "installed-node-browser-logic",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 60,
           "evidence": "unittest-summary",
           "gate": "software"
         }

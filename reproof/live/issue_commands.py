@@ -36,6 +36,9 @@ def add_issue_parser(commands):
             child.add_argument('--package-id', required=True)
             child.add_argument('--revision', type=int, required=True)
             child.add_argument('--specification-digest', required=True)
+    lookup = operations.add_parser('ticket-lookup', help='Find exact ticket references within one project')
+    lookup.add_argument('--project', required=True); lookup.add_argument('--ticket-id', required=True)
+    leaves.append(lookup)
     start = operations.add_parser('start'); leaves.append(start)
     for name in ('project', 'application', 'build', 'device'): start.add_argument('--' + name, required=True)
     start.add_argument('--preparation', action='append', default=[]); start.add_argument('--unprepared', action='store_true')
@@ -84,6 +87,11 @@ def run_issue_command(args):
     elif args.operation == 'replay': result = client.call(path + '/replay', {
         'deviceId': args.device, 'clientId': args.client_id or 'cli_' + uuid.uuid4().hex,
         'specificationDigest': args.specification_digest})
+    elif args.operation == 'ticket-lookup':
+        from ..contracts.versions import validate_id, validate_external_ticket_id
+        validate_id(args.project)
+        validate_external_ticket_id(args.ticket_id)
+        result = client.call('/api/release/projects/' + args.project + '/ticket-lookup', {'ticketId': args.ticket_id})
     elif args.operation == 'ticket-references': result = client.call(path + '/ticket-references')
     elif args.operation == 'ticket-link': result = client.call(path + '/ticket-references', {
         'ticketId': args.ticket_id, 'packageId': args.package_id,

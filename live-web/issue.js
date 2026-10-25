@@ -39,7 +39,9 @@ export function repairPresentation({ project, view, jobs = [], principal, dirty 
 }
 
 export class ReleaseClient {
-  constructor({ fetcher = (...args) => globalThis.fetch(...args), csrf = null } = {}) { this.fetcher = fetcher; this.csrf = csrf; }
+  constructor({ fetcher = (...args) => globalThis.fetch(...args), csrf = null } = {}) {
+    this.fetcher = fetcher; this.csrf = csrf; this.logoutCsrf = null; this.logoutPromise = null;
+  }
   async request(path, { method = "GET", body, headers = {}, signal } = {}) {
     const timeout = AbortSignal.timeout(70000);
     const response = await this.fetcher(path, { method, body: body === undefined ? undefined : JSON.stringify(body),
@@ -57,8 +59,141 @@ export class ReleaseClient {
   post(path, body = {}, options = {}) { return this.request(path, { ...options, method: "POST", body }); }
   async login(credential) {
     const result = await this.post("/api/auth/session", {}, { headers: { Authorization: `Bearer ${credential}` } });
-    this.csrf = result.csrfToken; return result;
+    this.csrf = result.csrfToken; this.logoutCsrf = null; return result;
   }
+  logout() {
+    if (this.logoutPromise) return this.logoutPromise;
+    // A failed sign-out must remain retryable after local UI state is cleared.
+    this.logoutCsrf = this.csrf || this.logoutCsrf; this.csrf = null;
+    this.logoutPromise = this.post("/api/auth/logout", {}, { headers: { "X-Repro-CSRF": this.logoutCsrf } })
+      .then((result) => { this.logoutCsrf = null; return result; })
+      .finally(() => { this.logoutPromise = null; });
+    return this.logoutPromise;
+  }
+}
+
+// The candidate is intentionally memory-only: exporting is a separate explicit
+// action, and neither a ticket ID nor an existing reference grants authority.
+export class TicketReferenceState {
+  constructor(api, { now = () => Date.now(), changed = () => {} } = {}) {
+    this.api = api; this.now = now; this.changed = changed;
+    this.key = null; this.context = null; this.generation = 0;
+    this.scope = new AbortController(); this.clear();
+  }
+  clear() {
+    this.scope.abort(); this.scope = new AbortController(); this.generation += 1;
+    this.candidate = null; this.references = []; this.unavailableCount = 0;
+    this.loaded = false; this.busy = false; this.message = "";
+  }
+  reset() { this.clear(); this.key = null; this.context = null; }
+  sync({ project, view, principal }) {
+    const allowed = ["specification.maintain", "export.read"].every((name) => project?.capabilities.includes(name));
+    const context = allowed && view?.specification && view.recording?.original && project.id === view.issue.projectId
+      ? { issueId: view.issue.id, projectId: project.id, projectDigest: project.projectDigest,
+        baseRevision: view.specification.revision, baseSpecificationDigest: view.specificationDigest,
+        recordingDigest: view.recording.recordingDigest } : null;
+    const key = context ? JSON.stringify([context, principal, [...project.capabilities].sort()]) : null;
+    if (key !== this.key) { this.clear(); this.key = key; }
+    this.context = context;
+    if (this.candidate && this.candidate.expiresAtMs <= this.now()) {
+      this.clear(); this.message = "Exported package expired. Export again before linking.";
+    }
+    return this.context;
+  }
+  capture() { return this.context ? { generation: this.generation, key: this.key, ...this.context } : null; }
+  current(token) {
+    // Check time on completion too, not just on the next UI polling tick.
+    if (this.candidate && this.candidate.expiresAtMs <= this.now()) {
+      this.clear(); this.message = "Exported package expired. Export again before linking.";
+      this.changed();
+    }
+    return Boolean(token && token.generation === this.generation && token.key === this.key);
+  }
+  acceptExport(packaged, token) {
+    if (!this.current(token)) return false;
+    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(packaged?.id || "") || packaged.projectId !== token.projectId
+      || packaged.projectDigest !== token.projectDigest || !Number.isFinite(packaged.expiresAtMs)
+      || packaged.expiresAtMs <= this.now()) throw new Error("Exported package no longer matches this project or retention window");
+    this.candidate = { id: packaged.id, expiresAtMs: packaged.expiresAtMs };
+    this.message = ""; this.changed(); return true;
+  }
+  async run(operation) {
+    const token = this.capture();
+    if (!token || this.busy) return;
+    this.busy = true; this.message = ""; this.changed();
+    try { await operation(token, this.scope.signal); }
+    catch (error) {
+      if (this.current(token)) {
+        // Never retain a prior list (or revive a candidate) after a failed read
+        // or uncertain write. Refresh can discover a write that did complete.
+        this.clear();
+        this.message = "References unavailable. Refresh to check any completed link; export again before linking.";
+        this.changed();
+        if (error.name !== "AbortError") throw error;
+      }
+    } finally {
+      if (this.current(token)) { this.busy = false; this.changed(); }
+    }
+  }
+  async read(token, signal) {
+    const result = await this.api.request(`${ROOT}/issues/${token.issueId}/ticket-references`, { signal });
+    if (!this.current(token)) return;
+    if (this.candidate && result.unavailableCount > this.unavailableCount
+      && !result.references.some((reference) => reference.packageId === this.candidate.id)) {
+      this.clear(); this.message = "Package retention changed. Export again before linking.";
+    }
+    this.references = result.references; this.unavailableCount = result.unavailableCount; this.loaded = true; this.changed();
+  }
+  refresh() { return this.run((token, signal) => this.read(token, signal)); }
+  link(ticketId) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(ticketId)) throw new Error("Use a ticket ID of 1–64 letters, numbers, underscores or hyphens, starting with a letter or number");
+    if (!this.current(this.capture()) || !this.candidate) throw new Error("Export this saved revision before linking a ticket");
+    const packageId = this.candidate.id;
+    return this.run(async (token, signal) => {
+      await this.api.post(`${ROOT}/issues/${token.issueId}/ticket-references`, {
+        ticketId, packageId, baseRevision: token.baseRevision, baseSpecificationDigest: token.baseSpecificationDigest,
+      }, { signal });
+      if (!this.current(token)) return;
+      await this.read(token, signal);
+      if (this.current(token)) this.message = "Reference saved. Approval, replay and repair are unchanged.";
+    });
+  }
+}
+
+export async function refreshIssueView({ state, api, issuePath, renderView, refreshRepairs, tickets, refreshCatalog }) {
+  if (!state.view) return;
+  const generation = state.generation; const sequence = ++state.readSequence;
+  const view = await api.request(issuePath(), { signal: state.scope.signal });
+  if (generation !== state.generation || sequence !== state.readSequence) return;
+  const completed = state.view.issue.state !== view.issue.state && !ACTIVE.has(view.issue.state);
+  state.view = view; renderView();
+  await refreshRepairs();
+  await tickets.refresh();
+  if (completed) await refreshCatalog();
+}
+
+export async function pollIssueWorkspace({ state, api, tickets, syncTickets, renderTickets, refreshView,
+  liveFrame, refreshCatalog, resetScope, notice, hidden = () => document.hidden }) {
+  syncTickets(); renderTickets();
+  if (!api.csrf || state.polling || state.busy || hidden()) return;
+  state.polling = true; const generation = state.generation;
+  try {
+    if (state.view) { await refreshView(); if (generation === state.generation) await liveFrame(generation); }
+    // Worker availability can arrive after the issue's terminal response.
+    // Refresh the catalog even while no issue is selected.
+    if (generation === state.generation && performance.now() - state.lastCatalogAt >= 5000) await refreshCatalog();
+  }
+  catch (error) {
+    if (error.name !== "AbortError" && generation === state.generation) {
+      // An issue or repair read can fail before ticket references are read.
+      // Do not leave an earlier retained/current list or export usable then.
+      tickets.clear();
+      tickets.message = "References unavailable. Refresh to check references; export again before linking.";
+      renderTickets();
+      if ([401, 403, 404, 410].includes(error.status)) resetScope();
+      notice(error.message);
+    }
+  } finally { state.polling = false; }
 }
 
 export function assertionFromFields(role, fields) {
@@ -214,6 +349,16 @@ const TEMPLATE = `
         <p id="qa-approval-note" class="qa-muted"></p>
         <div class="button-row"><button class="button button-primary" id="qa-replay" disabled>Replay · 3 original attempts</button><button class="button button-secondary" id="qa-export">Export package</button></div>
       </section>
+      <section id="qa-ticket-panel" hidden aria-labelledby="qa-ticket-title">
+        <div class="qa-divider"></div><h3 id="qa-ticket-title">Ticket references</h3>
+        <p class="qa-muted">Reference only. No tracker is contacted. Linking does not approve, replay or repair an issue.</p>
+        <p id="qa-ticket-candidate" class="qa-revision"></p>
+        <label class="qa-field"><span>Ticket ID</span><input id="qa-ticket-id" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}" autocomplete="off" placeholder="QA-42" /></label>
+        <p class="qa-muted">Use only an identifier, not a URL, ticket text or confidential information.</p>
+        <div class="button-row"><button class="button button-primary" id="qa-ticket-link" disabled>Link exported package</button><button class="button button-secondary" id="qa-ticket-refresh" disabled>Refresh references</button></div>
+        <p id="qa-ticket-status" class="qa-muted" role="status" aria-live="polite"></p>
+        <div id="qa-ticket-list" class="qa-ticket-list"></div>
+      </section>
       <section id="qa-results-panel" hidden><h3>Replay results</h3><p class="qa-muted">Injection, observations and reproduction are reported separately. This run does not validate a code repair.</p><div id="qa-results"></div><details class="qa-details"><summary>Predicate and cleanup receipts</summary><pre id="qa-results-detail"></pre></details></section>
     </aside>
   </main>`;
@@ -244,6 +389,12 @@ export function mountIssueConsole(root, mode) {
     } else $("timing").textContent = point.kind === "gap" ? `No frame is evidence for ${ms(point.offsetMs)}. ${point.reason}` : $("media-empty").textContent;
     $("play").disabled = empty; $("pause").disabled = empty;
   });
+  const tickets = new TicketReferenceState(api, { changed: () => renderTickets() });
+  let logoutPending = false;
+  function syncTickets() {
+    const previous = tickets.key; tickets.sync(state);
+    if (previous !== tickets.key) $("ticket-id").value = "";
+  }
   const capability = (name) => state.project?.capabilities.includes(name);
   const issuePath = (suffix = "") => `${ROOT}/issues/${state.view.issue.id}${suffix}`;
   function clearImage() {
@@ -252,6 +403,7 @@ export function mountIssueConsole(root, mode) {
     state.imageURL = null; state.frameId = null; state.frame = null;
   }
   function resetScope() {
+    tickets.reset(); $("ticket-id").value = "";
     state.generation += 1; state.readSequence += 1; state.catalogSequence += 1;
     state.scope.abort(); state.scope = new AbortController();
     player.setIssue(null, null); clearImage(); state.session = null; state.view = null;
@@ -285,7 +437,24 @@ export function mountIssueConsole(root, mode) {
     $("export").disabled = state.busy || !capability("export.read");
     $("import").disabled = state.busy || !capability("recording.import");
     $("start").textContent = $("unprepared").checked ? "Record · initial state unknown" : "Prepare & record";
-    renderRepairs();
+    syncTickets(); renderTickets(); renderRepairs();
+  }
+  function renderTickets() {
+    $("ticket-panel").hidden = !tickets.context;
+    $("ticket-candidate").textContent = tickets.candidate
+      ? `Exported package ${tickets.candidate.id} · Revision ${tickets.context.baseRevision} · SHA-256 ${tickets.context.baseSpecificationDigest}`
+      : "Explicitly export this saved revision to choose a package for linking. The choice is not saved across navigation or reload.";
+    $("ticket-link").disabled = state.busy || tickets.busy || state.dirty || !tickets.candidate || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test($("ticket-id").value);
+    $("ticket-refresh").disabled = state.busy || tickets.busy || !tickets.context;
+    const summary = tickets.loaded ? `${tickets.references.length} retained reference(s). ${tickets.unavailableCount} unavailable reference(s) omitted. Status is not approval or verification.` : "";
+    $("ticket-status").textContent = [tickets.message || (tickets.busy ? "Checking references…" : !tickets.loaded ? "Refresh to load references." : ""), summary].filter(Boolean).join(" ");
+    $("ticket-list").replaceChildren();
+    for (const reference of tickets.references) {
+      const row = node("div", undefined, "qa-result");
+      row.append(node("strong", reference.ticketId), node("p", reference.status === "matches-current-revision" ? "Matches current revision · reference only" : "Stale · does not match current revision"),
+        node("p", `Package ${reference.packageId} · Revision ${reference.baseRevision}`, "qa-muted"));
+      $("ticket-list").append(row);
+    }
   }
   const repairState = () => repairPresentation({ project: state.project, view: state.view, jobs: state.repairs,
     principal: state.principal, dirty: state.dirty, busy: state.busy, selectedId: state.selectedRepairId });
@@ -426,18 +595,10 @@ export function mountIssueConsole(root, mode) {
     if (generation !== state.generation) return;
     state.view = view; renderView(); renderLibrary();
     await refreshRepairs();
+    await tickets.refresh();
     if (view.issue.state === "recording") await liveFrame(generation);
   }
-  async function refreshView() {
-    if (!state.view) return;
-    const generation = state.generation; const sequence = ++state.readSequence;
-    const view = await api.request(issuePath(), { signal: state.scope.signal });
-    if (generation !== state.generation || sequence !== state.readSequence) return;
-    const completed = state.view.issue.state !== view.issue.state && !ACTIVE.has(view.issue.state);
-    state.view = view; renderView();
-    await refreshRepairs();
-    if (completed) await refreshCatalog();
-  }
+  const refreshView = () => refreshIssueView({ state, api, issuePath, renderView, refreshRepairs, tickets, refreshCatalog });
   function renderView() {
     const view = state.view; const issue = view.issue; const original = view.recording?.original;
     const listed = state.issues.findIndex((item) => item.id === issue.id);
@@ -667,11 +828,18 @@ export function mountIssueConsole(root, mode) {
       } finally { credential = ""; }
     });
   });
-  $("logout").addEventListener("click", () => mutation(async () => {
-    await api.post("/api/auth/logout"); resetScope(); api.csrf = null; state.principal = null;
+  $("logout").addEventListener("click", async () => {
+    if (logoutPending) return; logoutPending = true; $("logout").disabled = true;
+    $("login-form").querySelector("button").disabled = true;
+    // Clear displayed/private state immediately, even while another operation
+    // is pending or the logout request fails. Never restore it in a catch.
+    resetScope(); state.projects = []; state.issues = []; state.project = null;
+    const pending = api.logout(); state.principal = null;
     memory.set("repro-qa-csrf", null); memory.set("repro-qa-principal", null);
     $("workspace").hidden = true; $("login-panel").hidden = false; $("logout").hidden = true; $("identity").textContent = "Shared coordinator";
-  }));
+    try { await pending; } catch { notice("Local session cleared, but server sign-out could not be confirmed. Retry signing out before leaving a shared browser."); $("logout").hidden = false; }
+    finally { logoutPending = false; $("logout").disabled = false; $("login-form").querySelector("button").disabled = false; }
+  });
   $("project").addEventListener("change", () => chooseProject($("project").value));
   $("application").addEventListener("change", applicationChanged);
   $("device").addEventListener("change", deviceNote); $("build").addEventListener("change", controls);
@@ -724,12 +892,23 @@ export function mountIssueConsole(root, mode) {
     await api.post(`${ROOT}/repairs/${active.id}/cancel`, {}, { signal: state.scope.signal }); await refreshRepairs();
   }));
   $("export").addEventListener("click", () => mutation(async () => {
-    const generation = state.generation;
+    const generation = state.generation; syncTickets(); tickets.clear(); const token = tickets.capture();
     const { package: packaged } = await api.post(issuePath("/export"), {}, { signal: state.scope.signal });
     if (generation !== state.generation) return;
+    // Export returns package metadata, not a specification. Re-read the saved
+    // issue before adopting the candidate so a concurrent revision is rejected.
+    await refreshView();
+    if (generation !== state.generation) return;
+    tickets.acceptExport(packaged, token);
     const link = node("a"); link.href = `${ROOT}/projects/${packaged.projectId}/packages/${packaged.id}/export`;
     link.download = "issue.repro.zip"; link.click();
   }));
+  $("ticket-id").addEventListener("input", () => { syncTickets(); renderTickets(); });
+  $("ticket-link").addEventListener("click", () => mutation(async () => {
+    syncTickets(); if (state.dirty) throw new Error("Save or reload your edits before linking");
+    await tickets.link($("ticket-id").value);
+  }));
+  $("ticket-refresh").addEventListener("click", () => mutation(() => { syncTickets(); return tickets.refresh(); }));
   $("import").addEventListener("change", () => {
     const file = $("import").files[0]; $("import").value = ""; if (!file) return;
     mutation(async () => {
@@ -748,23 +927,9 @@ export function mountIssueConsole(root, mode) {
   });
   $("seek").addEventListener("input", () => player.seek(Number($("seek").value)));
   $("play").addEventListener("click", () => player.play()); $("pause").addEventListener("click", () => player.pause());
-  const timer = setInterval(async () => {
-    if (!api.csrf || state.polling || state.busy || document.hidden) return;
-    state.polling = true; const generation = state.generation;
-    try {
-      if (state.view) { await refreshView(); if (generation === state.generation) await liveFrame(generation); }
-      // Worker availability can arrive after the issue's terminal response.
-      // Refresh the catalog even while no issue is selected.
-      if (generation === state.generation && performance.now() - state.lastCatalogAt >= 5000) await refreshCatalog();
-    }
-    catch (error) {
-      if (error.name !== "AbortError" && generation === state.generation) {
-        if ([401, 403, 404, 410].includes(error.status)) resetScope();
-        notice(error.message);
-      }
-    } finally { state.polling = false; }
-  }, 1000);
-  const dispose = () => { clearInterval(timer); state.scope.abort(); player.dispose(); clearImage(); };
+  const timer = setInterval(() => pollIssueWorkspace({ state, api, tickets, syncTickets, renderTickets,
+    refreshView, liveFrame, refreshCatalog, resetScope, notice }), 1000);
+  const dispose = () => { tickets.reset(); renderTickets(); clearInterval(timer); state.scope.abort(); player.dispose(); clearImage(); };
   window.addEventListener("pagehide", dispose, { once: true });
   document.addEventListener("visibilitychange", () => { if (document.hidden) player.pause(); });
   controls();

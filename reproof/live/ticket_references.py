@@ -17,6 +17,8 @@ from .model import check
 
 
 MAX_TICKET_REFERENCES = 64
+MAX_TICKET_LOOKUP_MATCHES = 64
+TICKET_LOOKUP_SECONDS = 30
 _UNAVAILABLE = {"package_expired", "package_removed", "package_unavailable", "package_not_found"}
 
 
@@ -125,13 +127,83 @@ class TicketReferenceMixin:
             guard()
         return {"reference": reference, "status": "matches-current-revision"}
 
+    def lookup_ticket_references(self, principal, project_id, body):
+        """Exact project/identifier lookup; never a fuzzy or cross-project search."""
+        validate_id(project_id)
+        exact(body, ("ticketId",))
+        ticket_id = contracts.validate_external_ticket_id(body["ticketId"])
+        deadline = time.monotonic() + TICKET_LOOKUP_SECONDS
+        def check_deadline():
+            check(time.monotonic() < deadline, "ticket_lookup_timeout", "Ticket lookup deadline elapsed", 408)
+
+        # Authorize even an empty result before consulting the reference index.
+        for capability in ("specification.maintain", "export.read"):
+            self._authorize(principal, project_id, capability)
+        guards = [self._guard(principal, project_id, capability)
+                  for capability in ("specification.maintain", "export.read")]
+        with self._lock, self.packages._operation():
+            for guard in guards:
+                guard()
+            candidates = [item for item in self._all("ticket-reference")
+                          if item["projectId"] == project_id and item["ticketId"] == ticket_id]
+            # The existing index is capped at 8192 documents / 8 MiB. Bound
+            # expensive source/package validation too, and never silently truncate.
+            check(len(candidates) <= MAX_TICKET_LOOKUP_MATCHES,
+                  "ticket_lookup_limit", "Too many ticket references; use issue-scoped history", 409)
+            grouped = {}
+            for item in candidates:
+                grouped.setdefault(item["issueId"], []).append(item)
+            references = []
+            unavailable = 0
+            snapshots = {}
+            issue_guards = {}
+            for issue_id in sorted(grouped):
+                check_deadline()
+                document, issue_guard = self._ticket_guard(principal, issue_id)
+                check(document["projectId"] == project_id,
+                      "ticket_reference_changed", "Issue project binding changed", 409)
+                issue_guards[issue_id] = issue_guard
+                snapshots[issue_id] = self._ticket_snapshot(principal, issue_id)
+                result = self._read_ticket_references(principal, issue_id, grouped[issue_id])
+                references.extend(result["references"])
+                unavailable += result["unavailableCount"]
+            # Recheck earlier issues after the entire scan: a later read must
+            # not let an expired package or revoked authorization escape.
+            for issue_id, snapshot in snapshots.items():
+                check_deadline()
+                check(self._ticket_snapshot(principal, issue_id) == snapshot,
+                      "ticket_reference_changed", "Issue changed during ticket lookup", 409)
+                issue_guards[issue_id]()
+            visible = []
+            for reference in references:
+                try:
+                    row = self.packages._row(reference["packageId"], project_id,
+                                             issue_guards[reference["issueId"]])
+                except PackageError as error:
+                    if error.code not in _UNAVAILABLE:
+                        raise
+                    unavailable += 1
+                    continue
+                if (row["archive_digest"] != reference["capsuleDigest"]
+                        or row["project_digest"] != reference["projectDigest"]):
+                    reference["status"] = "stale"
+                visible.append(reference)
+            for guard in guards:
+                guard()
+            check_deadline()
+            return {"references": sorted(visible, key=lambda item: item["id"]),
+                    "unavailableCount": unavailable}
+
     def ticket_references(self, principal, issue_id):
+        return self._read_ticket_references(principal, issue_id)
+
+    def _read_ticket_references(self, principal, issue_id, candidates=None):
         document, guard = self._ticket_guard(principal, issue_id)
         with self._lock, self.packages._operation():
             snapshot = self._ticket_snapshot(principal, issue_id)
             references = []
             unavailable = 0
-            for reference in self._all("ticket-reference"):
+            for reference in (self._all("ticket-reference") if candidates is None else candidates):
                 if reference["issueId"] != issue_id:
                     continue
                 try:
