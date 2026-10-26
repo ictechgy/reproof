@@ -1,0 +1,20 @@
+<resources>
+    <item name="list_screen" type="id" />
+    <item name="new_item" type="id" />
+    <item name="row_notebook" type="id" />
+    <item name="row_cable" type="id" />
+    <item name="saved_item" type="id" />
+    <item name="duplicate_open" type="id" />
+    <item name="disabled_item" type="id" />
+    <item name="form_screen" type="id" />
+    <item name="item_name" type="id" />
+    <item name="protected_entry" type="id" />
+    <item name="save_item" type="id" />
+    <item name="cancel_form" type="id" />
+    <item name="validation_error" type="id" />
+    <item name="detail_screen" type="id" />
+    <item name="detail_title" type="id" />
+    <item name="back_to_list" type="id" />
+    <!-- Deliberately never attached to a View. -->
+    <item name="missing_item" type="id" />
+</resources>
