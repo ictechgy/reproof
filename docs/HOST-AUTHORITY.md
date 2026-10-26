@@ -394,3 +394,24 @@ company QA fixture. No company coordinator descriptor/grant service, app,
 fixture, second Mac, guest image, or AI-transfer policy was supplied. Successful
 synthetic tests and unsigned helper compilation are software evidence only, not
 native runtime or company acceptance.
+
+## Actionable Live startup rejection
+
+The default `shared-v2` native mode still requires a coordinator-issued parent
+grant. A failed session now returns the fixed `authority_unavailable` code and
+points to this contract; it never automatically retries with
+`legacy-offline-v1`. Explicit offline compatibility remains restricted as
+specified above and does not acquire prepared-recording/shared authority.
+
+For Simulator artifacts, `--ios-app` without `--ios-profile` continues to mean
+the identity-checked Reproof sample. A valid non-sample bundle is rejected with
+`ios_profile_required` and guidance to supply a general runtime profile. A
+missing/corrupt sample identity instead returns `ios_sample_identity_invalid`.
+The CLI performs this artifact-only check before constructing native providers,
+and the provider repeats it before installation so direct callers cannot bypass
+it. A general profile still has to pass its existing identity/capability checks.
+
+Public startup messages are fixed host-owned text; bundle IDs, paths, native
+output and arbitrary exceptions are not included. These diagnostics do not
+change startup deadlines, authority, quarantine or cleanup semantics. Portable
+fake tests cover these branches; this is not a claim of native runtime success.

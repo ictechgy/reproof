@@ -55,14 +55,15 @@ def _validate_application_identity(value: Any) -> None:
     _require(isinstance(value, dict) and all(isinstance(k, str) for k in value),
              "Invalid application identity")
     _require(not any(_PRIVATE.fullmatch(k) for k in value), "Invalid application identity")
-    _require(set(value) <= {"bundle", "bundleId", "artifactDigest"}, "Unknown application identity field")
+    _require(set(value) <= {"bundle", "bundleId", "artifactDigest", "appProfileDigest"}, "Unknown application identity field")
     _require("bundle" in value or "bundleId" in value, "Application identity has no bundle")
     for key, item in value.items():
         _require(isinstance(item, str) and 0 < len(item) <= 255, f"Invalid application identity {key}")
         if key in {"bundle", "bundleId"}:
             _require(_BUNDLE.fullmatch(item) is not None, f"Invalid application identity {key}")
-    if "artifactDigest" in value:
-        _require(_DIGEST.fullmatch(value["artifactDigest"]) is not None, "Invalid application artifact digest")
+    for key in ("artifactDigest", "appProfileDigest"):
+        if key in value:
+            _require(_DIGEST.fullmatch(value[key]) is not None, "Invalid application identity digest")
 
 
 def _validate_geometry(value: Any) -> None:
@@ -229,6 +230,21 @@ def validate_recording(document: dict[str, Any]) -> dict[str, Any]:
         _require(not checked["replayable"], "Invalid recording cannot be replayable")
     checked["digest"] = supplied_digest
     return checked
+
+
+def untrusted_recording(document: dict[str, Any]) -> dict[str, Any]:
+    """Keep unsigned v1 data inspectable, but never import its replay authority.
+
+    A canonical digest detects accidental corruption, not who witnessed reset.
+    Only the Lab's process-local capture binding can authorize replay.
+    """
+    result = validate_recording(document)
+    result['startingState'] = {'kind': 'unknown'}
+    result['replayable'] = False
+    result['reason'] = 'untrusted_starting_state'
+    result.pop('digest')
+    result['digest'] = digest(result)
+    return validate_recording(result)
 
 
 def derive_recording(recording: dict[str, Any], *, event_ids: list[str] | None = None,

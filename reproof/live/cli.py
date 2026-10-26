@@ -2,8 +2,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import re
-from .model import Lab
-from .providers import demo_device,ios_device
+from .model import Lab,LiveError
+from .providers import demo_device,ios_device,require_live_sample_identity
 from .server import LiveServer
 from ..resources import resource_root
 from ..core import ContractError
@@ -20,7 +20,7 @@ def main(argv=None):
     parser.add_argument('--output',type=Path,default=Path.cwd()/'artifacts/live')
     parser.add_argument('--simulator',action='append',default=[],help='Already booted iOS Simulator UUID, with target app installed')
     parser.add_argument('--products',type=Path,default=ROOT/'live-ios/build/Build/Products')
-    parser.add_argument('--ios-app',type=Path,help='Simulator app artifact to install for Live')
+    parser.add_argument('--ios-app',type=Path,help='Simulator app artifact; general apps require --ios-profile, otherwise sample identity is required')
     parser.add_argument('--ios-profile',type=Path,help='Registered general iOS runtime application profile JSON')
     parser.add_argument('--app-logs',action='store_true',help='Record automatic app observations without enabling AI repair')
     parser.add_argument('--bundle',default='io.reproof.sample.ios')
@@ -43,7 +43,7 @@ def main(argv=None):
     parser.add_argument('--repair-build',type=Path,help='Matching ios-build or Android build --output directory with protected replay artifacts')
     parser.add_argument('--repair-agent',choices=['claude'],help='Enable actual Claude requests for the configured sample source and QA')
     parser.add_argument('--authority-mode',choices=['shared-v2','legacy-offline-v1'],default='shared-v2',
-                        help='Native ownership protocol; legacy mode is explicit offline-only compatibility')
+                        help='shared-v2 requires a coordinator-issued parent grant; legacy-offline-v1 is explicit restricted offline compatibility, never an automatic fallback')
     parser.add_argument('--shared-config',type=Path,
                         help='Non-secret shared coordinator configuration; credentials remain on stdin')
     parser.add_argument('--issue-config',type=Path,
@@ -122,6 +122,11 @@ def main(argv=None):
             parser.error('Cannot read iOS runtime profile')
         if args.app_logs and ios_profile.data['capabilities']['logAdapter'] is None:
             parser.error('--app-logs requires the declared iOS observation adapter')
+    if args.ios_app and ios_profile is None:
+        try:
+            require_live_sample_identity(args.ios_app)
+        except LiveError as exc:
+            parser.error(str(exc))
     if args.app_profile:
         if not args.android or not args.android_helper or not args.android_app or args.iphone:
             parser.error('App profiles require an Android Live helper and APK')

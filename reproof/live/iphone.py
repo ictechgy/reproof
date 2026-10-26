@@ -387,6 +387,7 @@ class PhysicalIosProvider(IosProvider):
         deadline=time.monotonic()+95;ready=False
         while not self.stop.wait(.05):
             if self.process.poll() is not None:
+                self._target_boundary_ready=False
                 self.lab.fail(self.sid,'Physical iPhone driver stopped');return
             try:
                 clock=getattr(self,'frame_clock',None)
@@ -398,7 +399,7 @@ class PhysicalIosProvider(IosProvider):
                         check(status.get('targetBundle')==self.profile.bundle
                               and status.get('applicationProfileDigest')==self.profile.digest,
                               'native_profile_mismatch','iPhone helper target identity differs',400)
-                        _require_ios_helper_actions(self.profile,status.get('capabilities'))
+                    _require_ios_helper_actions(self.profile,status.get('capabilities'))
                     self._validate_native_frame_buffer(status)
                     if self.device_authority is not None and self.native_handshake is None:
                         try:
@@ -408,6 +409,7 @@ class PhysicalIosProvider(IosProvider):
                                 provider_incarnation=status.get('providerIncarnation'),native_incarnation=status.get('nativeIncarnation'),
                                 native_clock_id=status.get('nativeClockId'),native_time_ms=status.get('nativeTimeMs'))
                         except ContractError:
+                            self._target_boundary_ready=False
                             raise LiveError('native_protocol_mismatch','iPhone helper protocol is incompatible',400) from None
                         if self.handshake_ready is not None:self.handshake_ready.set()
                     if clock is not None:
@@ -417,6 +419,7 @@ class PhysicalIosProvider(IosProvider):
                         if self.app_logs_only:self.collect_app_logs();native_ready=self.app_log_marker is not None
                         else:self._pin_auto_marker();native_ready=self.auto_marker is not None
                     ready=native_ready
+                    self._target_boundary_ready=ready
                     if ready and self.profile is not None:
                         self.launched_identity_evidence={
                             'launchedBundle':status['targetBundle'],
@@ -430,11 +433,13 @@ class PhysicalIosProvider(IosProvider):
                         continue
                 self._receive_frame()
             except ContractError:
+                self._target_boundary_ready=False
                 if self.auto_profile is not None:
                     self.lab.fail(self.sid,'Automatic iOS session identity did not match the selected app');return
                 if ready or time.monotonic()>=deadline:
                     self.lab.fail(self.sid,'iPhone bridge unavailable; reconnect and close the session');return
             except Exception:
+                self._target_boundary_ready=False
                 if ready or time.monotonic()>=deadline:
                     self.lab.fail(self.sid,'iPhone bridge unavailable; reconnect and close the session');return
     def execute(self,action,payload):return self._execute_physical(action,payload,None)
@@ -442,6 +447,9 @@ class PhysicalIosProvider(IosProvider):
         self._check_permit(permit)
         return self._execute_physical(action,payload,permit)
     def _execute_physical(self,action,payload,permit):
+        if action not in {'authority_cleanup','authority_retire'}:
+            check(self._target_boundary_ready and not self.stop.is_set(),
+                  'native_profile_mismatch','iOS target-boundary handshake is required before input',409)
         if action == 'authority_cleanup':
             check(permit is not None, 'authority_required', 'Native cleanup requires its current authority permit', 400)
         elif self.profile is not None:
@@ -489,10 +497,16 @@ class PhysicalIosProvider(IosProvider):
             if (action=='reset' or restart_logs) and self.auto_profile is not None:
                 if self.app_logs_only:self._wait_for_app_log_marker()
                 else:self._wait_for_auto_marker()
-            self._receive_frame()
             response={'ok':result.get('ok') is True,'timing':'best-effort'}
-            if response['ok'] is False and result.get('error') in {'authority_rejected','authority_expired'}:
+            if response['ok'] is False and result.get('error') in {
+                    'authority_rejected','authority_expired','target_not_foreground'}:
                 response.update(outcome='rejected',code=result['error'])
+            elif response['ok'] is False and result.get('error')=='target_changed_during_input':
+                response.update(outcome='uncertain',code=result['error'])
+            # A rejected/uncertain command has no fresh-frame success requirement.
+            # In particular do not turn a known pre-dispatch rejection into a
+            # second capture of a different foreground app.
+            if response['ok']:self._receive_frame()
             return response
         raise LiveError('session_inactive','iPhone session is closing')
 

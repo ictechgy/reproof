@@ -59,7 +59,9 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.request(path+'/input',command)[0],409)
         self.assertEqual(self.request(path+'/close',{'controllerId':'c','epoch':s['epoch']})[0],200)
         self.assertEqual(self.request(path+'/frame')[0],503)
-        restored=Lab([demo_device()],Path(self.temp.name));self.assertEqual(restored.recording(r['id'],'local-owner'),r)
+        restored=Lab([demo_device()],Path(self.temp.name))
+        from reproof.live.recordings import untrusted_recording
+        self.assertEqual(restored.recording(r['id'],'local-owner'),untrusted_recording(r))
         import subprocess,sys
         replay=subprocess.run([sys.executable,'-c',code,'--server',self.server.origin],capture_output=True,timeout=10)
         self.assertEqual(replay.returncode,0,replay.stderr.decode())

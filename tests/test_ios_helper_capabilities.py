@@ -23,7 +23,7 @@ class IOSHelperCapabilitiesTests(unittest.TestCase):
         self.actions = self.profile.data['capabilities']['actions']
 
     def invalid_capabilities(self):
-        return {
+        values = {
             'missing_capabilities': None,
             'non_object_capabilities': [],
             'missing_actions': {},
@@ -41,6 +41,28 @@ class IOSHelperCapabilitiesTests(unittest.TestCase):
             'nested_array_action': {'actions': self.actions + [[]]},
             'nested_object_action': {'actions': self.actions + [{}]},
         }
+        return {key: dict(value, targetBoundaryVersion=1) if type(value) is dict else value
+                for key, value in values.items()}
+
+    def test_missing_or_malformed_boundary_never_reaches_native_activation(self):
+        variants = [{}, *[{'targetBoundaryVersion': value}
+                         for value in (None, True, False, 0, 2, 1.0, '1', [], {})]]
+        for boundary in variants:
+            for general in (False, True):
+                with self.subTest(boundary=boundary, general=general):
+                    capabilities = dict(boundary, actions=self.actions)
+                    provider = self.simulator(general=general)
+                    with self.assertRaises(LiveError) as caught:
+                        provider.bridge('ready', self.ready(capabilities))
+                    self.assertEqual(caught.exception.code, 'native_profile_mismatch')
+                    self.assertIn('Rebuild', str(caught.exception))
+                    provider.device_authority.bind_native_handshake.assert_not_called()
+                    provider.device_authority.native_grant.assert_not_called()
+                    physical = self.physical_poll(capabilities, general=general)
+                    physical.device_authority.bind_native_handshake.assert_not_called()
+                    physical._receive_frame.assert_not_called()
+                    self.assertFalse(physical.handshake_ready.is_set())
+                    self.assertFalse(physical.startup_complete.is_set())
 
     def simulator(self, *, general=True):
         profile = self.profile if general else None
@@ -93,7 +115,7 @@ class IOSHelperCapabilitiesTests(unittest.TestCase):
                 with patch('reproof.live.providers.subprocess.run', return_value=Mock(returncode=0)) as install, \
                         patch('reproof.live.providers.installed_identity',
                               return_value=provider._pending_install_identity):
-                    result = provider.bridge('ready', self.ready({'actions': actions}))
+                    result = provider.bridge('ready', self.ready({'actions': actions, 'targetBoundaryVersion': 1}))
                 self.assertEqual(result, {'ok': True, 'authority': {'synthetic': True}})
                 provider.device_authority.bind_native_handshake.assert_called_once()
                 provider.device_authority.native_grant.assert_called_once()
@@ -108,13 +130,13 @@ class IOSHelperCapabilitiesTests(unittest.TestCase):
             provider.bridge('ready', {'capabilities': {'actions': []}})
         provider._wait_for_app_log_marker.assert_not_called()
 
-    def test_legacy_profile_keeps_existing_ready_contract(self):
+    def test_legacy_profile_requires_boundary_but_not_general_actions(self):
         provider = self.simulator(general=False)
         provider._pending_install_identity = None
-        self.assertEqual(provider.bridge('ready', self.ready({})),
+        self.assertEqual(provider.bridge('ready', self.ready({'targetBoundaryVersion': 1})),
                          {'ok': True, 'authority': {'synthetic': True}})
         provider.device_authority = None
-        self.assertEqual(provider.bridge('ready', {}), {'ok': True})
+        self.assertEqual(provider.bridge('ready', {'capabilities': {'targetBoundaryVersion': 1}}), {'ok': True})
 
     def physical_poll(self, capabilities, *, general=True):
         # Initialize transport-independent state only, never the physical
@@ -157,14 +179,14 @@ class IOSHelperCapabilitiesTests(unittest.TestCase):
     def test_physical_accepts_exact_actions_in_any_order(self):
         for actions in (self.actions, list(reversed(self.actions))):
             with self.subTest(actions=actions):
-                provider = self.physical_poll({'actions': actions})
+                provider = self.physical_poll({'actions': actions, 'targetBoundaryVersion': 1})
                 provider.device_authority.bind_native_handshake.assert_called_once()
                 self.assertTrue(provider.handshake_ready.is_set())
                 self.assertTrue(provider.startup_complete.is_set())
                 provider._receive_frame.assert_called_once()
 
-    def test_physical_legacy_profile_keeps_existing_status_contract(self):
-        provider = self.physical_poll({}, general=False)
+    def test_physical_legacy_profile_requires_boundary_but_not_general_actions(self):
+        provider = self.physical_poll({'targetBoundaryVersion': 1}, general=False)
         provider.device_authority.bind_native_handshake.assert_called_once()
         self.assertTrue(provider.handshake_ready.is_set())
         self.assertTrue(provider.startup_complete.is_set())

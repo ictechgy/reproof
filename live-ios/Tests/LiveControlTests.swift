@@ -217,7 +217,6 @@ final class LiveControlTests: XCTestCase {
     private let targetBundle = ProcessInfo.processInfo.environment["REPRO_TARGET_BUNDLE"]
         ?? "io.reproof.sample.ios"
     private var targetApplication: XCUIApplication!
-    private var springboard: XCUIApplication!
     private var isOnHomeScreen = false
     private var targetWasLaunched = false
     private var activeAutoRunID: String?
@@ -236,7 +235,6 @@ final class LiveControlTests: XCTestCase {
         generalRuntime = generalRuntimeConfiguration(environment)
         XCTAssertFalse(generalRequested && generalRuntime == nil, "general_profile_invalid")
         targetApplication = XCUIApplication(bundleIdentifier: targetBundle)
-        springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
     }
 
     func testCaptureFormats() throws {
@@ -385,7 +383,7 @@ final class LiveControlTests: XCTestCase {
                     guard !draining || command.action == "authority_retire" else { throw BridgeFailure.invalidResponse }
                     draining = command.action == "authority_cleanup" || command.action == "authority_retire"
                     let result = execute(command)
-                    if !draining {
+                    if !draining && result.ok {
                         Thread.sleep(forTimeInterval: 0.15)
                         try sendFrame(using: bridge)
                     }
@@ -511,8 +509,9 @@ final class LiveControlTests: XCTestCase {
                 return .failure("invalid_bounds")
             }
             guard effectAuthorized(command) else { return .failure("authority_expired") }
-            activeApplication.coordinate(withNormalizedOffset: point).tap()
-            return .success
+            return performTargetInput {
+                targetApplication.coordinate(withNormalizedOffset: point).tap()
+            }
 
         case "long_press":
             guard let point = normalizedPoint(command.payload, xKey: "x", yKey: "y") else {
@@ -522,8 +521,9 @@ final class LiveControlTests: XCTestCase {
                 return .failure("invalid_duration")
             }
             guard effectAuthorized(command) else { return .failure("authority_expired") }
-            activeApplication.coordinate(withNormalizedOffset: point).press(forDuration: duration)
-            return .success
+            return performTargetInput {
+                targetApplication.coordinate(withNormalizedOffset: point).press(forDuration: duration)
+            }
 
         case "swipe":
             guard let from = normalizedPoint(command.payload, xKey: "fromX", yKey: "fromY"),
@@ -535,11 +535,12 @@ final class LiveControlTests: XCTestCase {
             }
             // XCTest exposes a gesture-batch drag, but no stable cross-version control over
             // swipe velocity. The requested duration is validated; execution is best-effort.
-            let start = activeApplication.coordinate(withNormalizedOffset: from)
-            let end = activeApplication.coordinate(withNormalizedOffset: to)
+            let start = targetApplication.coordinate(withNormalizedOffset: from)
+            let end = targetApplication.coordinate(withNormalizedOffset: to)
             guard effectAuthorized(command) else { return .failure("authority_expired") }
-            start.press(forDuration: 0.01, thenDragTo: end)
-            return .success
+            return performTargetInput {
+                start.press(forDuration: 0.01, thenDragTo: end)
+            }
 
         case "text":
             guard !isOnHomeScreen,
@@ -549,14 +550,14 @@ final class LiveControlTests: XCTestCase {
             }
             // The target keyboard must already be focused by the user or preceding tap.
             // Do not inspect or record the text value.
-            if !value.isEmpty {
-                guard effectAuthorized(command) else { return .failure("authority_expired") }
-                targetApplication.typeText(value)
+            guard effectAuthorized(command) else { return .failure("authority_expired") }
+            return performTargetInput {
+                if !value.isEmpty { targetApplication.typeText(value) }
             }
-            return .success
 
         case "home":
             guard effectAuthorized(command) else { return .failure("authority_expired") }
+            guard targetIsForeground else { return .failure("target_not_foreground") }
             XCUIDevice.shared.press(.home)
             isOnHomeScreen = true
             return .success
@@ -616,12 +617,16 @@ final class LiveControlTests: XCTestCase {
                     return .failure("capture_invalid")
                 }
                 guard effectAuthorized(command) else { return .failure("authority_expired") }
-                return freezeAutoCapture(runID: runID)
+                guard targetIsForeground else { return .failure("target_not_foreground") }
+                let result = freezeAutoCapture(runID: runID)
+                return targetIsForeground ? result : .failure("target_changed_during_input")
             }
             let report = targetApplication.buttons["counter.report"]
             guard report.exists && report.isHittable else { return .failure("capture_unavailable") }
             guard effectAuthorized(command) else { return .failure("authority_expired") }
+            guard targetIsForeground else { return .failure("target_not_foreground") }
             report.tap()
+            guard targetIsForeground else { return .failure("target_changed_during_input") }
             let ready = targetApplication.staticTexts["counter.capture_ready"]
             guard ready.waitForExistence(timeout: 5), ready.label == "Capture ready" else {
                 return .failure("capture_invalid")
@@ -702,8 +707,25 @@ final class LiveControlTests: XCTestCase {
         return .success
     }
 
-    private var activeApplication: XCUIApplication {
-        isOnHomeScreen ? springboard : targetApplication
+    // XCTest updates state asynchronously: this is a fail-closed observation,
+    // not an atomic OS guarantee against a transition during a gesture.
+    private var targetIsForeground: Bool {
+        !isOnHomeScreen && targetApplication.state == .runningForeground
+    }
+
+    private func performTargetInput(_ effect: () -> Void) -> CommandResult {
+        guard targetIsForeground else { return .failure("target_not_foreground") }
+        effect()
+        // A gesture can itself open another app. Do not label that result a
+        // no-effect rejection or admit another gesture on the external screen.
+        return targetIsForeground ? .success : .failure("target_changed_during_input")
+    }
+
+    private func captureTargetFrame<T>(_ capture: () -> T) throws -> T {
+        guard targetIsForeground else { throw BridgeFailure.targetNotForeground }
+        let frame = capture()
+        guard targetIsForeground else { throw BridgeFailure.targetNotForeground }
+        return frame
     }
 
     private func normalizedPoint(
@@ -742,7 +764,7 @@ final class LiveControlTests: XCTestCase {
         var captureEndMs: Int64 = 0
         while true {
             captureStartMs = nativeContinuousTimeMS()
-            let screenshot = XCUIScreen.main.screenshot()
+            let screenshot = try captureTargetFrame { targetApplication.screenshot() }
             captureEndMs = nativeContinuousTimeMS()
             image = screenshot.image
             if image?.cgImage != nil, image?.jpegData(compressionQuality: 0.5) != nil { break }
@@ -757,6 +779,8 @@ final class LiveControlTests: XCTestCase {
         let width = cgImage.width
         let height = cgImage.height
         let orientation = width >= height ? "landscape" : "portrait"
+        // Do not publish a stale capture after encoding if the target left.
+        guard targetIsForeground else { throw BridgeFailure.targetNotForeground }
         try bridge.frame(
             imageBase64: jpeg.base64EncodedString(),
             width: width,
@@ -1090,6 +1114,7 @@ private enum BridgeFailure: Error {
     case serverReturnedError
     case invalidResponse
     case captureFailed(String)
+    case targetNotForeground
 
     var safeCode: String {
         switch self {
@@ -1099,6 +1124,7 @@ private enum BridgeFailure: Error {
         case .serverReturnedError: return "bridge_server_error"
         case .invalidResponse: return "bridge_invalid_response"
         case .captureFailed(let detail): return "frame_capture_failed:" + detail
+        case .targetNotForeground: return "target_not_foreground"
         }
     }
 }
@@ -1137,6 +1163,7 @@ private final class BridgeClient: LiveBridge {
                 case inputMode = "inputMode"
                 case media
                 case nativeFrameTimingVersion
+                case targetBoundaryVersion
             }
 
             func encode(to encoder: Encoder) throws {
@@ -1144,6 +1171,7 @@ private final class BridgeClient: LiveBridge {
                 try container.encode(actions, forKey: .actions)
                 try container.encode(inputMode, forKey: .inputMode)
                 try container.encode(media, forKey: .media)
+                try container.encode(1, forKey: .targetBoundaryVersion)
                 try container.encodeIfPresent(nativeFrameTimingVersion, forKey: .nativeFrameTimingVersion)
             }
         }
@@ -1703,7 +1731,8 @@ private final class NativeHTTPBridge: LiveBridge {
             "actions": actions,
             "inputMode": "gesture-batch",
             "media": "sampled-jpeg",
-            "nativeFrameBufferVersion": 1
+            "nativeFrameBufferVersion": 1,
+            "targetBoundaryVersion": 1
         ]
         if NativeAuthorityContext.shared.enabled {
             capabilities["nativeFrameTimingVersion"] = 1

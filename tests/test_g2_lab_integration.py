@@ -228,7 +228,8 @@ class ReleaseLabTests(unittest.TestCase):
 
     def test_ios_bridge_without_native_mapping_records_timing_interruption(self):
         session = self.create(self.register())
-        bridge = IosProvider.__new__(IosProvider)
+        bridge = IosProvider('synthetic', '/tmp/inert-products', 'example.target')
+        bridge.bridge('ready', {'capabilities': {'targetBoundaryVersion': 1}})
         bridge.profile = None
         bridge.device_authority = None
         bridge.native_handshake = None

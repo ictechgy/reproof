@@ -20,7 +20,7 @@ class LiveSessionTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.provider=Provider()
         self.lab=Lab([{'id':'test','name':'Test','platform':'demo','kind':'demo','factory':lambda:self.provider,
-                       'capabilities':{'actions':['tap','long_press','swipe','text','reset','home'],'inputMode':'gesture-batch','media':'demo-svg'}}],Path(self.temp.name))
+                       'capabilities':{'actions':['tap','long_press','swipe','text','reset','home'],'inputMode':'gesture-batch','media':'demo-svg','resetContract':'sample-counter-fixture-v1'}}],Path(self.temp.name))
     def tearDown(self):self.lab.close_all();self.temp.cleanup()
     def session(self):return self.lab.create_session('test','owner','browser-a')
     def command(self,s,n=1,**changes):

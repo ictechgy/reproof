@@ -62,11 +62,11 @@ class LivePointerTests(unittest.TestCase):
         self.provider = PointerProvider()
         self.clock = Clock()
         self.lab = Lab([{
-            "id": "pointer-device", "name": "Pointer", "kind": "pointer-demo",
+            "id": "pointer-device", "name": "Pointer", "kind": "demo",
             "capabilities": {
                 "actions": ["tap", "long_press", "swipe", "text", "home", "reset", "pointer"],
                 "inputMode": "continuous-pointer", "maxPointers": 5,
-                "resetContract": "pointer-fixture-v1",
+                "resetContract": "sample-counter-fixture-v1",
             },
             "factory": lambda: self.provider,
         }], Path(self.temp.name), clock=self.clock)

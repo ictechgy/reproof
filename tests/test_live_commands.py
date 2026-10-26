@@ -22,7 +22,7 @@ class CommandsTests(unittest.TestCase):
         output=io.StringIO()
         with contextlib.redirect_stdout(output):status=main(args+['--server',self.server.origin])
         return status,json.loads(output.getvalue())
-    def test_import_derive_export_and_queued_execution(self):
+    def test_import_derive_export_cannot_authorize_queued_execution(self):
         r=recording(deviceId='demo',variables=[],events=[recording()['events'][0]])
         source=Path(self.temp.name)/'input.json';source.write_text(json.dumps(r))
         status,result=self.run_command(['live-recordings','import',str(source)])
@@ -33,7 +33,9 @@ class CommandsTests(unittest.TestCase):
         status,_=self.run_command(['live-recordings','export',derived['id'],'--output',str(target)])
         self.assertEqual(status,0);self.assertEqual(json.loads(target.read_text()),derived)
         status,job=self.run_command(['live-jobs','submit',derived['id'],'--request-id','cli-request','--repeats','2','--wait'])
-        self.assertEqual(status,0,job);self.assertEqual(job['job']['state'],'succeeded');self.assertEqual(job['job']['completedRuns'],2)
+        self.assertEqual(status,2,job)
+        self.assertEqual(job['error']['code'],'recording_not_replayable')
+        self.assertEqual(self.lab.list_devices()[0]['state'],'available')
     def test_existing_export_is_not_overwritten(self):
         r=recording(deviceId='demo',variables=[],events=[recording()['events'][0]])
         self.lab.import_recording(r,'local-owner');target=Path(self.temp.name)/'keep.json';target.write_text('keep')

@@ -65,6 +65,7 @@ class NativeReceiptBindings(unittest.TestCase):
         # discovery, signing metadata or native installation is accessed.
         self.provider = object.__new__(PhysicalIosProvider)
         IosProvider.__init__(self.provider, 'synthetic-iphone', root, 'io.reproof.synthetic')
+        self.provider.bridge('ready', {'capabilities': {'targetBoundaryVersion': 1}})
         self.provider.bind_authority(self.owner, 'provider-one')
         self.provider.native_handshake = handshake
         self.provider._receive_frame = lambda: None

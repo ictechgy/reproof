@@ -179,6 +179,8 @@ class NativeBufferTransportTests(unittest.TestCase):
 
     def _physical_provider(self, ack, operation_id='op-clean'):
         provider = object.__new__(PhysicalIosProvider)
+        # This transport-only double represents an already-verified handshake.
+        provider._target_boundary_ready = True
         provider.profile = None
         provider.app_logs_only = False
         provider.auto_profile = None

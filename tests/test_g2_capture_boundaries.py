@@ -48,7 +48,8 @@ class CaptureBoundaryTests(unittest.TestCase):
 
     def test_native_bridge_without_acquisition_bound_cannot_freeze_precise_capture(self):
         session = self.create(self.register())
-        provider = IosProvider.__new__(IosProvider)
+        provider = IosProvider('synthetic', '/tmp/inert-products', 'example.target')
+        provider.bridge('ready', {'capabilities': {'targetBoundaryVersion': 1}})
         provider.profile = None
         provider.device_authority = None
         provider.native_handshake = None

@@ -43,7 +43,8 @@ class NativeTimingIntegrationTests(unittest.TestCase):
                     'captureEndMs': end}}
 
     def simulator(self):
-        provider = IosProvider.__new__(IosProvider)
+        provider = IosProvider('synthetic', '/tmp/inert-products', 'example.target')
+        provider.bridge('ready', {'capabilities': {'targetBoundaryVersion': 1}})
         provider.lab = self.lab
         provider.sid = self.session['id']
         provider.profile = None
