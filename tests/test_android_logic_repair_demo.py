@@ -1,5 +1,6 @@
 """Portable adversarial contracts only. Synthetic XML is NOT native proof."""
 from pathlib import Path
+import json
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -147,6 +148,17 @@ class AndroidLogicContractTests(unittest.TestCase):
         self.assertEqual(source.project['editablePaths'], [demo.PRODUCT])
         self.assertIn(b'distributionSha256Sum=', entries['android/gradle/wrapper/gradle-wrapper.properties'])
 
+    def test_live_helper_source_dependencies_are_pinned_and_distributed(self):
+        _, frozen = demo._load_source(ROOT)
+        entries = dict(frozen.entries)
+        distributed = json.loads((ROOT / 'distribution-resources.json').read_text())['files']
+        for path in (ROOT / 'android/live/src/main').rglob('*'):
+            if path.is_file() and path.suffix in ('.kt', '.java', '.xml'):
+                relative = path.relative_to(ROOT).as_posix()
+                with self.subTest(path=relative):
+                    self.assertIn(relative, entries)
+                    self.assertIn(relative, distributed)
+
     def test_all_build_and_oracle_inputs_protected(self):
         source, frozen = demo._load_source(ROOT)
         for path, _ in frozen.entries:
@@ -165,7 +177,9 @@ class AndroidLogicContractTests(unittest.TestCase):
 
     def test_source_pin_mutation_rejected(self):
         _, frozen = demo._load_source(ROOT)
-        for target in (demo.PRODUCT, demo.CALLSITE, demo.ORACLE, 'android/sample/build.gradle.kts', demo.RECIPE):
+        for target in (demo.PRODUCT, demo.CALLSITE, demo.ORACLE, 'android/sample/build.gradle.kts', demo.RECIPE, demo.PIN_FILE,
+                       'android/live/src/main/java/io/reproof/live/ApprovedLaunch.kt',
+                       'android/live/src/main/java/io/reproof/live/LiveInstrumentation.kt'):
             with self.subTest(target=target), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 entries = frozen.entries + ((demo.PIN_FILE, (ROOT/demo.PIN_FILE).read_bytes()),)
