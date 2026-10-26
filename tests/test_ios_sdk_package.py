@@ -132,8 +132,7 @@ class IOSSDKPackageTests(unittest.TestCase):
             self.assertEqual(result.stderr, '')
             self.assertNotIn('PRIVATE_CANARY', result.stdout + result.stderr)
 
-    def test_workflow_is_compile_only_with_nonzero_swift_test_evidence(self):
-        workflow = (ROOT / '.github/workflows/ios-sdk-compile.yml').read_text()
+    def _assert_compile_only_workflow(self, workflow):
         for required in ('contents: read', 'persist-credentials: false', 'timeout-minutes: 20',
                          'Xcode_16.4.app', 'Build version 16F6', 'Python/3.12.', 'REPRO_PYTHON', 'swift test --package-path ios/SDK',
                          'Executed [1-9][0-9]* tests?, with 0 failures',
@@ -143,7 +142,48 @@ class IOSSDKPackageTests(unittest.TestCase):
                          'scripts/check-ios-sdk-export.py', 'REPRO_SDK_TEST_EXPORT_DIRECTORY',
                          'actions/upload-artifact@v4'):
             self.assertIn(required, workflow)
+        # Only this reviewed unsigned generic-destination command is allowed.
+        compile_command = '          xcodebuild build-for-testing -project live-ios/ReproLive.xcodeproj -scheme ReproLive \\\n            -configuration Debug -destination \'generic/platform=iOS Simulator\' \\\n            -derivedDataPath "$RUNNER_TEMP/reproof-live-helper" \\\n            -disableAutomaticPackageResolution -skipPackageUpdates \\\n            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \\\n            2>&1 | tee "$RUNNER_TEMP/reproof-sdk-logs/live-helper-compile.log"'
+        self.assertEqual(workflow.count(compile_command), 1)
+        marker = '      - name: Compile unsigned Live helper without booting or running a Simulator\n'
+        self.assertEqual(workflow.count(marker), 1)
+        helper_step = workflow.split(marker, 1)[1].split('      - name:', 1)[0]
+        self.assertIn(compile_command, helper_step)
+        remaining = workflow.replace(compile_command, '', 1)
+        for required in ('timeout-minutes: 8', 'ReproLiveHost.app',
+                         'ReproLiveTests-Runner.app/PlugIns/ReproLiveTests.xctest',
+                         "assert info['CFBundleIdentifier'] == identifier",
+                         "assert info['CFBundleExecutable'] == executable",
+                         'binary.is_file() and binary.stat().st_size > 0',
+                         "root.glob('ReproLive_iphonesimulator*.xctestrun')",
+                         'assert len(configs) == 1 and configs[0].is_file()'):
+            self.assertIn(required, workflow)
+        self.assertEqual(workflow.count("      - 'live-ios/**'"), 2)
         for forbidden in ('simctl', 'devicectl', 'bootstatus', 'test-without-building',
                           'build-for-testing', 'xcode-select', 'security ', 'secrets.',
                           'pull_request_target', 'workflow_dispatch', 'brew install'):
-            self.assertNotIn(forbidden, workflow)
+            self.assertNotIn(forbidden, remaining)
+        self.assertNotRegex(workflow, r'xcodebuild[^\n]*(?:\s+test(?:\s|$)|\s+install(?:\s|$))')
+
+    def test_workflow_is_compile_only_with_nonzero_swift_test_evidence(self):
+        self._assert_compile_only_workflow((ROOT / '.github/workflows/ios-sdk-compile.yml').read_text())
+
+    def test_compile_only_contract_rejects_changed_actions_and_targets(self):
+        workflow = (ROOT / '.github/workflows/ios-sdk-compile.yml').read_text()
+        mutations = [
+            workflow.replace('Compile unsigned Live helper without booting or running a Simulator', 'Unreviewed helper invocation'),
+            workflow.replace('xcodebuild build-for-testing', 'xcodebuild test'),
+            workflow.replace('xcodebuild build-for-testing', 'xcodebuild test-without-building'),
+            workflow.replace('xcodebuild build-for-testing', 'xcodebuild install'),
+            workflow.replace("-destination 'generic/platform=iOS Simulator'", "-destination 'platform=iOS Simulator,name=iPhone 16'"),
+            workflow.replace('CODE_SIGNING_ALLOWED=NO', 'CODE_SIGNING_ALLOWED=YES'),
+            workflow.replace('-disableAutomaticPackageResolution', ''),
+            workflow.replace('binary.is_file() and binary.stat().st_size > 0', 'True'),
+            workflow + '\n          xcodebuild build-for-testing -project other.xcodeproj\n',
+            workflow + '\n          xcodebuild test -project other.xcodeproj\n',
+        ]
+        mutations.extend(workflow + '\n          xcrun simctl ' + action + ' target\n'
+                         for action in ('boot', 'install', 'launch'))
+        for index, changed in enumerate(mutations):
+            with self.subTest(index=index), self.assertRaises(AssertionError):
+                self._assert_compile_only_workflow(changed)

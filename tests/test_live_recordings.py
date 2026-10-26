@@ -48,6 +48,15 @@ class RecordingContractTests(unittest.TestCase):
         checked["events"][0]["payload"]["x"] = 0.75
         self.assertEqual(source["events"][0]["payload"]["x"], 0.25)
 
+    def test_v1_android_profile_identity_digest_is_strict_and_preserved(self):
+        identity = {"bundle": "example.app", "artifactDigest": "b" * 64, "appProfileDigest": "a" * 64}
+        source = recording(applicationIdentity=identity)
+        self.assertEqual(validate_recording(source)["applicationIdentity"], identity)
+        self.assertEqual(derive_recording(source)["applicationIdentity"], identity)
+        for value in ("invalid", "A" * 64, "a" * 63):
+            with self.assertRaises(ContractError):
+                validate_recording(recording(applicationIdentity={**identity, "appProfileDigest": value}))
+
     def test_omitted_application_identity_is_valid(self):
         self.assertNotIn("applicationIdentity", validate_recording(recording()))
 

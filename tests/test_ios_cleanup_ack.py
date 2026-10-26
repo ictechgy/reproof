@@ -70,6 +70,7 @@ class IOSCleanupAckTests(unittest.TestCase):
     def setUp(self):
         self.enterContext(patch('subprocess.Popen', side_effect=AssertionError('Native execution forbidden')))
         self.provider = IosProvider('synthetic', '/tmp/inert-products', BUNDLE)
+        self.provider.bridge('ready', {'capabilities': {'targetBoundaryVersion': 1}})
         self.provider.device_authority = Mock()
         self.provider.native_handshake = object()
         self.grant = {'operationId': 'cleanup-command', 'ownershipGeneration': 1,

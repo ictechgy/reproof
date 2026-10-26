@@ -15,11 +15,11 @@ import tempfile
 import threading
 import time
 import uuid
-from .model import LiveError,check
+from .model import LiveError,check,STARTUP_DIAGNOSTICS
 from .authority import HELPER_VERSION,NATIVE_PROTOCOL_VERSION
 from ..storage import Lease
 from ..core import ContractError,digest
-from ..ios_storage import app_info, tree_manifest
+from ..ios_storage import app_info, tree_manifest, WrongIOSApplication
 from ..ios_cases import case_spec
 from ..ios_runner import (_require_profile_fixture,
                           prepare_xctestrun, _targets)
@@ -33,6 +33,17 @@ CAPABILITIES={'actions':ACTIONS,'inputMode':'gesture-batch','media':'sampled-jpe
 # its monitor; it never renews the original dispatch permit.
 IOS_STARTUP_TIMEOUT_SECONDS = 90.0
 IOS_STARTUP_POLL_SECONDS = 0.25
+
+
+
+def require_live_sample_identity(app):
+    """Diagnose profile-free artifacts without leaking filesystem or bundle details."""
+    try:
+        return app_info(app)
+    except WrongIOSApplication:
+        raise LiveError('ios_profile_required', STARTUP_DIAGNOSTICS['ios_profile_required'], 400) from None
+    except (ContractError, OSError, plistlib.InvalidFileException, ValueError, TypeError):
+        raise LiveError('ios_sample_identity_invalid', STARTUP_DIAGNOSTICS['ios_sample_identity_invalid'], 400) from None
 
 
 def require_runtime_frame(profile,width,height,orientation):
@@ -70,7 +81,11 @@ def _require_ios_runtime_capabilities(profile, app=None):
 
 
 def _require_ios_helper_actions(profile, capabilities):
-    """Bind a general helper's complete action list before startup advances."""
+    """Require target guards, then bind a general helper's complete action list."""
+    boundary=capabilities.get('targetBoundaryVersion') if type(capabilities) is dict else None
+    check(type(boundary) is int and boundary==1,
+          'native_profile_mismatch',
+          'Rebuild the iOS Live helper: target-boundary version 1 is required',400)
     if profile is None:return
     actions=capabilities.get('actions') if type(capabilities) is dict else None
     check(type(actions) is list
@@ -142,6 +157,7 @@ class IosProvider:
         self.pending={};self.lock=threading.Lock();self.stop=threading.Event();self.process=None;self.temp=None;self.lease=None
         self.device_authority=None;self.provider_incarnation=None
         self.native_handshake=None;self.handshake_ready=None;self._startup_permit=None
+        self._target_boundary_ready=False
         self._startup_lock=threading.RLock();self._startup_accepting=False;self._startup_deadline=0.0
         self.frame_clock=None;self.last_native_frame=0
         self._owned_process=None;self._abort_lock=threading.Lock()
@@ -166,6 +182,7 @@ class IosProvider:
     def _abort_startup(self):
         with self._startup_lock:
             self._startup_accepting=False
+            self._target_boundary_ready=False
         # Stop is a local cancellation fence.  Durable authority revocation
         # remains the Lab failure path, so this helper never creates or renews
         # authority while trying to clean up a late XCTest callback.
@@ -216,6 +233,8 @@ class IosProvider:
         self.frame_clock=NativeFrameClock.for_session(lab,self.sid,self.device_authority)
         self.capture_started_at=int(time.time()*1000)
         install_app = self.app
+        if self.app is not None and self.profile is None:
+            require_live_sample_identity(self.app)
         if self.profile is not None:
             from .ios_artifact import stage_simulator_app
             try:
@@ -234,7 +253,7 @@ class IosProvider:
             if self.profile is not None:
                 expected_identity={'bundle':self.bundle,'artifactDigest':self.profile.data['artifact']['sha256']}
             else:
-                app_info(self.app)
+                require_live_sample_identity(self.app)
                 expected_identity={'bundle':self.bundle,'artifactDigest':digest(tree_manifest(self.app))}
             if self.device_authority is not None:
                 # The v2 helper calls ready before launching the target.  Defer
@@ -317,6 +336,9 @@ class IosProvider:
         self._check_permit(permit)
         return self._execute(action,payload,permit)
     def _execute(self,action,payload,permit):
+        if action not in {'authority_cleanup','authority_retire'}:
+            check(self._target_boundary_ready and not self.stop.is_set(),
+                  'native_profile_mismatch','iOS target-boundary handshake is required before input',409)
         if action == 'authority_cleanup':
             check(permit is not None, 'authority_required', 'Native cleanup requires its current authority permit', 400)
         elif self.profile is not None:
@@ -449,6 +471,7 @@ class IosProvider:
             except queue.Empty:command=None
             return {'stop':False,'command':command}
         if operation=='ready':
+            self._target_boundary_ready=False
             if self.device_authority is not None:
                 self._require_startup_window()
                 expected={'capabilities','protocolVersion','helperVersion','helperIncarnation','hostIncarnation',
@@ -483,13 +506,19 @@ class IosProvider:
                     check(self.identity==expected_identity,'app_changed','Installed Simulator app differs from selected app')
                     self._pending_install_identity=None
                 self._require_startup_window()
-                return {'ok':True,'authority':self.device_authority.native_grant(
+                response={'ok':True,'authority':self.device_authority.native_grant(
                     self._startup_permit,self.native_handshake).wire()}
+                self._target_boundary_ready=True
+                return response
             else:
                 if self.app_logs_only:self._wait_for_app_log_marker()
                 elif self.auto_profile is not None:self._wait_for_auto_marker()
+            check(not self.stop.is_set(),'startup_rejected','iOS helper is stopped',409)
+            self._target_boundary_ready=True
             return {'ok':True}
         if operation=='started':
+            check(self._target_boundary_ready and not self.stop.is_set(),
+                  'native_profile_mismatch','iOS target-boundary handshake is required before startup',409)
             if self.device_authority is not None:self._require_startup_window()
             check(self.device_authority is not None and self.native_handshake is not None,
                   'native_protocol_mismatch','iOS startup authority is unavailable',400)
@@ -530,7 +559,9 @@ class IosProvider:
                 result={'ok':body.get('ok') is True,'timing':'best-effort'}
                 error=body.get('error')
                 if result['ok'] is False and isinstance(error,str) and re.fullmatch(r'[a-z_]{1,64}',error):
-                    result.update(outcome='rejected',code=error)
+                    # A target transition observed after dispatch is not proof of no effect.
+                    result.update(outcome=('uncertain' if error=='target_changed_during_input'
+                                           else 'rejected'),code=error)
                 pending['result']=result;pending['event'].set()
             return {'ok':True}
         if operation in {'clock-start','clock-end'}:
@@ -541,6 +572,8 @@ class IosProvider:
             return (clock.begin_exchange(body) if operation=='clock-start'
                     else clock.finish_exchange(body))
         if operation=='frame':
+            check(self._target_boundary_ready and not self.stop.is_set(),
+                  'native_profile_mismatch','iOS target-boundary handshake is required before frames',409)
             require_runtime_frame(self.profile,body.get('width'),body.get('height'),body.get('orientation'))
             try:data=base64.b64decode(body['imageBase64'],validate=True)
             except (ValueError,KeyError,TypeError):raise LiveError('invalid_frame','Invalid native image',400)
@@ -612,6 +645,7 @@ class IosProvider:
         return self._close(permit)
     def close(self):return self._close(None)
     def _close(self,permit):
+        self._target_boundary_ready=False
         self.stop.set()
         if getattr(self,'frame_clock',None) is not None:self.frame_clock.close()
         if self.process is not None:

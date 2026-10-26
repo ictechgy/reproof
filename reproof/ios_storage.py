@@ -3,8 +3,9 @@ from __future__ import annotations
 import os
 from pathlib import Path,PurePosixPath
 import plistlib
+import re
 import shutil
-from .core import digest,require
+from .core import ContractError,digest,require
 from .storage import read_json,write_json,sha_file
 from .ios_core import APPLICATION_ID,EVIDENCE_KIND,compile_ios_capture,ios_evidence_kind
 from .ios_cases import CASES,case_from_fixture
@@ -48,11 +49,20 @@ def checked_relative(root,name):
     return target
 
 
+class WrongIOSApplication(ContractError):
+    """Selected artifact is not the sample; callers must not skip identity checks."""
+
+
 def app_info(app):
     app=Path(app)
     require((app/'Info.plist').is_file() and not (app/'Info.plist').is_symlink(),'Missing app identity')
     with (app/'Info.plist').open('rb') as f:value=plistlib.load(f)
-    require(value.get('CFBundleIdentifier')==APPLICATION_ID,'Wrong iOS application')
+    require(isinstance(value,dict),'Invalid iOS app identity')
+    bundle=value.get('CFBundleIdentifier')
+    require(isinstance(bundle,str) and re.fullmatch(r'[A-Za-z0-9.-]{1,200}',bundle),
+            'Invalid iOS bundle identity')
+    if bundle != APPLICATION_ID:
+        raise WrongIOSApplication('Wrong iOS application')
     require(isinstance(value.get('ReproBuildID'),str) and len(value['ReproBuildID'])>=8,'Missing iOS build identity')
     return {'applicationId':APPLICATION_ID,'buildId':value['ReproBuildID']}
 

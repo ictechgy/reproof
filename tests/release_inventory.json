@@ -542,6 +542,7 @@
             "tests.test_live_media",
             "tests.test_live_jobs",
             "tests.test_live_operations",
+            "tests.test_live_recording_trust",
             "tests.test_live_worker",
             "tests.test_live_model",
             "tests.test_issue_sessions",
@@ -1225,6 +1226,7 @@
             "tests.test_ios_cleanup_ack",
             "tests.test_android_startup_wait",
             "tests.test_android_startup_model",
+            "tests.test_live_startup_guidance",
             "tests.test_ios_startup_wait",
             "tests.test_live_authority_integration",
             "tests.test_live_authority",
@@ -1232,7 +1234,9 @@
             "tests.test_retained_ios_startup",
             "tests.test_live_android_profile",
             "tests.test_android_observation_live",
-            "tests.test_native_buffer_transport"
+            "tests.test_native_buffer_transport",
+            "tests.test_ios_target_isolation.TargetReceiptTests",
+            "tests.test_ios_target_isolation.TargetSourceWiringTests"
           ],
           "environment": "local-python-standard-library",
           "effects": [

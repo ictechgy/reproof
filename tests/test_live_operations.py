@@ -31,7 +31,7 @@ class OperationsHttpTests(unittest.TestCase):
         self.request('/');r=self.imported()
         status,response=self.request('/api/recordings/'+r['id']+'/derive',{'speed':2})
         self.assertEqual(status,201,response);derived=response['recording']
-        self.assertNotEqual(r['id'],derived['id']);self.assertTrue(derived['replayable'])
+        self.assertNotEqual(r['id'],derived['id']);self.assertFalse(derived['replayable'])
         self.assertEqual(derived['events'][0]['offsetMs'],50)
         self.assertEqual(self.request('/api/recordings/'+r['id'])[1]['recording'],r)
     def test_two_servers_cannot_operate_one_output_store(self):
@@ -46,7 +46,15 @@ class OperationsHttpTests(unittest.TestCase):
         self.assertEqual(self.request('/api/sessions/'+s['id']+'/events')[1]['events'][0]['type'],'session_allocated')
         health=self.request('/api/health')[1];self.assertEqual(health['devices']['busy'],1)
     def test_job_waits_for_manual_session_and_runs_after_release(self):
-        self.request('/');r=self.imported()
+        self.request('/')
+        capture=self.lab.create_session('demo','local-owner','recorder')
+        self.lab.start_recording(capture['id'],'local-owner','recorder',capture['epoch'],reset=True)
+        frame=self.lab.frame(capture['id'])
+        self.lab.input(capture['id'],'local-owner',{'controllerId':'recorder','epoch':capture['epoch'],
+            'sequence':1,'commandId':'capture-tap','frameId':frame['id'],
+            'geometryVersion':frame['geometryVersion'],'action':'tap','payload':{'x':.5,'y':.5}})
+        r=self.lab.stop_recording(capture['id'],'local-owner','recorder',capture['epoch'])
+        self.lab.close_session(capture['id'],'local-owner')
         s=self.request('/api/sessions',{'deviceId':'demo','clientId':'manual'})[1]['session']
         status,value=self.request('/api/jobs',{'recordingId':r['id'],'variables':{},'requestId':'queue-1','repeats':2,'timeoutSeconds':20})
         self.assertEqual(status,202,value);job=value['job'];self.assertEqual(job['state'],'queued')

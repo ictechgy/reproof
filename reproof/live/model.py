@@ -32,6 +32,14 @@ ANDROID_STARTUP_DIAGNOSTICS = {
 }
 
 
+STARTUP_DIAGNOSTICS = {
+    **ANDROID_STARTUP_DIAGNOSTICS,
+    'ios_profile_required': 'General iOS app artifacts require --ios-profile; the profile-free artifact path accepts only the Reproof sample',
+    'ios_sample_identity_invalid': 'Selected iOS sample identity is invalid; check the artifact or supply a valid general --ios-profile',
+    'authority_unavailable': 'Host authority is unavailable; shared-v2 requires a coordinator-issued parent grant. See docs/HOST-AUTHORITY.md for explicit offline compatibility limits',
+}
+
+
 @dataclass(frozen=True, slots=True)
 class TrustedDeviceReservation:
     reservation_id: str
@@ -180,10 +188,12 @@ class Lab:
                     device.update(state='quarantined',quarantineReason='previous_session_unfinished')
         for path in (self.output/'recordings').glob('*.json'):
             try:
-                from .recordings import validate_recording
-                stored=read_json(path);r=validate_recording(stored['recording'])
+                from .recordings import untrusted_recording
+                stored=read_json(path);r=untrusted_recording(stored['recording'])
                 check(r['id']==path.stem and isinstance(stored['owner'],str),'invalid_recording','Recording path or owner mismatch')
-                self.recordings[r['id']]={'owner':stored['owner'],'data':r}
+                # Disk JSON/digests are not server-issued replay authority.
+                self.recordings[r['id']]={'owner':stored['owner'],'data':r,
+                                          'storedData':copy.deepcopy(stored['recording'])}
             except (ContractError,KeyError,TypeError,ValueError,OSError):self.recording_load_errors.append(path.stem)
     def register_recording_project(self,project,collection_policy,*,
                                    capacity_bytes=1024*1024*1024,
@@ -872,8 +882,8 @@ class Lab:
                 'createdAt':s['createdAt'],'expiresAt':int(time.time()*1000+max(0,min(s['lastActivity']+self.idle_timeout,s['createdMonotonic']+self.max_session_seconds)-self.clock())*1000),
                 'idleTimeoutSeconds':self.idle_timeout,'maxSessionSeconds':self.max_session_seconds,'closeReason':s.get('closeReason'),
                 'activePointerIds':sorted(s.get('activePointers',{})),'pointerTimeoutSeconds':10}
-        if (s.get('errorCode') in ANDROID_STARTUP_DIAGNOSTICS
-                and s.get('error')==ANDROID_STARTUP_DIAGNOSTICS[s['errorCode']]):
+        if (s.get('errorCode') in STARTUP_DIAGNOSTICS
+                and s.get('error')==STARTUP_DIAGNOSTICS[s['errorCode']]):
             result['errorCode']=s['errorCode']
         if s.get('releaseRecordingId') is not None:
             result['releaseRecordingId']=s['releaseRecordingId']
@@ -1079,11 +1089,13 @@ class Lab:
                             clean=handle.status=='owned'
                             if clean:clean=handle.close()
                         except Exception:clean=False
-                    message=('Host authority is unavailable'
+                    message=(STARTUP_DIAGNOSTICS['authority_unavailable']
                              if isinstance(error,LiveError) and error.code=='authority_unavailable'
                              else 'Provider construction was rejected' if factory_attempted
                              else 'Session setup was rejected before provider construction')
                     s.update(state='failed',error=message)
+                    if isinstance(error,LiveError) and error.code=='authority_unavailable':
+                        s['errorCode']='authority_unavailable'
                     if clean and _device_scope is None:s['_startupReleaseConfirmed']=True
                     with self.lock:
                         if _device_scope is not None:
@@ -1117,7 +1129,7 @@ class Lab:
                         self._persist_devices()
             if not clean_rejection:
                 code=(error.code if isinstance(error,LiveError)
-                      and error.code in ANDROID_STARTUP_DIAGNOSTICS else None)
+                      and error.code in STARTUP_DIAGNOSTICS else None)
                 self.fail(sid,'Provider could not start',error_code=code)
         return self.get_session(sid,owner)
 
@@ -1779,6 +1791,9 @@ class Lab:
                     captured=next((item for item in s['frameHistory'] if item[0]==command['frameId']),None)
                     check(captured is not None and time.monotonic()-captured[1]<=10 and captured[2]==command['geometryVersion'],'stale_frame','Displayed frame is stale')
                     recording_frame=copy.deepcopy(frame)
+            reset_binding=self._reset_binding(s) if action=='reset' else None
+            reset_frame_sequence=s['frameSequence']
+            s['knownStart']=False;s.pop('knownStartBinding',None)
             started=time.monotonic()
             receipt={'id':cid,'sequence':seq,'action':action,'status':'unknown','epoch':s['epoch'],'frameId':command['frameId']}
             operation_id=(cid if re.fullmatch(r'operation_[0-9a-f]{40}',cid)
@@ -1859,7 +1874,10 @@ class Lab:
                 s['metrics'].update(lastInputMs=receipt['durationMs'],injected=s['metrics']['injected']+1)
                 if s.pop('geometryChanged',False):self._invalidate_recording(s,'geometry_changed')
                 if action=='pointer':self._apply_pointer_transition(s,command['payload'],command['geometryVersion'])
-                self._record_input(s,command,receipt,started);s['knownStart']=action=='reset' and self.devices[s['deviceId']]['capabilities'].get('resetContract')!='app-relaunch-only'
+                self._record_input(s,command,receipt,started)
+                s['knownStart']=(reset_binding is not None and reset_binding==self._reset_binding(s)
+                                 and s['frameSequence']>reset_frame_sequence)
+                if s['knownStart']:s['knownStartBinding']=reset_binding
                 if action=='reset':s.pop('appLog',None);s.pop('appLogError',None)
                 s['receipts'][cid]=(fingerprint,copy.deepcopy(receipt))
                 if len(s['receipts'])>2000:s['receipts'].pop(next(iter(s['receipts'])))
@@ -1895,13 +1913,16 @@ class Lab:
         if reason:r['replayable']=False;r['reason']=reason
         r['endedAt']=int(time.time()*1000);r['digest']=digest(r)
         write_json(self.output/'recordings'/f'{r["id"]}.json',{'owner':entry['owner'],'recording':r})
+        if r['replayable'] and entry.get('resetContract') is not None:
+            entry['replayBinding']=self._recording_binding(r,entry['owner'],entry['resetContract'])
     def _invalidate_recording(self,s,reason):
         rid=s.get('recordingId')
         if rid and self.recordings[rid]['data']['status']=='recording':self._freeze(self.recordings[rid],reason)
     def _reset(self,s):
         with s['lock']:
             check(not s['activePointers'],'pointer_active','Finish or cancel active pointers before reset')
-            s['knownStart']=False;before=s['frameSequence']
+            reset_binding=self._reset_binding(s)
+            s['knownStart']=False;s.pop('knownStartBinding',None);before=s['frameSequence']
             permit=self._prepare_effect(s,'reset',{})
         try:
             result=self._provider_execute(s,'reset',{},permit)
@@ -1921,7 +1942,8 @@ class Lab:
             self.fail(s['id'],'Reset result is uncertain; close the session before reuse')
             raise LiveError('reset_unknown','Reset result is uncertain; close the session before reuse') from None
         with s['lock']:
-            s['knownStart']=self.devices[s['deviceId']]['capabilities'].get('resetContract')!='app-relaunch-only'
+            s['knownStart']=reset_binding is not None and reset_binding==self._reset_binding(s)
+            if s['knownStart']:s['knownStartBinding']=reset_binding
             s.pop('appLog',None);s.pop('appLogError',None)
     def start_recording(self,sid,owner,controller,epoch,reset=False):
         s=self._session(sid,owner)
@@ -1935,6 +1957,8 @@ class Lab:
         with s['lock']:
             self._control(s,controller,epoch)
             s.pop('geometryChanged',None)
+            s['knownStart']=bool(s['knownStart'] and s.get('knownStartBinding') is not None
+                                 and s['knownStartBinding']==self._reset_binding(s))
             rid=uuid.uuid4().hex;frame=self._frame_meta(s)
             r={'schemaVersion':1,'kind':'live-gesture-recording','id':rid,'sessionId':sid,'deviceId':s['deviceId'],
                'applicationIdentity':copy.deepcopy(self.devices[s['deviceId']]['capabilities'].get('applicationIdentity')),
@@ -1942,7 +1966,8 @@ class Lab:
                'startingState':{'kind':'provider-reset' if s['knownStart'] else 'unknown'},
                'geometry':{k:frame[k] for k in ('width','height','orientation')},'events':[],'variables':[],
                'media':'frame-references-only','startedAt':int(time.time()*1000),'_started':time.monotonic()}
-            self.recordings[rid]={'owner':owner,'data':r,'lock':s['lock']};s['recordingId']=rid;return self.recording(rid,owner)
+            self.recordings[rid]={'owner':owner,'data':r,'lock':s['lock'],
+                                  'resetContract':self._supported_reset_contract(s) if s['knownStart'] else None};s['recordingId']=rid;return self.recording(rid,owner)
     def stop_recording(self,sid,owner,controller,epoch):
         s=self._session(sid,owner)
         with s['lock']:
@@ -2187,28 +2212,88 @@ class Lab:
         with entry.get('lock',self.lock):
             r=entry['data']
             if r['status']!='recording':
-                stored=read_json(self.output/'recordings'/f'{rid}.json')['recording'];check(stored==r,'recording_changed','Recording integrity mismatch')
+                stored=read_json(self.output/'recordings'/f'{rid}.json')['recording'];check(stored==entry.get('storedData',r),'recording_changed','Recording integrity mismatch')
             return copy.deepcopy({k:v for k,v in r.items() if not k.startswith('_')})
+    @staticmethod
+    def _recording_binding(recording,owner,reset_contract):
+        # Process-local host state. Never serialized or accepted in an API document.
+        return (owner,recording['digest'],reset_contract,
+                digest({key:recording.get(key) for key in
+                        ('id','sessionId','deviceId','providerKind','applicationIdentity')}))
+    def _supported_reset_contract(self,s):
+        device=self.devices[s['deviceId']];caps=device['capabilities']
+        if 'reset' not in caps.get('actions',[]):return None
+        contract=caps.get('resetContract');kind=device['kind']
+        if kind.startswith('remote-'):kind=kind[len('remote-'):]
+        identity=caps.get('applicationIdentity') or {}
+        if kind=='demo' and contract=='sample-counter-fixture-v1':return contract
+        if (kind in {'ios-simulator','ios-physical'}
+                and identity.get('bundle')=='io.reproof.sample.ios'
+                and contract in {'sample-counter-fixture-v1','sample-duplicate-submit-fixture-v1',
+                                 'sample-reset-fixture-v1'}):return contract
+        if kind=='android-live':
+            if contract=='sample-counter-fixture-v1' and identity.get('bundle')=='io.reproof.sample':return contract
+            if isinstance(contract,str):
+                match=re.fullmatch(r'app-profile-([0-9a-f]{64})-fixture-([a-z][a-z0-9_]{0,63})-v1',contract)
+                if (match and identity.get('appProfileDigest')==match[1]
+                        and caps.get('fixture')==match[2]):return contract
+        return None
+    def _reset_binding(self,s):
+        contract=self._supported_reset_contract(s)
+        if contract is None:return None
+        device=self.devices[s['deviceId']]
+        return (s['deviceId'],device['kind'],contract,
+                digest(device['capabilities'].get('applicationIdentity')))
+    def _require_replay_binding(self,s,owner,r):
+        contract=self._supported_reset_contract(s)
+        entry=self.recordings.get(r['id'],{})
+        device=self.devices[s['deviceId']]
+        check(r['deviceId']==s['deviceId'] and r['providerKind']==device['kind']
+              and r.get('applicationIdentity')==device['capabilities'].get('applicationIdentity')
+              and contract is not None and entry.get('replayBinding')==
+              self._recording_binding(r,owner,contract),
+              'not_replayable','Recording has no trusted starting-state evidence')
     def import_recording(self,document,owner):
-        from .recordings import validate_recording
+        from .recordings import validate_recording,untrusted_recording
         try:r=validate_recording(document)
         except (ContractError,TypeError,ValueError):raise LiveError('invalid_recording','Recording schema, input privacy, or integrity validation failed',400) from None
         rid=r['id']
         with self.lock:
             existing=self.recordings.get(rid)
-            if existing is not None:
-                check(existing['owner']==owner,'forbidden','Recording belongs to another owner',403)
-                check(existing['data'].get('digest')==r['digest'],'recording_conflict','Recording ID already has different content')
-                return {'recording':copy.deepcopy(r),'imported':False}
-            write_json(self.output/'recordings'/f'{rid}.json',{'owner':owner,'recording':r})
-            self.recordings[rid]={'owner':owner,'data':r,'lock':threading.RLock()}
-        return {'recording':copy.deepcopy(r),'imported':True}
+            if existing is None:
+                r=untrusted_recording(r)
+                write_json(self.output/'recordings'/f'{rid}.json',{'owner':owner,'recording':r})
+                self.recordings[rid]={'owner':owner,'data':r,'lock':threading.RLock()}
+                return {'recording':copy.deepcopy(r),'imported':True}
+        # Never take a session/recording lock while holding the Lab lock.
+        # Same-process re-import is idempotent, never a new capability.
+        check(existing['owner']==owner,'forbidden','Recording belongs to another owner',403)
+        current=self.recording(rid,owner)
+        normalized=untrusted_recording(r)
+        check(current==r or current==normalized,
+              'recording_conflict','Recording ID already has different content')
+        return {'recording':current,'imported':False}
     def derive_recording(self,rid,owner,*,event_ids=None,speed=1):
-        from .recordings import derive_recording
-        try:result=derive_recording(self.recording(rid,owner),event_ids=event_ids,speed=speed)
+        from .recordings import derive_recording,untrusted_recording
+        try:
+            source=self.recording(rid,owner)
+            result=derive_recording(source,event_ids=event_ids,speed=speed)
         except LiveError:raise
         except (ContractError,ValueError,TypeError):raise LiveError('invalid_derivation','Recording cannot be derived with these events or speed',400) from None
-        return self.import_recording(result,owner)['recording']
+        with self.lock:
+            source_entry=self.recordings[rid]
+            contract=source_entry.get('resetContract')
+            trusted=(contract is not None and source_entry.get('replayBinding')==
+                     self._recording_binding(source,owner,contract))
+            if not trusted:
+                result=untrusted_recording(result);contract=None
+            check(result['id'] not in self.recordings,'recording_conflict','Derived recording ID already exists')
+            entry={'owner':owner,'data':result,'lock':threading.RLock(),'resetContract':contract}
+            if trusted and result['replayable']:
+                entry['replayBinding']=self._recording_binding(result,owner,contract)
+            write_json(self.output/'recordings'/f'{result["id"]}.json',{'owner':owner,'recording':result})
+            self.recordings[result['id']]=entry
+        return copy.deepcopy(result)
     def list_recordings(self,owner):
         entries=list(self.recordings.items())
         return sorted([self.recording(rid,owner) for rid,entry in entries if entry['owner']==owner],key=lambda r:r.get('endedAt',r['startedAt']),reverse=True)
@@ -2220,6 +2305,7 @@ class Lab:
             r=self.recording(rid,owner);check(r['status']=='complete' and r['replayable'],'not_replayable','Recording has no supported starting state')
             check(r.get('applicationIdentity')==self.devices[s['deviceId']]['capabilities'].get('applicationIdentity'),'app_changed','Recorded application differs from the installed app')
             check(r['deviceId']==s['deviceId'] and r['providerKind']==self.devices[s['deviceId']]['kind'],'provider_mismatch','This version replays on the original device and provider only')
+            self._require_replay_binding(s,owner,r)
             check(all(e['action'] in self.devices[s['deviceId']]['capabilities']['actions'] for e in r['events']),'unsupported_operation','Recording uses an unsupported provider action',400)
             check(isinstance(variables,dict) and set(variables)==set(r['variables']),'missing_variables','Supply all recorded text variables',400)
             for value in variables.values():validate_gesture('text',{'value':value})
@@ -2227,6 +2313,7 @@ class Lab:
         self._cancel_active_pointers(s)
         with s['lock']:
             self._control(s,controller,epoch)
+            self._require_replay_binding(s,owner,r)
             self._invalidate_recording(s,'replay_started');s['epoch']+=1;replay_id=uuid.uuid4().hex
             replay_controller='replay-'+replay_id;s.update(controllerId=replay_controller,lastSequence=0,mode='replay')
             s['cancel']=threading.Event();cancel=s['cancel'];replay_epoch=s['epoch']
@@ -2238,9 +2325,12 @@ class Lab:
         try:
             with s['lock']:
                 self._control(s,replay_controller,epoch)
+                self._require_replay_binding(s,owner,r)
             self._reset(s)
             with s['lock']:
                 self._control(s,replay_controller,epoch)
+                self._require_replay_binding(s,owner,r)
+                check(s['knownStart'],'not_replayable','Reset did not establish a supported starting state')
                 frame=self._frame_meta(s);check({k:frame[k] for k in r['geometry']}==r['geometry'],'geometry_mismatch','Replay geometry differs')
             playback_started=time.monotonic()
             for index,event in enumerate(r['events'],1):
@@ -2253,7 +2343,9 @@ class Lab:
                 if cancel.is_set():result['state']='cancelled';break
                 self.recording(r['id'],owner)
                 with s['lock']:
-                    self._control(s,replay_controller,epoch);frame=self._frame_meta(s)
+                    self._control(s,replay_controller,epoch)
+                    self._require_replay_binding(s,owner,r)
+                    frame=self._frame_meta(s)
                     check({k:frame[k] for k in r['geometry']}==r['geometry'],'geometry_mismatch','Replay geometry changed')
                     payload=copy.deepcopy(event['payload'])
                     if event['action']=='text':payload={'value':variables[event['payload']['variable']]}
@@ -2294,11 +2386,11 @@ class Lab:
             if s['state'] in {'closed','draining'}:return
             # Keep the first sanitized startup result if a late poller also
             # reports failure. The existing revocation/cleanup path still runs.
-            if (s.get('errorCode') in ANDROID_STARTUP_DIAGNOSTICS
-                    and s.get('error')==ANDROID_STARTUP_DIAGNOSTICS[s['errorCode']]):
+            if (s.get('errorCode') in STARTUP_DIAGNOSTICS
+                    and s.get('error')==STARTUP_DIAGNOSTICS[s['errorCode']]):
                 error_code=s['errorCode']
-            if error_code in ANDROID_STARTUP_DIAGNOSTICS:
-                message=ANDROID_STARTUP_DIAGNOSTICS[error_code]
+            if error_code in STARTUP_DIAGNOSTICS:
+                message=STARTUP_DIAGNOSTICS[error_code]
                 s['errorCode']=error_code
             handle=s.get('deviceAuthority')
             if handle is not None:

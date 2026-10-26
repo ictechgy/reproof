@@ -349,7 +349,7 @@ class LiveAuthorityIntegrationTests(unittest.TestCase):
             provider._startup_accepting = True
             provider._startup_deadline = time.monotonic() + providers.IOS_STARTUP_TIMEOUT_SECONDS
         ready = provider.bridge('ready', {
-            'capabilities': {}, 'protocolVersion': NATIVE_PROTOCOL_VERSION,
+            'capabilities': {'targetBoundaryVersion': 1}, 'protocolVersion': NATIVE_PROTOCOL_VERSION,
             'helperVersion': HELPER_VERSION, 'helperIncarnation': permit.helper_incarnation,
             'hostIncarnation': permit.host_incarnation,
             'providerIncarnation': permit.provider_incarnation,

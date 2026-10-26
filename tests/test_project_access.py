@@ -88,7 +88,7 @@ def blocking_device(control):
     value = device([])
     value["factory"] = lambda: BlockingProvider(control)
     value["capabilities"]["actions"] = ["tap", "reset"]
-    value["capabilities"]["resetContract"] = "synthetic-v1"
+    value["capabilities"]["resetContract"] = "sample-counter-fixture-v1"
     return value
 
 
