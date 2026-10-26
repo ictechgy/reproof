@@ -12,12 +12,7 @@ from tests import test_ios_artifact_transfer as support
 _LC_UUID = 0x1B
 _ARM64 = 0x0100000C
 _X86_64 = 0x01000007
-_OWNED_DEVICE_RUNNERS = tuple(
-    Path(__file__).resolve().parents[1]
-    / f"artifacts/product-delivery/d4-ios-runtime-r1/{build}"
-    / "DerivedData/Build/Products/Debug-iphoneos/ReproLiveTests-Runner.app"
-    for build in ("helper-device-build", "helper-device-build-r2")
-)
+from tests.native_fixture_inputs import native_fixture
 
 
 def _macho64(file_type, *, cpu_type=_ARM64, uuid=None):
@@ -172,12 +167,10 @@ class IOSXCTestDsymTests(unittest.TestCase):
                 with self.assertRaises(ContractError):
                     parse_ios_artifact(app)
 
-    @unittest.skipUnless(
-        all(path.is_dir() for path in _OWNED_DEVICE_RUNNERS),
-        "owned generated device runners are unavailable",
-    )
     def test_accepts_owned_generated_device_runner_sidecar(self):
-        for runner in _OWNED_DEVICE_RUNNERS:
+        runners = (native_fixture('REPROOF_TEST_IOS_DEVICE_RUNNER'),
+                   native_fixture('REPROOF_TEST_IOS_DEVICE_RUNNER_SECOND'))
+        for runner in runners:
             with self.subTest(runner=runner.parent.parent.parent.parent.name):
                 artifact = parse_ios_artifact(runner)
                 sidecar = (

@@ -21,9 +21,7 @@ BUILD_TOOLS = Path.home() / "Library/Android/sdk/build-tools/36.0.0"
 APKSIGNER_JAR = BUILD_TOOLS / "lib/apksigner.jar"
 AAPT2 = BUILD_TOOLS / "aapt2"
 ANDROID_JAR = Path.home() / "Library/Android/sdk/platforms/android-35/android.jar"
-PUBLIC_APK = (ROOT / "artifacts/product-delivery/d1-android-views-r1/"
-              "original-debug/source/app/build/outputs/apk/release/"
-              "app-release-unsigned.apk")
+from tests.native_fixture_inputs import native_fixture
 PACKAGE = "com.example.reproinventory"
 
 
@@ -145,13 +143,13 @@ def _crash_parent(command, root, apk, key, password, certificate, definition):
     os._exit(73)
 
 
-@unittest.skipUnless(
-    SOURCE.is_file() and SOURCE_C.is_file() and DOCUMENTED_JAVA.exists()
-    and APKSIGNER_JAR.is_file() and AAPT2.is_file() and ANDROID_JAR.is_file()
-    and PUBLIC_APK.is_file(), "cached Android signing owner inputs unavailable")
 class AndroidSigningOwnerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.public_apk = native_fixture('REPROOF_TEST_ANDROID_UNSIGNED_APK')
+        if not (SOURCE.is_file() and SOURCE_C.is_file() and DOCUMENTED_JAVA.exists()
+                and APKSIGNER_JAR.is_file() and AAPT2.is_file() and ANDROID_JAR.is_file()):
+            raise unittest.SkipTest('cached Android signing owner tools unavailable')
         cls.temporary = tempfile.TemporaryDirectory()
         cls.root = Path(cls.temporary.name).resolve()
         cls.java = DOCUMENTED_JAVA.resolve(strict=True)
@@ -239,7 +237,7 @@ class AndroidSigningOwnerTests(unittest.TestCase):
         work = self.root / name
         work.mkdir(mode=0o700)
         selected = work / "candidate.apk"
-        shutil.copyfile(PUBLIC_APK, selected)
+        shutil.copyfile(self.public_apk, selected)
         selected.chmod(0o600)
         return work, selected
 
@@ -325,7 +323,7 @@ class AndroidSigningOwnerTests(unittest.TestCase):
         self.assertEqual(result["usesPermissions"], [])
         self.assertEqual(result["declaredPermissions"], [])
         self.assertEqual(result["certificateSha256"], self.certificate)
-        self.assertEqual(result["inputDigest"], _sha(PUBLIC_APK))
+        self.assertEqual(result["inputDigest"], _sha(self.public_apk))
         self.assertEqual(result["outputDigest"], _sha(work / "signed.apk"))
         self.assertEqual(_record(work / "start.json")["state"], "started")
         self.assertEqual(_record(work / "start.json")["recordMeaning"], "owner-start")
@@ -350,7 +348,7 @@ class AndroidSigningOwnerTests(unittest.TestCase):
         root.mkdir(mode=0o700)
         context = multiprocessing.get_context("spawn")
         parent = context.Process(target=_crash_parent, args=(
-            self.command, root, PUBLIC_APK, self.keystore, self.password,
+            self.command, root, self.public_apk, self.keystore, self.password,
             self.certificate, self.definition))
         parent.start()
         deadline = time.monotonic() + 10
@@ -519,7 +517,7 @@ class AndroidSigningOwnerTests(unittest.TestCase):
             os.close(lock_fd)
 
     def test_in_process_sink_rejects_before_signed_output_exceeds_bound(self):
-        maximum = PUBLIC_APK.stat().st_size
+        maximum = self.public_apk.stat().st_size
         work, process, stdout, stderr, held = self.run_owner(
             "sign", "bounded-output", extra={"maxBytes": str(maximum)})
         self.assertNotEqual(process.returncode, 0, stderr)

@@ -136,12 +136,18 @@ def configured_local_devices(path):
               and item['platform'] in {'android','ios-physical'},
               'invalid_config','Unsupported configured device platform',400)
         product_key='helper' if item['platform']=='android' else 'products'
-        check(set(item)=={'platform','deviceId','profile','application',product_key},
+        expected={'platform','deviceId','profile','application',product_key}
+        if item['platform']=='android' and 'launchConfig' in item:expected.add('launchConfig')
+        check(set(item)==expected,
               'invalid_config','Invalid configured device fields',400)
         check(all(type(item[key]) is str and 0<len(item[key])<=1024
                   and not any(ord(character)<32 for character in item[key])
                   for key in ('deviceId','profile','application',product_key)),
               'invalid_config','Invalid configured device value',400)
+        if 'launchConfig' in item:
+            check(type(item['launchConfig']) is str and 0<len(item['launchConfig'])<=1024
+                  and not any(ord(c)<32 for c in item['launchConfig']),
+                  'invalid_config','Invalid configured launch selection',400)
         identity=(item['platform'],item['deviceId'])
         check(identity not in seen,'duplicate_device','Physical worker device is duplicated',400)
         seen.add(identity)
@@ -152,9 +158,11 @@ def configured_local_devices(path):
             from ..android_profile import load_android_runtime_profile
             from .android_live import android_live_device
             profile=load_android_runtime_profile(selected('profile'))
+            from ..android_launch import load_android_launch
+            launch=(load_android_launch(selected('launchConfig'),profile) if 'launchConfig' in item else None)
             result.append(android_live_device(
                 item['deviceId'],selected('helper'),selected('application'),
-                runtime_profile=profile,authority_mode='shared-v2'))
+                runtime_profile=profile,launch_config=launch,authority_mode='shared-v2'))
         else:
             from ..ios_profile import load_ios_profile
             from .iphone import iphone_device

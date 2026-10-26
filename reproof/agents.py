@@ -89,6 +89,42 @@ class ProjectPatchAgent:
             raise AgentUnavailable('Local proposal is unavailable') from None
 
 
+class ProjectUnifiedDiffAgent:
+    """Offline external-patch proposal, not AI and never a verification verdict."""
+    provider_id = 'local-unified-diff'
+    external = False
+    proposal_kind = 'local-proposal'
+
+    def __init__(self, path, *, base_source_digest):
+        import re
+        require(type(base_source_digest) is str and re.fullmatch(r'[0-9a-f]{64}', base_source_digest),
+                'Invalid base source digest')
+        self.path = Path(path).absolute()
+        self.base_source_digest = base_source_digest
+        self.last_receipt = None
+
+    def propose_project(self, packet, *, cancellation):
+        from .execution.artifacts import ArtifactError, read_regular
+        from .execution.wire import ProtocolError
+        from .unified_diff import exact_edits
+        self.last_receipt = None
+        try:
+            if cancellation.is_set():
+                raise AgentUnavailable('Proposal was cancelled')
+            require(type(packet) is dict and packet.get('sourceDigest') == self.base_source_digest,
+                    'Source snapshot mismatch')
+            raw = read_regular(self.path.parent, self.path.name, maximum=256 * 1024)
+            edits = exact_edits(raw.decode('utf-8'), packet.get('sourceFiles'))
+            if cancellation.is_set():
+                raise AgentUnavailable('Proposal was cancelled')
+            self.last_receipt = {'provider': self.provider_id, 'kind': self.proposal_kind,
+                'sourceDigest': self.base_source_digest,
+                'responseDigest': hashlib.sha256(raw).hexdigest(), 'status': 'completed'}
+            return edits
+        except (ArtifactError, ProtocolError, ContractError, OSError, ValueError, UnicodeError, TypeError):
+            raise AgentUnavailable('Local unified diff proposal is unavailable') from None
+
+
 class ClaudeProjectAgent:
     """Prompt-only general project adapter; caller must authorize its packet."""
     provider_id = 'claude'

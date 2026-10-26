@@ -58,11 +58,11 @@ def validate_numeric_expression(before, after, function):
             'MVP only accepts a numeric increment expression')
 
 
-def snapshot_source(root, *, source_inputs=None, isolated=False):
+def snapshot_source(root, *, source_inputs=None, source_extensions=None, isolated=False):
     if source_inputs is not None:
         from .android_sources import freeze_source, require_declared_tree, source_hashes
         if isolated:require_declared_tree(root, source_inputs)
-        return source_hashes(freeze_source(root, source_inputs))
+        return source_hashes(freeze_source(root, source_inputs, extensions=source_extensions))
     root=Path(root).resolve();files={}
     for directory,dirs,names in os.walk(root):
         dirs[:]=sorted(d for d in dirs if d not in {'build','.gradle','.git','.idea','artifacts','runs','.codex'}
@@ -76,12 +76,12 @@ def snapshot_source(root, *, source_inputs=None, isolated=False):
     return files
 
 
-def copy_source(root,destination, *, source_inputs=None):
+def copy_source(root,destination, *, source_inputs=None, source_extensions=None):
     root=Path(root);destination=Path(destination);require(not destination.exists(),'Source copy already exists')
     if source_inputs is not None:
         from .android_sources import freeze_source, source_hashes
         from .execution.artifacts import ArtifactError
-        frozen=freeze_source(root, source_inputs)
+        frozen=freeze_source(root, source_inputs, extensions=source_extensions)
         destination.parent.mkdir(parents=True,exist_ok=True)
         try:frozen.write_new(destination)
         except ArtifactError:raise ContractError('Public Android source publication failed') from None
@@ -148,12 +148,13 @@ def run_command(command,cwd,*,stdin=None,timeout=300,max_output=2*1024*1024,env_
 
 def build_android(source,gradle,java_home,sdk_home,task,apk_relative,timeout=300,app_profile=None,android_user_home=None):
     source_inputs=app_profile.data.get('sourceInputs') if app_profile is not None else None
-    source=Path(source);before=snapshot_source(source, source_inputs=source_inputs, isolated=True)
+    source_extensions=app_profile.data.get('inputExtensions') if app_profile is not None else None
+    source=Path(source);before=snapshot_source(source, source_inputs=source_inputs, source_extensions=source_extensions, isolated=True)
     environment={'JAVA_HOME':str(java_home),'ANDROID_HOME':str(sdk_home),'ANDROID_SDK_ROOT':str(sdk_home)}
     if android_user_home is not None:environment['ANDROID_USER_HOME']=str(android_user_home)
     output=run_command([str(gradle),'--offline','--no-daemon','--console=plain',task],str(source),timeout=timeout,
                        env_extra=environment)
-    require(snapshot_source(source, source_inputs=source_inputs, isolated=True)==before,'Build modified protected source')
+    require(snapshot_source(source, source_inputs=source_inputs, source_extensions=source_extensions, isolated=True)==before,'Build modified protected source')
     apk=source/apk_relative;require(apk.is_file(),'Build produced no expected APK')
     proof={'sourceDigest':digest(before),'sourceFiles':before,'apkSha256':sha_file(apk),
            'buildTask':task,'toolchain':{'gradleExecutable':Path(gradle).name,'java':Path(java_home).name},

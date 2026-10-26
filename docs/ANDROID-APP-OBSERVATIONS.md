@@ -111,3 +111,42 @@ reproof live-serve \
 준비·빌드 성공만으로 제품 동작이나 회사 QA 수용 검사가 완료되는 것은 아니다.
 
 전체 진행 범위와 남은 검증은 [제품 완성 계획](PRODUCT-DELIVERY-PLAN.md)에 기록한다.
+
+## Limited Groovy build integration
+
+Observation profiles may opt in with `"dsl": "groovy"` inside `build`, alongside
+`task` and `apk`. Omitted `dsl` retains Kotlin DSL behavior; explicit `kotlin`
+is also accepted. Declare `settings.gradle` and the selected module's
+`build.gradle` in `sourceInputs`. Declaring both DSL variants for either selected
+file is rejected. This does not convert Kotlin application sources to Java or
+expand Activity/Fragment observation coverage.
+
+The initial Groovy path supports a deliberately restricted, modern `plugins {}`
+layout. The module's first statement must be its sole `plugins` block. Settings
+may have a first `pluginManagement` block or none; a missing block is prepended.
+An insertion-only lexical adapter adds the fixed included plugin build and plugin
+ID in a separate prepared copy. Original build bodies, repositories policies
+(including `FAIL_ON_PROJECT_REPOS`), application files and the original tree stay
+unchanged. The existing source snapshot, generated-file digests, site analysis
+and post-build bytecode proof still apply. The receipt records
+`buildIntegration: groovy-insertion-v1`; `parser: kotlin-psi` continues to describe
+Kotlin Activity site analysis, not a general Groovy AST parser.
+
+Unsupported inputs fail with a fixed guidance error, without running Gradle or
+producing a partial prepared output. Unsupported forms include legacy `apply
+plugin:` / `apply from:`, existing `includeBuild` composite/plugin builds, imports,
+classes/traits/metaclass changes, interpolated or triple-quoted strings,
+slashy/dollar-slashy strings, Unicode escapes, CRLF, annotations and ambiguous or
+unbalanced blocks. Ordinary single/double-quoted strings (only quote/backslash
+escapes), comments and bounded balanced blocks are supported. This is not a
+claim of general Groovy-language compatibility or safe execution of untrusted
+build scripts: as before, the selected build inputs must be operator-approved.
+
+The fixed insertion form follows Gradle's documented
+[plugin-build inclusion](https://docs.gradle.org/current/userguide/composite_builds.html)
+and [plugins block rules](https://docs.gradle.org/current/userguide/plugins_intermediate.html).
+Portable tests exercise profile validation, exact insertion/provenance and
+rejection paths using a synthetic site analyzer. Actual Gradle compilation and
+Android runtime behavior of this new path require separate qualification; neither
+is established by these preparation tests. Existing 900-file/60-MiB source limits
+and all protected input checks remain unchanged.

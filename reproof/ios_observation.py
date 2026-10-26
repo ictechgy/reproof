@@ -20,6 +20,7 @@ from .execution.wire import safe_transfer_path
 from .resources import read_resource
 from .repair import run_command
 from .storage import _unique_object, read_json, write_json
+from .source_input_policy import allowed_suffix, input_paths, input_extensions
 
 KIND = 'uikit-observation-v2'
 SUPPORT = 'ReproofInstrumentation'
@@ -35,23 +36,25 @@ _SUFFIXES = {'.swift', '.m', '.mm', '.h', '.hpp', '.c', '.cpp', '.plist', '.pbxp
     '.json', '.png', '.jpg', '.jpeg', '.pdf', '.ttf', '.otf', '.strings', '.stringsdict', '.modulemap'}
 
 
-def _input_name(value):
-    safe_transfer_path(value)
-    require(re.fullmatch(r'[A-Za-z0-9_./ -]{1,512}', value) is not None,
-            'Unsupported public iOS input path')
+def _input_name(value, *, extensions=None):
+    allowed_suffix(value, _SUFFIXES, extensions)
     parts = value.split('/')
     require(not any(part.startswith('.') or part.casefold() in {
         'artifacts', 'build', 'build-device', 'deriveddata', 'xcuserdata', 'node_modules',
-        'local.properties', 'reproofinstrumentation', MARKER} for part in parts)
-        and Path(value).suffix.lower() in _SUFFIXES, 'Unsupported public iOS input path')
+        'local.properties', 'reproofinstrumentation', MARKER} for part in parts), 'Unsupported public iOS input path')
     return value
 
 
 def validate_observation_document(document):
-    require(type(document) is dict and set(document) == {'schemaVersion', 'kind', 'applicationId',
-        'project', 'target', 'build', 'sourceInputs', 'tapTargets', 'screenTargets'}
+    required = {'schemaVersion', 'kind', 'applicationId', 'project', 'target', 'build',
+                'sourceInputs', 'tapTargets', 'screenTargets'}
+    require(type(document) is dict and required <= set(document) <= required | {'workspace', 'inputExtensions'}
         and type(document['schemaVersion']) is int and document['schemaVersion'] == 2
         and document['kind'] == KIND, 'Unsupported configured UIKit profile')
+    extensions = document.get('inputExtensions')
+    if 'inputExtensions' in document:
+        require(type(extensions) is list, 'Unsupported input extensions')
+        input_extensions(extensions)
     bundle = document['applicationId']
     require(type(bundle) is str and len(bundle) <= 180
         and re.fullmatch(r'[A-Za-z][A-Za-z0-9-]*(?:\.[A-Za-z][A-Za-z0-9-]*)+', bundle)
@@ -59,6 +62,10 @@ def validate_observation_document(document):
     require(type(document['project']) is str and document['project'].endswith('.xcodeproj'),
             'Select a relative Xcode project')
     project_file = _input_name(document['project'] + '/project.pbxproj')
+    if 'workspace' in document:
+        require(type(document['workspace']) is str and document['workspace'].endswith('.xcworkspace'),
+                'Select a relative Xcode workspace')
+        _input_name(document['workspace'] + '/contents.xcworkspacedata')
     build = document['build']
     require(type(build) is dict and set(build) == {'scheme', 'product', 'infoPlist', 'debugConfiguration'},
             'Unsupported UIKit build selection')
@@ -68,12 +75,15 @@ def validate_observation_document(document):
     info = _input_name(build['infoPlist'])
     require(info.endswith('.plist'), 'Select an explicit source Info.plist')
     inputs = document['sourceInputs']
-    require(type(inputs) is list and 1 <= len(inputs) <= 900, 'Declare the public iOS build inputs')
-    for value in inputs: _input_name(value)
+    input_paths(inputs)
+    for value in inputs: _input_name(value, extensions=extensions)
     require(len({name.casefold() for name in inputs}) == len(inputs)
         and {project_file, info} <= set(inputs), 'Missing or duplicated UIKit build inputs')
     require(not any('/'.join(name.split('/')[:i]).casefold() in {p.casefold() for p in inputs}
         for name in inputs for i in range(1, len(name.split('/')))), 'Conflicting UIKit input paths')
+    from .ios_workspace import workspace_files
+    require(all(_input_name(name) in inputs for name in workspace_files(document)),
+            'Declare the workspace and shared scheme inputs')
     taps = document['tapTargets']; screens = document['screenTargets']
     require(type(taps) is list and 1 <= len(taps) <= 128
         and all(type(item) is str and _ID.fullmatch(item) for item in taps)
@@ -154,6 +164,8 @@ def prepare_observation(source, output, profile, *, sanitation_policy=None):
     require(not (source / SUPPORT).exists() and not (source / MARKER).exists(), 'UIKit source is already prepared')
     original = source_snapshot(source, profile)
     entries = dict(original.entries); before = _hashes(original.entries)
+    from .ios_workspace import validate_workspace
+    validate_workspace(profile.data, entries, _project)
     for name, raw in original.entries:
         if name.endswith(('.swift', '.m', '.mm', '.h')):
             require(not re.search(rb'\bRecorder\s*\.\s*shared\b|RLAutomaticRecorder|RLAutoConfig|\bREPRO_OBSERVATIONS\b', raw),
@@ -257,6 +269,8 @@ def build_observation_app(source, output, *, profile=None, configuration=None, s
     preparation = validate_observation_preparation(source, profile) if embedded else None
     frozen = source_snapshot(source, profile, prepared=embedded is not None)
     hashes = _hashes(frozen.entries)
+    from .ios_workspace import validate_workspace
+    validate_workspace(profile.data, dict(frozen.entries), _project)
     build_id = digest(hashes)[:32]
     build = profile.data['build']
     configuration = build['debugConfiguration'] if configuration is None else configuration
@@ -280,7 +294,8 @@ def build_observation_app(source, output, *, profile=None, configuration=None, s
     except ArtifactError: raise ContractError('Use a new output with real existing parent directories') from None
     workspace = output / 'source'
     sdk_name = 'iphonesimulator' if sdk == 'simulator' else 'iphoneos'
-    command = ['/usr/bin/xcodebuild', 'build', '-project', str(workspace / profile.data['project']),
+    selection = ('-workspace', profile.data['workspace']) if 'workspace' in profile.data else ('-project', profile.data['project'])
+    command = ['/usr/bin/xcodebuild', 'build', selection[0], str(workspace / selection[1]),
         '-scheme', build['scheme'], '-configuration', configuration, '-sdk', sdk_name,
         '-destination', 'generic/platform=iOS Simulator' if sdk == 'simulator' else 'generic/platform=iOS',
         '-derivedDataPath', str(output / 'DerivedData'), '-disableAutomaticPackageResolution', '-skipPackageUpdates',

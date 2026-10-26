@@ -12,6 +12,7 @@ import zipfile
 
 from .android_profile import relative_path
 from .android_sources import freeze_source, validate_source_inputs
+from .source_input_policy import input_extensions, inert_input_path
 from .core import ContractError, digest, require
 from .execution.artifacts import ArtifactError, open_regular
 from .storage import MAX_APK, _unique_object
@@ -51,9 +52,13 @@ def validate_observation_profile(document):
     required = {'schemaVersion', 'kind', 'package', 'activity', 'build',
                 'sourceInputs', 'tapTargets', 'screenTargets'}
     require(type(document) is dict and required <= set(document)
-        and set(document) <= required | {'instrumentation'}
+        and set(document) <= required | {'instrumentation', 'inputExtensions'}
         and type(document['schemaVersion']) is int and document['schemaVersion'] == 2
         and document['kind'] == KIND, 'Unsupported configured Views profile')
+    extensions = document.get('inputExtensions')
+    if 'inputExtensions' in document:
+        require(type(extensions) is list, 'Unsupported input extensions')
+        input_extensions(extensions)
     package, activity = document['package'], document['activity']
     require(type(package) is str and len(package) <= 180
         and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+', package)
@@ -62,7 +67,9 @@ def validate_observation_profile(document):
         and re.fullmatch(r'\.?[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*', activity),
         'Invalid Views activity')
     build = document['build']
-    require(type(build) is dict and set(build) == {'task', 'apk'}
+    require(type(build) is dict and {'task', 'apk'} <= set(build) <= {'task', 'apk', 'dsl'}
+        and type(build.get('dsl', 'kotlin')) is str
+        and build.get('dsl', 'kotlin') in {'kotlin', 'groovy'}
         and type(build['task']) is str
         and re.fullmatch(r':(?:[A-Za-z][A-Za-z0-9_-]*:)*assemble(?:[A-Za-z][A-Za-z0-9]*)?Debug', build['task']),
         'Select one Views Debug assemble task')
@@ -70,10 +77,13 @@ def validate_observation_profile(document):
     relative_path(build['apk'], '.apk')
     require(build['apk'].startswith((module / 'build/outputs/apk').as_posix() + '/'),
         'Select the APK output of the configured module')
-    inputs = validate_source_inputs(document['sourceInputs'])
-    require({'settings.gradle.kts', (module / 'build.gradle.kts').as_posix(),
-             (module / 'src/main/AndroidManifest.xml').as_posix()} <= set(inputs),
-        'Missing required Views public build inputs')
+    inputs = validate_source_inputs(document['sourceInputs'], extensions=extensions)
+    suffix = '.gradle' if build.get('dsl') == 'groovy' else '.gradle.kts'
+    other = '.gradle.kts' if suffix == '.gradle' else '.gradle'
+    require({'settings' + suffix, (module / ('build' + suffix)).as_posix(),
+             (module / 'src/main/AndroidManifest.xml').as_posix()} <= set(inputs)
+        and not {'settings' + other, (module / ('build' + other)).as_posix()} & set(inputs),
+        'Missing or ambiguous Views Gradle DSL inputs')
     taps, screens = document['tapTargets'], document['screenTargets']
     require(type(taps) is list and 1 <= len(taps) <= 64
         and all(type(value) is str and _ID.fullmatch(value) for value in taps)
@@ -97,7 +107,8 @@ def validate_observation_profile(document):
                 and re.fullmatch(r's[0-9a-f]{1,80}', site['id'])
                 and type(site['line']) is int and 1 <= site['line'] <= 1_000_000
                 and type(site['target']) is str and site['target'] in taps, 'Invalid Views source site')
-            relative_path(site['path'], '.kt')
+            inert_input_path(site['path'])
+            require(site['path'].endswith('.kt'), 'Invalid Views source site')
             require(site['path'] in inputs and any(site['path'].startswith(prefix + folder + '/')
                 for folder in ('java', 'kotlin')), 'Unbound Views source site')
             ids.add(site['id']); targets.add(site['target']); lines.add(site['line']); paths.add(site['path'])
@@ -178,7 +189,7 @@ def build_observation_app(source, output, *, profile, gradle, java_home, sdk_hom
     prepared = 'instrumentation' in profile.data
     require((source / MARKER).exists() == prepared, 'Views source and preparation profile differ')
     preparation = validate_instrumented_source(source, profile) if prepared else None
-    frozen = freeze_source(source, profile.data['sourceInputs'])
+    frozen = freeze_source(source, profile.data['sourceInputs'], extensions=profile.data.get('inputExtensions'))
     from .android_sources import source_hashes
     hashes = source_hashes(frozen)
     require(output.parent.is_dir() and not output.parent.is_symlink(), 'Views build output needs a real parent')
@@ -194,8 +205,8 @@ def build_observation_app(source, output, *, profile, gradle, java_home, sdk_hom
             android_user_home=android_user_home)
         require(proof.get('buildCompleted') is True and proof.get('sourceDigest') == digest(hashes)
             and proof.get('sourceFiles') == hashes
-            and snapshot_source(workspace, source_inputs=profile.data['sourceInputs'], isolated=True) == hashes
-            and freeze_source(source, profile.data['sourceInputs']) == frozen,
+            and snapshot_source(workspace, source_inputs=profile.data['sourceInputs'], source_extensions=profile.data.get('inputExtensions'), isolated=True) == hashes
+            and freeze_source(source, profile.data['sourceInputs'], extensions=profile.data.get('inputExtensions')) == frozen,
             'Views build changed its protected public inputs')
         app = stage_apk(apk, staging / 'app.apk', expected_digest=proof['apkSha256'],
                         expected_bytes=apk.stat().st_size)

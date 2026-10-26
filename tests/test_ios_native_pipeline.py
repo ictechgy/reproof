@@ -29,6 +29,7 @@ from reproof.ios_signing_operation import IOSSigningOperationStore
 from reproof.repair_signing import SigningContext, SigningObservation, SignatureObservation, SigningFailureObservation
 from reproof.resources import read_resource
 from tests import test_ios_provisioning_cms as cms_fixture
+from tests.native_fixture_inputs import native_fixture
 
 
 def sha(body): return hashlib.sha256(body).hexdigest()
@@ -37,6 +38,7 @@ def sha(body): return hashlib.sha256(body).hexdigest()
 class IOSNativePipelineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        source = native_fixture('REPROOF_TEST_IOS_APP')
         cms_fixture.IOSCmsVerificationTests.setUpClass()
         cls.addClassCleanup(cms_fixture.IOSCmsVerificationTests.doClassCleanups)
         material = cms_fixture.IOSCmsVerificationTests
@@ -102,8 +104,6 @@ class IOSNativePipelineTests(unittest.TestCase):
         cls.resolver = IOSSigningMaterialResolver()
         cls.resolver.register(cls.identity,pkcs12=cls.pkcs12,password=cls.password)
         cls.addClassCleanup(cls.resolver.close)
-        source = Path(__file__).resolve().parents[1]/('artifacts/product-delivery/d1-uikit-r1/'
-            'original-release/DerivedData/Build/Products/Release-iphonesimulator/Inventory.app')
         archive = cls.root/'unsigned.ipa'
         with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED) as output:
             for path in sorted(source.rglob('*')):

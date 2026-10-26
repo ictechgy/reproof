@@ -222,8 +222,14 @@ def _validate_repair_configuration(value, project_digest):
           'issue_configuration', 'Invalid original artifact identity', 400)
     agent = value['agent']
     check(type(agent) is dict, 'issue_configuration', 'Invalid proposal adapter', 400)
-    if agent.get('kind') == 'local-patch':
-        exact(agent, ('kind', 'patchFile')); absolute(agent['patchFile'])
+    if agent.get('kind') in {'local-patch', 'local-unified-diff'}:
+        if agent['kind'] == 'local-unified-diff':
+            exact(agent, ('kind', 'patchFile', 'baseSourceDigest'))
+            check(type(agent['baseSourceDigest']) is str and re.fullmatch(r'[0-9a-f]{64}', agent['baseSourceDigest']) is not None,
+                  'issue_configuration', 'Invalid base source digest', 400)
+        else:
+            exact(agent, ('kind', 'patchFile'))
+        absolute(agent['patchFile'])
         check('transferPolicy' not in value, 'issue_configuration', 'Local proposals do not use an AI transfer policy', 400)
     else:
         exact(agent, ('kind', 'model'), ('executable',))
@@ -338,7 +344,7 @@ def compose_issue_repairs(bundle, configuration, *, protected_repairs=None):
         repairs = []
         for configured in configuration['projects']:
             if 'repair' not in configured: continue
-            from ..agents import ClaudeProjectAgent, ProjectPatchAgent
+            from ..agents import ClaudeProjectAgent, ProjectPatchAgent, ProjectUnifiedDiffAgent
             from ..project_repair import RepairError, RepairSource, validate_transfer_policy
             from ..repair_diagnostics import validate_diagnostic_policy
             from .project_repair_jobs import ProjectRepairConfiguration, ProjectRepairJobs
@@ -356,6 +362,8 @@ def compose_issue_repairs(bundle, configuration, *, protected_repairs=None):
                     original_artifact_paths=value['originalArtifactPaths'], artifact_identity=value['artifactIdentity'])
                 selected = value['agent']
                 agent = (ProjectPatchAgent(selected['patchFile']) if selected['kind'] == 'local-patch'
+                    else ProjectUnifiedDiffAgent(selected['patchFile'], base_source_digest=selected['baseSourceDigest'])
+                    if selected['kind'] == 'local-unified-diff'
                     else ClaudeProjectAgent(selected.get('executable'), model=selected['model']))
                 # Validate declarations only. Startup does not read company
                 # source, resolve secrets, collect logs or invoke a provider.

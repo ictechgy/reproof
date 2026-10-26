@@ -9,6 +9,7 @@ import re
 from .core import ContractError, require
 from .execution.artifacts import ArtifactError, BlobSet, open_regular
 from .execution.wire import safe_transfer_path
+from .source_input_policy import input_paths, allowed_suffix
 
 _SUFFIXES = {'.kt', '.kts', '.java', '.gradle', '.xml', '.json', '.toml', '.properties',
              '.pro', '.txt', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.ttf', '.otf',
@@ -17,13 +18,11 @@ _OUTPUT_DIRS = {'build', '.gradle', '.kotlin'}
 _METADATA = {'instrumentation-receipt.json'}
 
 
-def validate_source_inputs(names):
-    require(type(names) is list and 1 <= len(names) <= 900, 'Declare the public Android build inputs')
+def validate_source_inputs(names, *, extensions=None):
+    input_paths(names)
     for name in names:
-        safe_transfer_path(name)
-        require(re.fullmatch(r'[A-Za-z0-9_./-]{1,512}', name) is not None
-                and Path(name).suffix.lower() in _SUFFIXES
-                and not any(part.startswith('.') or part.casefold() in {
+        allowed_suffix(name, _SUFFIXES, extensions)
+        require(not any(part.startswith('.') or part.casefold() in {
                     'build', 'artifacts', 'runs', 'node_modules', 'local.properties',
                     'instrumentation-receipt.json'} or Path(part).stem.casefold() in {
                     'auth', 'credentials', 'secrets', 'keys', 'keystore'} for part in name.split('/')),
@@ -34,8 +33,8 @@ def validate_source_inputs(names):
     return names
 
 
-def freeze_source(root, names):
-    validate_source_inputs(names)
+def freeze_source(root, names, *, extensions=None):
+    validate_source_inputs(names, extensions=extensions)
     entries = []; total = 0
     try:
         for name in sorted(names):

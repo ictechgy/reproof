@@ -15,6 +15,7 @@ import time
 import unittest
 
 from reproof.resources import read_resource
+from tests.native_fixture_inputs import native_fixture
 
 
 SDK = Path(os.environ.get('MACOSX_SDK_PATH') or subprocess.run(['xcrun','--sdk','macosx','--show-sdk-path'],capture_output=True,text=True,check=True).stdout.strip())
@@ -258,11 +259,10 @@ raise SystemExit(74)
         self.assertEqual((self.work/'termination.json').read_bytes(), b'')
 
     def test_actual_app_signature_retains_locks_until_acknowledged_exit(self):
+        source = native_fixture('REPROOF_TEST_IOS_APP')
         self.build()
         from reproof.ios_artifact_staging import stage_ios_artifact
         from reproof.ios_artifact_transfer import parse_ios_artifact
-        source = Path(__file__).resolve().parents[1] / ('artifacts/product-delivery/d1-uikit-r1/'
-            'original-release/DerivedData/Build/Products/Release-iphonesimulator/Inventory.app')
         selected = parse_ios_artifact(source)
         configuration = self.root/'openssl.cnf'
         configuration.write_text('[req]\ndistinguished_name=dn\nprompt=no\nx509_extensions=code\n'

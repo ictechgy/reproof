@@ -421,7 +421,8 @@ class AndroidSigningTests(unittest.TestCase):
                             for path in work.iterdir()))
 
     def test_actual_cached_apksigner_signs_owned_public_apk_and_inspector_rejects_tamper(self):
-        repository = Path(__file__).parents[1]
+        from tests.native_fixture_inputs import native_fixture
+        apk = native_fixture('REPROOF_TEST_ANDROID_UNSIGNED_APK')
         documented_java = Path(
             "/opt/homebrew/opt/openjdk@17/libexec/"
             "openjdk.jdk/Contents/Home/bin/java")
@@ -433,9 +434,7 @@ class AndroidSigningTests(unittest.TestCase):
         build_tools = Path.home() / "Library/Android/sdk/build-tools/36.0.0"
         jar = build_tools / "lib/apksigner.jar"
         aapt = build_tools / "aapt2"
-        apk = (repository / "artifacts/product-delivery/d1-android-views-r1/"
-               "original-debug/source/app/build/outputs/apk/release/"
-               "app-release-unsigned.apk")
+
         if not all(path.is_file() for path in (java, keytool, jar, aapt, apk)):
             self.skipTest("authorized cached Android signing inputs unavailable")
         password = secrets.token_hex(18).encode("ascii")

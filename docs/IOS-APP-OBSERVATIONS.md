@@ -101,3 +101,33 @@ Release 덮어쓰기에서 이전 Debug 라이브러리가 남는 경우도 여�
 `lostEvents`/`truncated`에 표시한다. 공유 기록의 보존·권한 정책이 추가로 적용된다.
 기존 `uikit-runtime-v1` 샘플의 replay/fixture/capture 계약은 그대로 유지하며,
 v2 관찰 프로필로 샘플 capture를 채택할 수 없다.
+
+## 제한된 로컬 워크스페이스 선택
+
+기존 `.xcodeproj` 형식은 그대로 유지한다. 여러 로컬 프로젝트를 묶는 빌드에는
+프로필 최상위에 `"workspace": "Inventory.xcworkspace"`를 추가할 수 있다.
+`project`와 `target`은 여전히 **계측할 단 하나의 프로젝트와 앱 타깃**이다.
+빌드 컨테이너만 `xcodebuild -workspace … -scheme …`으로 선택하며, 다른 프로젝트는
+계측하지 않는다. 서로 다른 프로젝트의 동명 타깃은 scheme의 프로젝트 경로와
+BlueprintIdentifier로 구분한다.
+
+이 초기 경로는 다음의 명시적 입력만 지원한다.
+
+- `sourceInputs`에 워크스페이스의 `contents.xcworkspacedata`, 모든 멤버 프로젝트의
+  `project.pbxproj`, 그리고 `WORKSPACE/xcshareddata/xcschemes/SCHEME.xcscheme`를 선언한다.
+- workspace의 `group:`/`container:` 참조는 입력 루트 안의 `.xcodeproj`에만 연결한다.
+  절대 경로, `..`, 외부/누락/중복 프로젝트, 중첩 workspace는 거절한다.
+- 정확히 하나의 공유 scheme이 선택한 프로젝트·타깃을 실행용 빌드 대상으로 지정해야
+  한다. 같은 이름의 다른 공유 scheme, 외부 프로젝트를 가리키는 실행/테스트 참조,
+  scheme의 사전/사후 스크립트·외부 실행 파일·test plan·환경 변수·사용자 작업 폴더는
+  지원하지 않는다. 이 경로는 고정된 구조 태그만 받는다.
+- SPM 로컬/원격 패키지, 암묵적 `PBXProject.projectReferences` 그래프는 이 초기
+  workspace 경로에서 거절한다. 기존 project 경로의 지원 범위는 변경하지 않는다.
+
+목록에 선언한 정규 파일만 기존 동결 경계를 통해 복사하며, 파일 수·용량·경로·링크
+제한은 완화하지 않는다. workspace/scheme/project 구조는 출력 생성과 빌드 전에
+검증한다. 준비 결과는 선택한 프로젝트 외의 입력 바이트를 보존한다.
+이는 신뢰하는 로컬 빌드 입력 선택 기능이지 임의 Xcode 프로젝트 코드를 실행하는
+샌드박스가 아니며, 회사 규모 앱·SPM 전체 지원이나 동작 재현을 뜻하지 않는다.
+합성 입력과 가짜 빌드 명령으로 경계·명령 선택을 검사했으며, 실제 Xcode workspace
+컴파일·Simulator 실행은 별도 검증이 필요하다.

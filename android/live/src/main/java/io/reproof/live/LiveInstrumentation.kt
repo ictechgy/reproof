@@ -471,7 +471,8 @@ class LiveInstrumentation : Instrumentation() {
         synchronized(captureLock) { generalTargetReady.set(false) }
         val logArgument = if (logRunId == null) "" else
             " --es repro_mode observe --es repro_log_run_id $logRunId --es repro_observation_profile $logProfile"
-        val output = runShellAndRead("am start -S -W -n ${profile.componentName}$logArgument")
+        val approvedArguments = liveConfig.approvedLaunch?.shellArguments ?: ""
+        val output = runShellAndRead("am start -S -W -n ${profile.componentName}$logArgument$approvedArguments")
             ?: return false to "target_unavailable"
         if (!output.contains("Status: ok") || !output.contains("Activity: ${profile.componentName}")) {
             return false to "target_unavailable"
@@ -627,6 +628,7 @@ class LiveInstrumentation : Instrumentation() {
         put("nativeDigest", liveConfig?.profile?.nativeDigest ?: JSONObject.NULL)
         put("targetPackage", liveConfig?.targetPackage ?: JSONObject.NULL)
         put("generalProfile", liveConfig?.profile?.general == true)
+        put("launchConfigurationDigest", liveConfig?.approvedLaunch?.digest ?: JSONObject.NULL)
         if (liveConfig?.protocolVersion != null) {
             put("protocolVersion", NATIVE_PROTOCOL_VERSION)
             put("helperVersion", HELPER_VERSION)
@@ -646,6 +648,7 @@ class LiveInstrumentation : Instrumentation() {
             put("observation", if (liveConfig?.profile?.general == true) "registered-resource-ids" else "sample-ids")
             put("sdkCapture", liveConfig?.recordSdk == true)
             put("viewsObservationLaunchVersion", 2)
+            put("launchConfigurationVersion", 1)
             put("nativeFrameBufferVersion", 1)
             if (liveConfig?.protocolVersion != null) put("nativeFrameTimingVersion", 1)
         })
@@ -799,6 +802,7 @@ class LiveInstrumentation : Instrumentation() {
         val helperIncarnation: String?,
         val hostIncarnation: String?,
         val providerIncarnation: String?,
+        val approvedLaunch: ApprovedLaunch?,
     ) {
         companion object {
             fun read(context: Context): LiveConfig? {
@@ -812,7 +816,7 @@ class LiveInstrumentation : Instrumentation() {
                     // fields; SDK capture remains opt-in.
                     val required = setOf("token", "port", "targetPackage", "maxFps", "maxWidth")
                     val authorityFields = setOf("protocolVersion", "helperVersion", "helperIncarnation", "hostIncarnation", "providerIncarnation")
-                    val expected = required + setOf("recordSdk", "appProfile", "profileDigest") + authorityFields
+                    val expected = required + setOf("recordSdk", "appProfile", "profileDigest", "approvedLaunch") + authorityFields
                     val keys = objectValue.keys().asSequence().toSet()
                     if (!keys.containsAll(required) || !keys.all { it in expected }) return null
                     val token = objectValue.getString("token")
@@ -832,6 +836,10 @@ class LiveInstrumentation : Instrumentation() {
                     } else {
                         NativeAppProfile.legacy()
                     }
+                    val approvedLaunch = if (objectValue.has("approvedLaunch")) {
+                        if (!profile.general) return null
+                        ApprovedLaunch.parse(objectValue.opt("approvedLaunch") as? JSONObject ?: return null, profileDigest) ?: return null
+                    } else null
                     val hasAuthority = authorityFields.all { objectValue.has(it) }
                     if (authorityFields.any { objectValue.has(it) } != hasAuthority) return null
                     val protocolVersion = if (hasAuthority) exactInt(objectValue, "protocolVersion") ?: return null else null
@@ -848,7 +856,7 @@ class LiveInstrumentation : Instrumentation() {
                             helperIncarnation?.matches(idPattern) != true || hostIncarnation?.matches(idPattern) != true ||
                             providerIncarnation?.matches(idPattern) != true))) null
                     else LiveConfig(token, port, targetPackage, maxFps, maxWidth, recordSdk, profile, profileDigest,
-                        protocolVersion, helperVersion, helperIncarnation, hostIncarnation, providerIncarnation)
+                        protocolVersion, helperVersion, helperIncarnation, hostIncarnation, providerIncarnation, approvedLaunch)
                 } catch (_: Throwable) { null }
             }
         }

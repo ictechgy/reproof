@@ -804,6 +804,7 @@
             "tests.test_project_repair",
             "tests.test_repair_baseline",
             "tests.test_project_agents",
+            "tests.test_local_unified_diff",
             "tests.test_repair_journal",
             "tests.test_project_repair_jobs"
           ],
@@ -1008,6 +1009,7 @@
             "tests.test_live_iphone",
             "tests.test_worker_profiles",
             "tests.test_ios_observation",
+            "tests.test_ios_workspace",
             "tests.test_ios_auto_live"
           ],
           "environment": "owned-native-protocol-double-no-coredevice-service-or-device",
@@ -1219,6 +1221,7 @@
             "python3",
             "-m",
             "unittest",
+            "tests.test_source_input_policy",
             "tests.test_ios_helper_capabilities",
             "tests.test_ios_abort_cleanup",
             "tests.test_android_locator_geometry",
@@ -1236,7 +1239,12 @@
             "tests.test_android_observation_live",
             "tests.test_native_buffer_transport",
             "tests.test_ios_target_isolation.TargetReceiptTests",
-            "tests.test_ios_target_isolation.TargetSourceWiringTests"
+            "tests.test_ios_target_isolation.TargetSourceWiringTests",
+            "tests.test_android_mirrors",
+            "tests.test_native_fixture_inputs",
+            "tests.test_groovy_observation",
+            "tests.test_enterprise_build_inputs",
+            "tests.test_android_launch"
           ],
           "environment": "local-python-standard-library",
           "effects": [

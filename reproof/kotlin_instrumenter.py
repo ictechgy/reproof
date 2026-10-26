@@ -15,6 +15,7 @@ import tempfile
 from typing import Dict, List
 
 from .core import ContractError, require
+from .source_input_policy import inert_input_path, input_paths
 from .resources import ResourceError, distribution_kind, read_resource, resource_root
 
 
@@ -123,6 +124,7 @@ def _run_tool(source_files, mode, selection):
 def _validate_inputs(source_files: dict[str, str], activity: str, tap_targets: list[str]) -> None:
     require(isinstance(source_files, dict) and 0 < len(source_files) <= _MAX_FILES,
             "Explicit Kotlin source files are required")
+    input_paths(list(source_files))
     total = 0
     for relative, source in source_files.items():
         require(isinstance(relative, str) and _safe_relative_path(relative) and relative.endswith(".kt"),
@@ -144,10 +146,12 @@ def _validate_inputs(source_files: dict[str, str], activity: str, tap_targets: l
 
 
 def _safe_relative_path(value: str) -> bool:
-    if not value or value.startswith("/") or "\\" in value or ".." in value:
+    try:
+        inert_input_path(value)
+        # Match the fixed analyzer's conservative dotted-path rule.
+        return '..' not in value
+    except (ContractError, TypeError, ValueError):
         return False
-    parts = value.split("/")
-    return all(part and part != "." and not part.startswith(".") and _PATH_PART.fullmatch(part) for part in parts)
 
 
 def _java_home() -> str:
