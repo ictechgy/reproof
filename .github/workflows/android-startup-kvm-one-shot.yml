@@ -1,0 +1,52 @@
+name: Android startup narrow-KVM approved one-shot
+
+# Approved for one fresh PR-opened attempt only; never retry consumed PR39.
+# Exact final source review is required before publisher creates this new PR.
+on:
+  pull_request:
+    types: [opened]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-startup-kvm-one-shot-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  startup:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'opened' &&
+      github.repository == 'ictechgy/reproof' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/android-startup-kvm-one-shot-validation' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out exact same-repository proposed source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Run portable one-shot safety controls
+        run: python3 -m unittest discover -s tests -p 'test_android_startup_one_shot*.py'
+      - name: Validate startup once with narrowly scoped KVM access
+        run: python3 scripts/ci/android-startup-one-shot.py run
+      - name: Independently attempt owned-resource cleanup
+        if: always()
+        run: python3 scripts/ci/android-startup-one-shot.py cleanup
+      - name: Preserve only bounded synthetic startup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-startup-one-shot
+          path: |
+            ${{ runner.temp }}/reproof-startup-evidence/supervisor.json
+            ${{ runner.temp }}/reproof-startup-evidence/android/result.json
+            ${{ runner.temp }}/reproof-startup-evidence/android/build-provenance.json
+            ${{ runner.temp }}/reproof-startup-evidence/android/first-frame.jpg
+          if-no-files-found: warn
+          retention-days: 7
