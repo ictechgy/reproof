@@ -12,6 +12,7 @@
     "android/gradlew.bat",
     "android/live/build.gradle.kts",
     "android/live/src/main/AndroidManifest.xml",
+    "android/live/src/main/java/io/reproof/live/ApprovedLaunch.kt",
     "android/live/src/main/java/io/reproof/live/LiveInstrumentation.kt",
     "android/native-common/src/main/java/io/reproof/nativecommon/NativeAppProfile.kt",
     "android/sample/build.gradle.kts",

@@ -18,9 +18,7 @@ from unittest.mock import patch
 from reproof.ios_artifact_transfer import parse_ios_artifact
 
 
-SOURCE = Path(__file__).resolve().parents[1] / (
-    'artifacts/product-delivery/d1-uikit-r1/original-release/DerivedData/'
-    'Build/Products/Release-iphonesimulator/Inventory.app')
+from tests.native_fixture_inputs import native_fixture
 
 
 def sha(path):
@@ -30,6 +28,7 @@ def sha(path):
 class IOSCodeSignatureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.source_app = native_fixture('REPROOF_TEST_IOS_APP')
         from reproof.resources import read_resource
         temporary = tempfile.TemporaryDirectory(prefix='owned-ios-code-verifier-')
         cls.addClassCleanup(temporary.cleanup)
@@ -50,7 +49,7 @@ class IOSCodeSignatureTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         self.app = self.root / 'Inventory.app'
-        shutil.copytree(SOURCE, self.app, symlinks=True)
+        shutil.copytree(self.source_app, self.app, symlinks=True)
         self.info = plistlib.loads((self.app / 'Info.plist').read_bytes())
         self.entitlements = {'get-task-allow': True}
         entitlement_file = self.root / 'owned-entitlements.plist'

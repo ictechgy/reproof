@@ -99,6 +99,39 @@ local patch 파일의 형식은 다음과 같다. 각 기존 문자열은 원본
 {"edits":[{"path":"src/Checkout.swift","old":"if !ready","new":"if ready"}]}
 ```
 
+### 로컬 unified diff 제안
+
+외부 개발 도구가 만든 패치를 네트워크나 AI 호출 없이 제안으로 읽으려면,
+공유 coordinator의 운영자 소유 repair 구성에서 다음 어댑터를 명시한다.
+
+```json
+{
+  "kind": "local-unified-diff",
+  "patchFile": "/ABSOLUTE/OWNED_PROPOSAL.diff",
+  "baseSourceDigest": "<original build의 64자리 소문자 sourceDigest>"
+}
+```
+
+`baseSourceDigest`는 Git 커밋 SHA나 patch 파일 해시가 아니라, 등록한 원본 build의
+`BlobSet` source manifest digest다. supervisor가 실제 소스를 고정한 digest와 같아야
+패치 파일을 읽는다. 이 digest는 편집 대상뿐 아니라 선언된 보호 입력도 포함한다.
+패치 파일은 256 KiB 이하의 일반 UTF-8 파일이어야 한다(링크 거절).
+`transferPolicy`는 허용하지 않는다. 구성 검사와 compose는 패치/소스를 읽거나
+코드·프로세스를 실행하지 않는다. 기존 G9 propose/verify API를 그대로 사용한다.
+
+지원하는 초기 형식은 기존 LF 줄바꿈 텍스트 파일의 `--- a/path`, `+++ b/path`,
+`@@ -old,count +new,count @@` 수정이다. 선택적 `diff --git`/`index` 헤더도 지원하지만
+index 해시는 출처 증명이 아니다. 정확한 원본 줄 번호·문맥·줄 수를 확인하고 전체
+파일을 기존 exact-replacement 정책으로 변환한다. 파일당 원본/후보는 각각 128 KiB,
+최대 64파일, 변환한 전체 제안은 256 KiB 이하로 제한한다.
+
+새 파일/파일 삭제·이름/모드 변경·바이너리·CRLF·줄 끝 개행 없는 파일과 해당 marker,
+경로 이탈·보호 파일·중복 파일·겹친 hunk·fuzz/offset 적용은 지원하지 않는다.
+한 파일이라도 검사가 실패하면 제안 전체를 거절하며 원본 파일을 수정하지 않는다.
+이는 `local-proposal`이지 AI 응답이나 검증 성공이 아니다. 빌드·회귀·원본/후보
+판정은 기존 보호 실행기가 독립적으로 수행하며, 그 qualification 없이 verified를
+만들거나 배포하지 않는다. 기존 JSON `local-patch` 테스트 어댑터는 그대로 유지한다.
+
 `local-patch`는 결정적인 테스트 어댑터이며 실제 AI가 아니다. Claude를 사용하려면
 `agent`에 `kind: "claude"`, 운영자가 선택한 `model`, 선택적 절대 `executable` 경로를
 등록하고 `transferPolicy`를 제공해야 한다. v1 정책의 정확한 필드는 `schemaVersion: 1`,

@@ -483,12 +483,31 @@ public final class RLAutomaticRecorder: NSObject {
             matches(value, "^[A-Za-z][A-Za-z0-9_. -]{0,99}$") && value == value.trimmingCharacters(in: .whitespaces)
         }
         func inputPath(_ value: String) -> Bool {
-            let parts = value.split(separator: "/", omittingEmptySubsequences: false)
-            return matches(value, "^[A-Za-z0-9_./ -]{1,512}$")
-                && parts.allSatisfy { !$0.isEmpty && !$0.hasPrefix(".") }
+            let parts = value.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+            let devices = Set(["con", "prn", "aux", "nul", "clock$"] +
+                ["com", "lpt"].flatMap { prefix in "123456789¹²³".map { prefix + String($0) } })
+            return !value.isEmpty && value.utf8.count <= 512
+                && value.utf8.elementsEqual(value.precomposedStringWithCanonicalMapping.utf8)
+                && matches(value, "^[\\p{L}\\p{M}\\p{N}/._ -]+$")
+                && parts.allSatisfy { part in
+                    !part.isEmpty && !part.hasPrefix(".") && !part.hasSuffix(".")
+                    && part == part.trimmingCharacters(in: .whitespacesAndNewlines)
+                    && part.utf8.count <= 255
+                    && !devices.contains(part.components(separatedBy: ".")[0].lowercased())
+                }
         }
-        guard Set(document.keys) == Set(["schemaVersion", "kind", "applicationId", "project", "target",
-                                         "build", "sourceInputs", "tapTargets", "screenTargets"]),
+        let requiredKeys = Set(["schemaVersion", "kind", "applicationId", "project", "target",
+                                "build", "sourceInputs", "tapTargets", "screenTargets"])
+        let allowedExtensions = Set([".metal", ".glsl", ".tiff", ".nib", ".a", ".js", ".css",
+                                     ".woff", ".woff2", ".aar", ".jar", ".so", ".html", ".map"])
+        if document.keys.contains("inputExtensions") {
+            guard let extensions = document["inputExtensions"] as? [String],
+                  !extensions.isEmpty, extensions.count <= allowedExtensions.count,
+                  Set(extensions).count == extensions.count,
+                  Set(extensions).isSubset(of: allowedExtensions) else { return nil }
+        }
+        guard requiredKeys.isSubset(of: Set(document.keys)),
+              Set(document.keys).isSubset(of: requiredKeys.union(["workspace", "inputExtensions"])),
               let version = document["schemaVersion"] as? NSNumber,
               CFGetTypeID(version) != CFBooleanGetTypeID(), version.doubleValue == 2,
               let applicationID = document["applicationId"] as? String, applicationID.count <= 180,
@@ -503,7 +522,8 @@ public final class RLAutomaticRecorder: NSObject {
               let configuration = build["debugConfiguration"], buildName(configuration),
               let info = build["infoPlist"], inputPath(info), info.hasSuffix(".plist"),
               let inputs = document["sourceInputs"] as? [String], !inputs.isEmpty, inputs.count <= 900,
-              inputs.allSatisfy(inputPath), Set(inputs.map { $0.lowercased() }).count == inputs.count,
+              inputs.allSatisfy(inputPath),
+              Set(inputs.map { $0.folding(options: [.caseInsensitive], locale: Locale(identifier: "en_US_POSIX")) }).count == inputs.count,
               inputs.contains(project + "/project.pbxproj"), inputs.contains(info),
               let taps = document["tapTargets"] as? [String], !taps.isEmpty, taps.count <= 128,
               taps.allSatisfy(identifier), Set(taps).count == taps.count,
@@ -511,6 +531,12 @@ public final class RLAutomaticRecorder: NSObject {
               screens.keys.allSatisfy(identifier), screens.values.allSatisfy(identifier),
               Set(screens.values).count == screens.count, Set(taps).isDisjoint(with: screens.keys),
               caseID.isEmpty else { return nil }
+        if let rawWorkspace = document["workspace"] {
+            guard let workspace = rawWorkspace as? String,
+                  workspace.hasSuffix(".xcworkspace"), inputPath(workspace),
+                  inputs.contains(workspace + "/contents.xcworkspacedata"),
+                  inputs.contains(workspace + "/xcshareddata/xcschemes/" + scheme + ".xcscheme") else { return nil }
+        }
         return Profile(observationOnly: true, applicationID: applicationID, project: project, target: target,
                        cases: [], textTargets: [], numericTargets: [], tapTargets: Set(taps), backTarget: "",
                        screenTargets: screens, startScreen: "", startNodes: [:])

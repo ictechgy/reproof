@@ -29,6 +29,7 @@ def main(argv=None):
     parser.add_argument('--workers-stdin',action='store_true',help='Read authenticated worker configurations from stdin')
     parser.add_argument('--android-helper',type=Path,help='Persistent Live helper APK for continuous Android input')
     parser.add_argument('--android-app',type=Path,help='Selected Android APK to install for Live')
+    parser.add_argument('--android-launch-config',type=Path,help='Explicit local approved QA launch extras; Android runtime profiles only')
     parser.add_argument('--android-profile',type=Path,help='Registered general Android runtime application profile JSON')
     parser.add_argument('--app-profile',type=Path,help='Explicit Android application and replay contract JSON')
     parser.add_argument('--iphone',help='Public ID from live-device-doctor for a paired physical iPhone')
@@ -68,7 +69,7 @@ def main(argv=None):
         parser.error('--protected-recovery-config requires --shared-config and --issue-config')
     if args.protected_recovery_config and (args.android or args.simulator or args.iphone or args.demo
             or args.workers_stdin or args.repair_agent or args.authority_mode!='shared-v2'
-            or args.android_helper or args.android_app or args.android_profile or args.app_profile
+            or args.android_helper or args.android_app or args.android_profile or args.android_launch_config or args.app_profile
             or args.ios_app or args.ios_profile or args.iphone_app or args.iphone_products or args.app_logs):
         parser.error('Protected recovery uses only devices from its registered configuration')
     if (args.video_helper or args.media_validator) and not args.issue_config:
@@ -149,6 +150,13 @@ def main(argv=None):
             parser.error('Cannot read Android runtime profile')
         if args.app_logs and android_profile.data['capabilities']['logAdapter'] is None:
             parser.error('--app-logs requires the declared Android observation adapter')
+    android_launch=None
+    if args.android_launch_config:
+        if android_profile is None or args.simulator or args.iphone:
+            parser.error('--android-launch-config requires an Android runtime profile only')
+        from ..android_launch import load_android_launch
+        try: android_launch=load_android_launch(args.android_launch_config,android_profile)
+        except (ContractError,OSError): parser.error('Approved Android launch configuration is unavailable')
     repair_options=[args.repair_source,args.repair_build,args.repair_agent]
     if any(repair_options):
         if not all(repair_options) or sum(bool(value) for value in (args.iphone,args.android,args.simulator)) != 1:
@@ -212,7 +220,7 @@ def main(argv=None):
             from .android_live import android_live_device
             devices.append(android_live_device(android_serial,args.android_helper,args.android_app,
                                                 record_sdk=bool(args.repair_agent or args.app_logs),app_profile=app_profile,
-                                                runtime_profile=android_profile,
+                                                runtime_profile=android_profile,launch_config=android_launch,
                                                 authority_mode=args.authority_mode))
         else:devices.append(android_device(android_serial,authority_mode=args.authority_mode))
     if args.iphone:

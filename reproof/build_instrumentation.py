@@ -51,18 +51,21 @@ def prepare_build_instrumentation(source, app_profile, output, *, analyzer=None)
     require(not observations or 'instrumentation' not in app_profile.data,
             'Select an original Views observation profile')
     inputs = app_profile.data.get('sourceInputs')
+    extensions = app_profile.data.get('inputExtensions') if observations else None
     require(inputs is not None or not (source / 'buildSrc').exists() and not (source / 'buildSrc').is_symlink(),
             'Existing buildSrc requires explicit public sourceInputs')
     plugin_root = 'reproof-build-logic' if inputs is not None else 'buildSrc'
     require(not (source / plugin_root).exists() and not (source / plugin_root).is_symlink(),
             'Reserved instrumentation plugin directory already exists')
     module, variant = build_coordinates(app_profile)
-    build_file = module / 'build.gradle.kts'
-    require((source / build_file).is_file(), 'Build instrumentation requires the selected module Kotlin Gradle file')
+    groovy = observations and app_profile.data['build'].get('dsl') == 'groovy'
+    settings_file = 'settings.gradle' if groovy else 'settings.gradle.kts'
+    build_file = module / ('build.gradle' if groovy else 'build.gradle.kts')
+    require((source / build_file).is_file(), 'Build instrumentation requires the selected module Gradle file')
     require(not (source / module / 'reproof-instrumentation').exists(), 'Build instrumentation runtime already exists')
     if inputs is not None:
         from .android_sources import freeze_source, source_hashes
-        original = freeze_source(source, inputs)
+        original = freeze_source(source, inputs, extensions=extensions)
         original_bytes = dict(original.entries)
         before = source_hashes(original)
     else:
@@ -99,8 +102,12 @@ def prepare_build_instrumentation(source, app_profile, output, *, analyzer=None)
     if inputs is not None:
         require(not set(inputs) & set(generated), 'Reserved Android instrumentation source input')
         config['sourceInputs'] = sorted(inputs + generated)
-        from .kotlin_instrumenter import configure_gradle
-        integration = configure_gradle(original_bytes['settings.gradle.kts'].decode(), original_bytes[build_file.as_posix()].decode())
+        if groovy:
+            from .groovy_integration import configure_groovy
+            integration = configure_groovy(original_bytes[settings_file].decode(), original_bytes[build_file.as_posix()].decode())
+        else:
+            from .kotlin_instrumenter import configure_gradle
+            integration = configure_gradle(original_bytes[settings_file].decode(), original_bytes[build_file.as_posix()].decode())
     profile = validate_observation_profile(config) if observations else validate_app_profile(config)
     sites = sorted(plan['sites'], key=lambda site: site['line'])
     require(all(site['path'] == plan['activityPath'] for site in sites)
@@ -116,7 +123,7 @@ def prepare_build_instrumentation(source, app_profile, output, *, analyzer=None)
     staging = Path(tempfile.mkdtemp(prefix='.' + output.name + '.', dir=output.parent))
     try:
         workspace = staging / 'source'
-        require(copy_source(source, workspace, source_inputs=inputs) == before, 'Source changed while preparing build instrumentation')
+        require(copy_source(source, workspace, source_inputs=inputs, source_extensions=extensions) == before, 'Source changed while preparing build instrumentation')
         for name in plugin_names:
             destination = workspace / plugin_root / name
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -164,15 +171,15 @@ def prepare_build_instrumentation(source, app_profile, output, *, analyzer=None)
         (workspace / module / 'reproof-instrumentation/AndroidManifest.xml').write_text(
             manifest if observations else merge_debug_manifest(manifest))
         if inputs is not None:
-            (workspace / 'settings.gradle.kts').write_text(integration['settings.gradle.kts'])
-            (workspace / build_file).write_text(integration['module.gradle.kts'])
+            (workspace / settings_file).write_text(integration[settings_file])
+            (workspace / build_file).write_text(integration['module.gradle' if groovy else 'module.gradle.kts'])
         else:
             with (workspace / build_file).open('a') as handle:
                 handle.write('\n// Reproof test-build instrumentation; application sources are unchanged.\n'
                              'apply<io.reproof.instrumentation.gradle.ReproInstrumentationPlugin>()\n')
-        after = snapshot_source(workspace, source_inputs=config.get('sourceInputs'), isolated=True)
+        after = snapshot_source(workspace, source_inputs=config.get('sourceInputs'), source_extensions=extensions, isolated=True)
         require(all(after.get(name) == checksum for name, checksum in before.items()
-                    if name not in {build_file.as_posix(), 'settings.gradle.kts'}),
+                    if name not in {build_file.as_posix(), settings_file}),
                 'Build instrumentation modified an original product source')
         changed = sorted(name for name in after if after[name] != before.get(name))
         patch = ''.join(''.join(difflib.unified_diff(
@@ -188,9 +195,11 @@ def prepare_build_instrumentation(source, app_profile, output, *, analyzer=None)
             'patchSha256': sha_file(staging / 'patch.diff'), 'debugTask': config['build']['task'],
             'releaseTask': config['build']['task'][:-5] + 'Release', 'productSourcesUnchanged': True,
             'behaviorVerified': False, 'parser': 'kotlin-psi', 'transformer': 'android-asm'}
+        if groovy:
+            receipt['buildIntegration'] = 'groovy-insertion-v1'
         write_json(workspace / MARKER, receipt)
         write_json(staging / 'instrumentation.json', receipt)
-        require(snapshot_source(source, source_inputs=inputs) == before, 'Original source changed during instrumentation')
+        require(snapshot_source(source, source_inputs=inputs, source_extensions=extensions) == before, 'Original source changed during instrumentation')
         staging.rename(output)
         return {'status': 'prepared', 'mode': 'build', 'source': output / 'source',
                 'appProfile': output / 'app-profile.json', 'patch': output / 'patch.diff',

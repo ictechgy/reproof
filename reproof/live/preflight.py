@@ -50,7 +50,7 @@ def _issue_links(configuration, projects):
             if 'diagnosticPolicy' in repair:
                 from ..repair_diagnostics import validate_diagnostic_policy
                 validate_diagnostic_policy(repair['diagnosticPolicy'], project=project)
-            if repair['agent']['kind'] != 'local-patch':
+            if repair['agent']['kind'] not in {'local-patch', 'local-unified-diff'}:
                 from ..project_repair import validate_transfer_policy
                 _require(project['evidencePolicy']['aiEligible'] is True)
                 validate_transfer_policy(repair.get('transferPolicy'), project_digest=contracts.digest(project),

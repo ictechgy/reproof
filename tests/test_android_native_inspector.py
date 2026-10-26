@@ -19,12 +19,13 @@ from tests import test_android_native_process as support
 _SDK_HOME=Path(os.environ.get('ANDROID_HOME', Path.home()/'Library/Android/sdk'))
 AAPT=Path(os.environ['AAPT_PATH']) if os.environ.get('AAPT_PATH') else \
     next(iter(sorted(_SDK_HOME.glob('build-tools/*/aapt'))), _SDK_HOME/'build-tools'/'aapt')
-APK=Path(__file__).resolve().parents[1]/'artifacts/product-delivery/d1-android-package-r1/built/original.apk'
+from tests.native_fixture_inputs import native_fixture
 
 
 class AndroidNativeInspectorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.apk = native_fixture('REPROOF_TEST_ANDROID_APK')
         support.AndroidNativeProcessTests.setUpClass()
         cls.addClassCleanup(support.AndroidNativeProcessTests.doClassCleanups)
 
@@ -36,7 +37,7 @@ class AndroidNativeInspectorTests(unittest.TestCase):
         self.operations=AndroidOperationStore(self.f.fixture.runs,self.config,self.f.f.root/'inspector-operations')
         self.addCleanup(lambda:self.operations.close(deadline_monotonic=time.monotonic()+2))
         self.f.fixture.operations=self.operations;self.f.fixture.config=self.config
-        self.body=APK.read_bytes()
+        self.body=self.apk.read_bytes()
         self.f.f.context=replace(self.f.f.context,artifact_digest=hashlib.sha256(self.body).hexdigest())
         self.context=self.f.f.context
 
@@ -68,7 +69,7 @@ class AndroidNativeInspectorTests(unittest.TestCase):
                 with native_dispatcher(self.operations,descriptors,self.f.guardian()) as dispatcher:
                     with patch('subprocess.Popen',side_effect=AssertionError('Unstaged inspector spawned')):
                         with self.assertRaises(AndroidOperationError):
-                            dispatcher.inspect_apk(APK,cancellation=threading.Event(),
+                            dispatcher.inspect_apk(self.apk,cancellation=threading.Event(),
                                 deadline_monotonic=time.monotonic()+2)
                     self.operations.complete_phase(phase,'a'*64)
 

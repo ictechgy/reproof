@@ -178,3 +178,10 @@ of the original, deliberately wrong, and fixed Kotlin logic while keeping the
 buggy flavor. Its separate `ANDROID-LOGIC-CONTRACTS` goal is portable;
 `ANDROID-LOGIC` requires the real host JDK/SDK/Gradle execution. Neither is an
 Android UI, device, capture, or AI acceptance claim.
+
+## Operator-provided build mirrors
+
+For restricted-network preparation without modifying the checked-in repository
+policy or Gradle wrapper defaults, see [Android build mirrors](../docs/ANDROID-BUILD-MIRRORS.md).
+The opt-in utility prepares a private, pinned wrapper and settings-stage init script;
+it never runs a build. Real Gradle/mirror qualification remains a separate check.

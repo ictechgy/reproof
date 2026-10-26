@@ -185,7 +185,7 @@ def validate_instrumented_source(source, app_profile):
     require(read_json(source.parent / 'instrumentation.json') == receipt
             and sha_file(source.parent / 'patch.diff') == receipt.get('patchSha256'),
             'Instrumentation source marker differs from its external transformation receipt')
-    files = snapshot_source(source, source_inputs=app_profile.data.get('sourceInputs'), isolated=True)
+    files = snapshot_source(source, source_inputs=app_profile.data.get('sourceInputs'), source_extensions=app_profile.data.get('inputExtensions'), isolated=True)
     expected_kind = ('build-instrumentation' if app_profile.data['instrumentation']['kind'] == 'android_asm_v1'
                      else 'source-instrumentation')
     require(receipt.get('schemaVersion') == 1 and receipt.get('kind') == expected_kind

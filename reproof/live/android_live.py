@@ -104,10 +104,14 @@ def decode_native_frame(data):
 
 class AndroidLiveProvider:
     def __init__(self,serial,helper_apk,sample_apk,*,fixture='counter',record_sdk=False,app_profile=None,
-                 runtime_profile=None,_device=None):
+                 runtime_profile=None,launch_config=None,_device=None):
         check(not (app_profile is not None and runtime_profile is not None),
               'invalid_argument','Select one Android profile schema',400)
         self.general_profile=runtime_profile is not None
+        self.launch_config=None
+        self.launch_configuration_verified=False
+        check(launch_config is None or self.general_profile,
+              "invalid_config","Approved launch requires an Android runtime profile",400)
         if self.general_profile:
             self.app_profile=(runtime_profile if isinstance(runtime_profile,AndroidRuntimeProfile)
                               else validate_android_runtime_profile(runtime_profile))
@@ -128,6 +132,9 @@ class AndroidLiveProvider:
             self.explicit_profile=True
         profile_data=self.app_profile.data
         self.target_package=profile_data['package']
+        if launch_config is not None:
+            from ..android_launch import require_android_launch
+            self.launch_config=require_android_launch(launch_config,self.app_profile)
         self.target_activity=(profile_data['launchTarget']['value'] if self.general_profile
                               else profile_data['activity'])
         self.fixture_spec=None if self.general_profile else profile_data['fixture']
@@ -316,12 +323,19 @@ class AndroidLiveProvider:
                           providerIncarnation=permit.provider_incarnation)
         if self.explicit_profile:
             config.update(appProfile=self.app_profile.native(),profileDigest=self.app_profile.digest)
+        if self.launch_config is not None:
+            from ..android_launch import require_android_launch
+            self.launch_config=require_android_launch(self.launch_config,self.app_profile)
+            config['approvedLaunch']=self.launch_config.native()
+        config_bytes=json.dumps(config,separators=(',',':')).encode('utf-8')
+        check(len(config_bytes)<=16*1024,
+              'invalid_config','Android helper configuration exceeds its bound',400)
         command=shlex.join(['run-as',HELPER,'sh','-c','umask 077 && mkdir -p files && cat > files/live-config.json'])
         if self.device_authority is not None:self._check_permit(permit)
         if self._managed_device:
-            self.device.write_live_configuration(command,json.dumps(config).encode())
+            self.device.write_live_configuration(command,config_bytes)
         else:
-            written=subprocess.run([self.device.adb,'-s',self.device.serial,'shell','-T',command],input=json.dumps(config).encode(),
+            written=subprocess.run([self.device.adb,'-s',self.device.serial,'shell','-T',command],input=config_bytes,
                 stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
             check(written.returncode==0,'helper_config_failed','Could not configure the debug Android helper')
         if self.device_authority is not None:self._check_permit(permit)
@@ -523,6 +537,13 @@ class AndroidLiveProvider:
             self.native_frame_buffer_capacity=capacity
             self.native_frame_timing_declared=timing_version==1
             self.native_frame_buffer_bound=True
+        if getattr(self,'launch_config',None) is not None:
+            self.launch_configuration_verified=False
+            check(type(capabilities.get('launchConfigurationVersion')) is int
+                  and capabilities['launchConfigurationVersion']==1
+                  and value.get('launchConfigurationDigest')==self.launch_config.digest,
+                  'native_profile_mismatch','Android helper approved launch binding differs',400)
+            self.launch_configuration_verified=True
         if self.general_profile:
             check(value.get('targetPackage')==self.target_package
                   and value.get('generalProfile') is True
@@ -647,6 +668,10 @@ class AndroidLiveProvider:
         check(geometry is not None,'stale_frame','The displayed Android frame is no longer available')
         return self._execute(action,payload,geometry,permit=permit)
     def _execute(self,action,payload,geometry=None,permit=None):
+        if action=='launch' and getattr(self,'launch_config',None) is not None:
+            self._validate_native_metadata(self.transport.call('/status'))
+            check(getattr(self,'launch_configuration_verified',False),
+                  'native_profile_mismatch','Approved Android launch handshake is required',409)
         if self.general_profile:
             check(action in self.app_profile.data['capabilities']['actions'],
                   'unsupported_operation','General Android profile does not allow this action',400)
@@ -949,14 +974,13 @@ class AndroidLiveProvider:
 
 
 def android_live_device(serial,helper_apk,sample_apk,*,fixture='counter',record_sdk=False,app_profile=None,
-                        runtime_profile=None,
+                        runtime_profile=None,launch_config=None,
                         authority_mode='shared-v2'):
     check(authority_mode in {'shared-v2','legacy-offline-v1'},'invalid_argument','Invalid authority compatibility mode',400)
     check(not (app_profile is not None and runtime_profile is not None),
           'invalid_argument','Select one Android profile schema',400)
     if app_profile is None and runtime_profile is None:
         check(fixture=='counter','invalid_fixture','Unsupported Android sample fixture',400)
-    device=AdbDevice(serial)
     check(Path(helper_apk).is_file() and Path(sample_apk).is_file(),'missing_build','Build the Android Live helper and sample first',400)
     general=runtime_profile is not None
     profile=(runtime_profile if isinstance(runtime_profile,AndroidRuntimeProfile)
@@ -969,6 +993,10 @@ def android_live_device(serial,helper_apk,sample_apk,*,fixture='counter',record_
     identity=(profile.application_identity if general else
               {'bundle':package,'artifactDigest':sha_file(sample_apk)})
     if explicit and not general:identity['appProfileDigest']=profile.digest
+    if launch_config is not None:
+        from ..android_launch import require_android_launch
+        launch_config=require_android_launch(launch_config,profile)
+    device=AdbDevice(serial)
     reset_contract=(None if general else 'sample-counter-fixture-v1' if not explicit
                     else f'app-profile-{profile.digest}-fixture-{profile.data["id"]}-v1')
     actions=list(profile.data['capabilities']['actions']) if general else ACTIONS
@@ -977,6 +1005,9 @@ def android_live_device(serial,helper_apk,sample_apk,*,fixture='counter',record_
             'pointerTimeoutSeconds':10,'verification':'device-validation-pending','fixture':fixture,'sdkCapture':record_sdk}
     capabilities['automaticAppLogs']=(profile.data['capabilities']['logAdapter'] is not None
                                       if general else record_sdk and profile.data.get('appLogs')==1)
+    if launch_config is not None:
+        capabilities['approvedLaunch']={'referenceId':launch_config.data['referenceId'],
+                                       'configurationDigest':launch_config.digest}
     if explicit:capabilities['fixture']=None if general else profile.data['id']
     if general:
         locator=profile.data['capabilities']['locator']
@@ -989,7 +1020,7 @@ def android_live_device(serial,helper_apk,sample_apk,*,fixture='counter',record_
         'capabilities':capabilities,
         'factory':lambda:AndroidLiveProvider(serial,helper_apk,sample_apk,fixture=fixture,record_sdk=record_sdk,
             app_profile=profile if explicit and not general else None,
-            runtime_profile=profile if general else None)}
+            runtime_profile=profile if general else None,launch_config=launch_config)}
     descriptor['capabilities']['authorityMode']=authority_mode
     if authority_mode=='shared-v2':descriptor['_authority']={'deviceKind':'android','physicalId':serial}
     return descriptor

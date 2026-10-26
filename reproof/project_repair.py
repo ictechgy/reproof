@@ -228,6 +228,8 @@ def proposal_packet(project, frozen, specification, *, provider_id, external, po
             'specification': {key: copy.deepcopy(specification[key]) for key in fields},
             'editPolicy': {'paths': list(paths), 'exactUniqueReplacements': True,
                            'protectedInputs': 'immutable'}, 'previousFailure': feedback}
+        if not external and provider_id == 'local-unified-diff':
+            packet['sourceDigest'] = frozen.digest
         if diagnostics is not None:
             from .repair_diagnostics import project_diagnostics
             _require(project['evidencePolicy']['logs'] is True, 'diagnostics_policy')
@@ -328,7 +330,7 @@ class ProjectRepair:
             except RepairExecutionError as error:
                 reason = error.code
         return {'proposalAvailable': True, 'providerId': self.agent.provider_id,
-            'providerKind': 'external-ai' if self.agent.external else 'local-test-adapter',
+            'providerKind': 'external-ai' if self.agent.external else getattr(self.agent, 'proposal_kind', 'local-test-adapter'),
             'verificationAvailable': available, 'reason': reason}
 
     def create(self, approved, *, campaign_id, issue_id, owner_id, request_id, mode='propose', retain_until_ms=None):
@@ -392,7 +394,7 @@ class ProjectRepair:
                     'executorDigest': self.executor.definition_digest if self.executor is not None else None}
                 plan['digest'] = contracts.digest(plan)
                 provider = {'id': self.agent.provider_id,
-                    'kind': 'external-ai' if self.agent.external else 'local-test-adapter'}
+                    'kind': 'external-ai' if self.agent.external else getattr(self.agent, 'proposal_kind', 'local-test-adapter')}
                 self.journal.update(identifier, plan=plan, provider=provider)
                 boundary()
                 if request['mode'] == 'verify':
