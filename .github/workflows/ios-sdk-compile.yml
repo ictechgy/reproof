@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'ios/**'
+      - 'live-ios/**'
       - 'examples/native-logic-repair/**'
       - 'reproof/native_logic_repair_demo.py'
       - 'scripts/qa-native-logic-repair.py'
@@ -30,6 +31,7 @@ on:
     branches: [main]
     paths:
       - 'ios/**'
+      - 'live-ios/**'
       - 'examples/native-logic-repair/**'
       - 'reproof/native_logic_repair_demo.py'
       - 'scripts/qa-native-logic-repair.py'
@@ -128,6 +130,39 @@ jobs:
               CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
               build 2>&1 | tee "$RUNNER_TEMP/reproof-sdk-logs/sample-$configuration.log"
           done
+      - name: Compile unsigned Live helper without booting or running a Simulator
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild build-for-testing -project live-ios/ReproLive.xcodeproj -scheme ReproLive \
+            -configuration Debug -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/reproof-live-helper" \
+            -disableAutomaticPackageResolution -skipPackageUpdates \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+            2>&1 | tee "$RUNNER_TEMP/reproof-sdk-logs/live-helper-compile.log"
+          "$REPRO_PYTHON" - <<'PYVERIFY'
+          import os
+          from pathlib import Path
+          import plistlib
+          root = Path(os.environ['RUNNER_TEMP']) / 'reproof-live-helper/Build/Products'
+          products = root / 'Debug-iphonesimulator'
+          host = products / 'ReproLiveHost.app'
+          tests = products / 'ReproLiveTests-Runner.app/PlugIns/ReproLiveTests.xctest'
+          for bundle, identifier, executable in (
+              (host, 'io.reproof.live.host', 'ReproLiveHost'),
+              (tests, 'io.reproof.live.tests', 'ReproLiveTests'),
+          ):
+              info = plistlib.loads((bundle / 'Info.plist').read_bytes())
+              assert info['CFBundleIdentifier'] == identifier
+              assert info['CFBundleExecutable'] == executable
+              binary = bundle / executable
+              assert binary.is_file() and binary.stat().st_size > 0
+          configs = list(root.glob('ReproLive_iphonesimulator*.xctestrun'))
+          assert len(configs) == 1 and configs[0].is_file()
+          assert type(plistlib.loads(configs[0].read_bytes())) is dict
+          print('Live helper build products verified; no Simulator or app execution performed')
+          PYVERIFY
       - name: Retain compile and executed-test evidence
         if: always()
         uses: actions/upload-artifact@v4
