@@ -10,7 +10,7 @@ The Live console has two different paths:
   `reproduced`, `verified`, or a test success.
 
 Use **Record without reset** when a general app has no usable reset fixture.
-Stop recording, then select **Preview actions from current screen**. Enter any
+Stop recording, then select **Preview current-session capture**. Enter any
 recording variables first. Review every normalized action/payload (including
 coordinates and actual text), the current live screen, and the warning. A
 coordinate is not a verified UI target. Check the explicit acknowledgment and
@@ -34,15 +34,41 @@ to request cancellation and inspect the resulting session status. A failed cance
 is reported as uncertain, never silently retried. Closing a session uses the normal
 session teardown path.
 
-## Initial scope and limits
+## Two distinct unverified action sources
 
-Only complete recordings captured directly in the same currently open session
-and by this same running server process are eligible. Imported recordings, recordings restored after restart, and derived
-recordings are not enabled for action playback in this initial implementation.
-This is not a permanent ban on imported automation: a future implementation may
-accept imported actions as data through a new exact operator-reviewed plan and
-authorization, never by trusting imported proof flags.
-A preview refusal does not promote an imported recording into trusted evidence.
+**Preview current-session capture** keeps the original strict admission rule:
+only a complete recording captured directly in this currently open session by
+this running server process is eligible. Imported, restored, and derived records
+do not become current captures.
+
+**Review saved / imported data as new actions** instead constructs a NEW,
+ephemeral `reviewed-untrusted-action-plan` from owner-readable recording data.
+This path is available only in local ordinary sessions. An imported or restored source remains
+inert, unknown-start and non-replayable: no source trust registry, replay proof,
+or permanent authorization is created. Its digest is only an integrity reference,
+not an authenticated claim about where the actions came from. The recording schema
+still requires events to carry `status: injected`, but for imported data this is
+only an untrusted format field, NOT evidence that any historical input succeeded. The full actions
+and current target are shown, and a separate untrusted-source acknowledgment is
+required in addition to unknown-start approval. Neither preview sends input.
+
+The source's claimed app, provider, device, and geometry must match the actual
+current target exactly; this is a compatibility check, NOT proof of origin.
+There is no coordinate scaling or silent target remapping. Native targets require
+an independently available non-null application identity. A bundle-only identity
+does not establish exact build equality. Synthetic demo use also requires an explicit application identity; it is not
+native-device evidence. Unsupported actions and incomplete pointer traces are
+rejected independently of any imported replay flags. Text values must be entered
+explicitly as recording variables; raw imported text is not accepted.
+
+Source changes, deletion, ownership loss, current-target/controller/authority
+changes, expiry, or cancellation invalidate the plan. Review a new plan instead
+of retrying an old token. Restart does not preserve pending plans or approvals.
+The plan cannot reset the app, prepare a fixture, certify the server environment,
+or make an imported recording usable as trusted replay or G7/G9 evidence.
+
+## Scope and limits
+
 Prepared/release sessions are excluded. Normal session ownership, host authority,
 controller, capability, and device safety checks still apply; there is no authority
 fallback or fixture-proof fabrication. A playback result cannot enter protected

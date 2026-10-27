@@ -171,14 +171,18 @@ function renderPlayback() {
   playbackReview.reconcile();
   const p = playbackReview.plan, c = playbackContext();
   $("#playback-review").hidden = !p;
-  if (!p || $("#playback-review").dataset.token !== p.token) $("#playback-ack").checked = false;
+  if (!p || $("#playback-review").dataset.token !== p.token) { $("#playback-ack").checked = false; $("#playback-source-ack").checked = false; }
   $("#playback-review").dataset.token = p?.token || "";
   $("#playback-warning").textContent = p?.warning || "";
+  const reviewed = p?.kind === "reviewed-untrusted-action-plan";
+  $("#playback-source-review").hidden = !reviewed;
+  $("#playback-target").textContent = reviewed ? `Current target (source claims are NOT proof):\n${JSON.stringify(p.currentTarget, null, 2)}` : "";
   $("#playback-actions").textContent = p ? JSON.stringify(p.actions, null, 2) : "";
   $("#playback-expiry").textContent = p ? `Expires in ${Math.max(0, Math.ceil((p.deadline - Date.now()) / 1000))} seconds. Review the current live screen before confirming.` : "";
   $("#playback-state").textContent = playbackReview.error || (playbackReview.busy ? "Request pending — no automatic retry" : p ? "Review required — not executed" : state.session?.playback?.state || "No playback");
   $("#playback-preview").disabled = !c.eligible || playbackReview.busy || playbackReview.cancelling || Boolean(p);
-  $("#playback-confirm").disabled = !p || playbackReview.busy || playbackReview.cancelling || !$("#playback-ack").checked;
+  $("#playback-reviewed-preview").disabled = !c.eligible || playbackReview.busy || playbackReview.cancelling || Boolean(p);
+  $("#playback-confirm").disabled = !p || playbackReview.busy || playbackReview.cancelling || !$("#playback-ack").checked || (reviewed && !$("#playback-source-ack").checked);
   $("#playback-cancel").disabled = playbackReview.cancelling || (!p && !c.running && playbackReview.pendingConfirm !== c.id);
 }
 
@@ -1628,13 +1632,19 @@ async function exportRecording(script = false, recording = state.recording) {
 function bindEvents() {
   $("#record-without-reset").addEventListener("change", syncControls);
   $("#playback-ack").addEventListener("change", syncControls);
+  $("#playback-source-ack").addEventListener("change", syncControls);
   $("#playback-preview").addEventListener("click", () => {
     const variables = {};
     refs.variablesForm.querySelectorAll("[data-variable]").forEach(input => { variables[input.dataset.variable] = input.value; });
     playbackReview.prepare(variables);
   });
+  $("#playback-reviewed-preview").addEventListener("click", () => {
+    const variables = {};
+    refs.variablesForm.querySelectorAll("[data-variable]").forEach(input => { variables[input.dataset.variable] = input.value; });
+    playbackReview.prepareReviewed(variables);
+  });
   $("#playback-confirm").addEventListener("click", async () => {
-    const result = await playbackReview.confirm($("#playback-ack").checked);
+    const result = await playbackReview.confirm($("#playback-ack").checked, $("#playback-source-ack").checked);
     refs.variablesForm.querySelectorAll("input").forEach(input => { input.value = ""; });
     if (result?.session) adoptSession(result.session);
   });

@@ -8,29 +8,34 @@ export class PlaybackReview {
   reconcile() {
     if (this.plan && (this.context().key !== this.plan.key || !this.context().eligible || this.now() >= this.plan.deadline)) this.invalidate();
   }
-  async prepare(variables) {
+  async prepare(variables) { return this.preparePlan(variables, false); }
+  async prepareReviewed(variables) { return this.preparePlan(variables, true); }
+  async preparePlan(variables, reviewed) {
     this.reconcile();
     const c = { ...this.context() };
     if (this.busy || this.cancelling || this.plan || !c.eligible || !c.frame) return;
     const generation = ++this.generation;
     this.busy = true; this.error = ""; this.changed();
     try {
-      const result = await this.send(c.id, "/playbacks/plan", {
+      const result = await this.send(c.id, reviewed ? "/playbacks/reviewed-plan" : "/playbacks/plan", {
         controllerId: c.controllerId, epoch: c.epoch, recordingId: c.recordingId,
         variables, frameId: c.frame.id, geometryVersion: c.frame.geometryVersion,
       });
       if (generation !== this.generation || this.context().key !== c.key || !this.context().eligible) return;
       const p = result?.plan;
       if (!p?.token || !Array.isArray(p.actions) || p.verified !== false || p.startingState !== "unknown" || !(p.expiresInSeconds > 0 && p.expiresInSeconds <= 30)) throw new Error("Invalid playback preview; request a new preview.");
+      if (reviewed && (p.kind !== "reviewed-untrusted-action-plan" || p.sourceTrust !== "unverified" || !p.planId || !p.currentTarget)) throw new Error("Invalid untrusted-source preview; request a new preview.");
+      if (!reviewed && p.kind === "reviewed-untrusted-action-plan") throw new Error("Unexpected untrusted-source preview; select the separate saved-data path.");
       this.plan = { ...p, key: c.key, id: c.id, deadline: this.now() + p.expiresInSeconds * 1000 };
     } catch (error) {
       if (generation === this.generation && this.context().key === c.key) this.error = error.message;
     } finally { this.busy = false; this.changed(); }
   }
-  async confirm(acknowledged) {
+  async confirm(acknowledged, acknowledgeUntrustedSource = false) {
     this.reconcile();
     if (this.busy || this.cancelling || !this.plan || !acknowledged) return;
     const p = this.plan, c = { ...this.context() };
+    if (p.kind === "reviewed-untrusted-action-plan" && acknowledgeUntrustedSource !== true) return;
     if (!c.eligible || !c.frame) return;
     this.plan = null; this.busy = true; this.pendingConfirm = c.id; this.error = "";
     const generation = ++this.generation;
@@ -38,6 +43,7 @@ export class PlaybackReview {
     try {
       const result = await this.send(c.id, "/playbacks/confirm", {
         controllerId: c.controllerId, epoch: c.epoch, token: p.token,
+        ...(p.kind === "reviewed-untrusted-action-plan" ? { acknowledgeUntrustedSource: true } : {}),
         acknowledgeUnknownStart: true, frameId: c.frame.id, geometryVersion: c.frame.geometryVersion,
       });
       if (generation === this.generation && this.context().id === c.id && this.context().key === c.key) return result;

@@ -60,6 +60,9 @@ For an ordinary app, opt into **Record without reset**, stop the recording, then
 preview the exact actions and explicitly acknowledge the current screen and
 unknown state before execution. Actions may affect app/server data; Reproof has
 not verified a QA/non-production environment. Completed actions are **not** proof
-of reproduction or verification. Initially only direct same-session, same-process captures are
-eligible; imported/restored/derived recordings and prepared/release sessions are
-excluded. See [the contract and limitations](../docs/UNVERIFIED-PLAYBACK.md).
+of reproduction or verification. **Preview current-session capture** keeps its
+same-session, same-process capture requirement. The separate **Review saved /
+imported data as new actions** entry creates a new one-use plan from untrusted
+data with exact target matching, full action review, and an additional source-risk
+acknowledgment. It does not trust or promote the source. Both paths exclude
+prepared/release and durable shared sessions. See [the contract and limitations](../docs/UNVERIFIED-PLAYBACK.md).

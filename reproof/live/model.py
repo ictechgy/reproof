@@ -1775,6 +1775,8 @@ class Lab(ActionPlaybackMixin):
                   and not s['cancel'].is_set()
                   and s.get('playbackExecutionBinding')==self._playback_execution_binding(s)),
                   'playback_cancelled','Action playback was cancelled or its execution scope changed')
+            if s['mode']=='playback' and _playback_run.get('kind')=='reviewed-untrusted-action-plan':
+                self._check_reviewed_source_admission(s,owner,_playback_run)
             cid=public_id(command['commandId']);fingerprint=digest(command)
             if cid in s['receipts']:
                 old_hash,receipt=s['receipts'][cid];check(old_hash==fingerprint,'idempotency_conflict','Command ID was reused for different input')

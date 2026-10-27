@@ -43,7 +43,7 @@ test('malformed or purported verified preview rejected',async()=>{
 test('UI wiring keeps separate controls, exact safe rendering, and explicit approval',()=>{
  const js=readFileSync(new URL('./app.js',import.meta.url),'utf8');const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');
  assert.match(js, /playback-actions"\)\.textContent = p \? JSON.stringify/);
- assert.match(js,/confirm\(\$\("#playback-ack"\)\.checked\)/);
+ assert.match(js,/confirm\(\$\("#playback-ack"\)\.checked, \$\("#playback-source-ack"\)\.checked\)/);
  for(const id of ['replay-start','playback-preview','playback-confirm','playback-ack','record-without-reset']) assert.ok(html.includes(`id="${id}"`));
  assert.match(html,/NOT verified.*QA/);assert.match(html,/starting state and result are unverified/);
 });
@@ -57,4 +57,32 @@ test('cancel while confirmation is pending sends cancellation immediately and ig
 test('late cancellation cannot adopt stale control or session state', async()=>{
  const x=setup();await x.review.prepare({});const d=deferred();x.setHandler(()=>d.promise);
  const pending=x.review.cancel();x.context.key='new-epoch';d.resolve({session:{id:'s',epoch:1}});assert.equal(await pending,undefined);
+});
+
+function reviewedResponse(x) {
+ Object.assign(x.response.plan, {kind:'reviewed-untrusted-action-plan',planId:'new-plan',sourceTrust:'unverified',currentTarget:{deviceId:'synthetic',applicationIdentity:{bundle:'synthetic.demo'}}});
+}
+test('saved/imported data uses separate endpoint and requires additional untrusted-source acknowledgment',async()=>{
+ const x=setup();reviewedResponse(x);await x.review.prepareReviewed({});
+ assert.equal(x.calls[0][1],'/playbacks/reviewed-plan');assert.equal(x.calls.length,1);
+ await x.review.confirm(true);assert.equal(x.calls.length,1);assert.ok(x.review.plan);
+ await x.review.confirm(true,true);assert.equal(x.calls.length,2);
+ assert.equal(x.calls[1][2].acknowledgeUntrustedSource,true);assert.equal(x.calls[1][2].acknowledgeUnknownStart,true);
+ await x.review.confirm(true,true);assert.equal(x.calls.length,2);
+});
+test('current capture route cannot silently accept imported-source preview',async()=>{
+ const x=setup();reviewedResponse(x);await x.review.prepare({});assert.equal(x.review.plan,null);assert.match(x.review.error,/separate saved-data path/);
+});
+for(const field of ['kind','planId','sourceTrust','currentTarget']) test(`reviewed-data preview missing ${field} is refused`,async()=>{
+ const x=setup();reviewedResponse(x);delete x.response.plan[field];await x.review.prepareReviewed({});assert.equal(x.review.plan,null);assert.match(x.review.error,/Invalid untrusted-source preview/);
+});
+test('reviewed source selection/digest drift and expiry discard authorization',async()=>{
+ const x=setup();reviewedResponse(x);await x.review.prepareReviewed({});x.context.key+=':changed-source';await x.review.confirm(true,true);assert.equal(x.calls.length,1);assert.equal(x.review.plan,null);
+ await x.review.prepareReviewed({});x.setTime(30000);await x.review.confirm(true,true);assert.equal(x.calls.length,2);
+});
+test('new reviewed-source UI has explicit warning, separate entry and safe target rendering',()=>{
+ const js=readFileSync(new URL('./app.js',import.meta.url),'utf8');const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');
+ for(const id of ['playback-reviewed-preview','playback-source-ack','playback-source-review','playback-target']) assert.ok(html.includes(`id="${id}"`));
+ assert.match(js,/playback-target"\)\.textContent/);assert.match(js,/playbackReview.prepareReviewed\(variables\)/);
+ assert.match(html,/source is untrusted/);assert.match(html,/NEW actions/);assert.match(html,/real app\/server data/);
 });
