@@ -42,7 +42,7 @@ def workspace_project(root):
 class WorkspaceObservationTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name); self.source = self.root / 'source'
+        self.root = Path(temp.name).resolve(); self.source = self.root / 'source'
         self.document = workspace_project(self.source)
 
     def prepare(self, document=None, name='prepared'):
@@ -52,6 +52,25 @@ class WorkspaceObservationTests(unittest.TestCase):
     def reject(self, document=None):
         with self.assertRaises(ContractError): self.prepare(document)
         self.assertFalse((self.root / 'prepared').exists())
+
+    def test_owned_temporary_root_alias_is_normalized_without_weakening_input_boundary(self):
+        from types import SimpleNamespace
+        from reproof.ios_observation import _freeze
+        temporary = tempfile.TemporaryDirectory(dir=self.root)
+        alias = self.root / 'temporary-alias'; alias.symlink_to(self.root, target_is_directory=True)
+        selected = SimpleNamespace(name=str(alias / Path(temporary.name).name), cleanup=temporary.cleanup)
+        case = WorkspaceObservationTests('test_workspace_prepares_only_selected_project_and_preserves_original')
+        try:
+            with patch('tests.test_ios_workspace.tempfile.TemporaryDirectory', return_value=selected):
+                case.setUp()
+            case.test_workspace_prepares_only_selected_project_and_preserves_original()
+            self.assertEqual(case.root, Path(temporary.name).resolve())
+            # Only our owned fixture path is normalized. The product boundary
+            # still rejects a selected path containing that same symlink.
+            with self.assertRaises(ContractError):
+                _freeze(Path(selected.name) / 'source', case.document['sourceInputs'])
+        finally:
+            case.doCleanups(); temporary.cleanup()
 
     def test_runtime_profile_parser_accepts_only_explicit_workspace_inputs(self):
         # Static source wiring only; not a Swift runtime assertion.
