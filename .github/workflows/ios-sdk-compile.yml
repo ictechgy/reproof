@@ -5,6 +5,9 @@ on:
     paths:
       - 'ios/**'
       - 'live-ios/**'
+      - 'reproof/ios_launch.py'
+      - 'tests/test_ios_launch*.py'
+      - 'scripts/check-ios-launch-contract.py'
       - 'examples/native-logic-repair/**'
       - 'reproof/native_logic_repair_demo.py'
       - 'scripts/qa-native-logic-repair.py'
@@ -32,6 +35,9 @@ on:
     paths:
       - 'ios/**'
       - 'live-ios/**'
+      - 'reproof/ios_launch.py'
+      - 'tests/test_ios_launch*.py'
+      - 'scripts/check-ios-launch-contract.py'
       - 'examples/native-logic-repair/**'
       - 'reproof/native_logic_repair_demo.py'
       - 'scripts/qa-native-logic-repair.py'
@@ -130,6 +136,14 @@ jobs:
               CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
               build 2>&1 | tee "$RUNNER_TEMP/reproof-sdk-logs/sample-$configuration.log"
           done
+      - name: Execute synthetic approved launch parser vectors without a device
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$REPRO_PYTHON" scripts/check-ios-launch-contract.py 2>&1 \
+            | tee "$RUNNER_TEMP/reproof-sdk-logs/ios-launch-contract.log"
+          grep -Fx 'iOS approved launch contract: 56 synthetic vectors passed' "$RUNNER_TEMP/reproof-sdk-logs/ios-launch-contract.log"
+          grep -Fx 'iOS approved launch application: 4 synthetic launches passed' "$RUNNER_TEMP/reproof-sdk-logs/ios-launch-contract.log"
       - name: Compile unsigned Live helper without booting or running a Simulator
         timeout-minutes: 8
         shell: bash

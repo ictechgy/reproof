@@ -179,3 +179,10 @@ The gate uses owned temporary directories, child processes, and synthetic
 127.0.0.1 services. It does not access a company fixture/backend, a physical
 device, a second Mac, credentials/signing material, an external endpoint, or an
 AI transfer policy. Those acceptance scopes remain unavailable.
+
+## iOS launch settings are not preparation
+
+[Approved iOS Simulator QA launch settings](IOS-APPROVED-LAUNCH.md) bind a small
+operator-selected environment to an exact app/profile. They do not add a reset
+contract, an app readiness receipt, or known-start support. Ordinary unverified
+playback remains separate from prepared replay.

@@ -22,6 +22,7 @@ def main(argv=None):
     parser.add_argument('--products',type=Path,default=ROOT/'live-ios/build/Build/Products')
     parser.add_argument('--ios-app',type=Path,help='Simulator app artifact; general apps require --ios-profile, otherwise sample identity is required')
     parser.add_argument('--ios-profile',type=Path,help='Registered general iOS runtime application profile JSON')
+    parser.add_argument('--ios-launch-config',type=Path,help='Explicit local approved QA launch environment; general Simulator profiles only')
     parser.add_argument('--app-logs',action='store_true',help='Record automatic app observations without enabling AI repair')
     parser.add_argument('--bundle',default='io.reproof.sample.ios')
     parser.add_argument('--android',action='append',default=[],help='Authorized ADB serial; batch-input baseline, no reset/replay fixture')
@@ -70,7 +71,7 @@ def main(argv=None):
     if args.protected_recovery_config and (args.android or args.simulator or args.iphone or args.demo
             or args.workers_stdin or args.repair_agent or args.authority_mode!='shared-v2'
             or args.android_helper or args.android_app or args.android_profile or args.android_launch_config or args.app_profile
-            or args.ios_app or args.ios_profile or args.iphone_app or args.iphone_products or args.app_logs):
+            or args.ios_app or args.ios_profile or args.ios_launch_config or args.iphone_app or args.iphone_products or args.app_logs):
         parser.error('Protected recovery uses only devices from its registered configuration')
     if (args.video_helper or args.media_validator) and not args.issue_config:
         parser.error('Issue media helpers require --issue-config')
@@ -123,6 +124,14 @@ def main(argv=None):
             parser.error('Cannot read iOS runtime profile')
         if args.app_logs and ios_profile.data['capabilities']['logAdapter'] is None:
             parser.error('--app-logs requires the declared iOS observation adapter')
+    ios_launch=None
+    if args.ios_launch_config:
+        if (ios_profile is None or not args.simulator or not args.ios_app or args.iphone or args.android
+                or args.authority_mode!='shared-v2'):
+            parser.error('--ios-launch-config requires shared-v2, only a general Simulator profile and --ios-app')
+        from ..ios_launch import load_ios_launch
+        try:ios_launch=load_ios_launch(args.ios_launch_config,ios_profile)
+        except (ContractError,OSError):parser.error('Approved iOS launch configuration is unavailable')
     if args.ios_app and ios_profile is None:
         try:
             require_live_sample_identity(args.ios_app)
@@ -188,7 +197,7 @@ def main(argv=None):
         if ios_profile is not None:
             if sample_app is None:parser.error('--ios-profile requires --ios-app')
             devices.append(ios_device(simulator_id,args.products,ios_profile.bundle,app=sample_app,
-                authority_mode=args.authority_mode,profile=ios_profile))
+                authority_mode=args.authority_mode,profile=ios_profile,launch_config=ios_launch))
         elif args.repair_agent or args.app_logs:
             # Configure identity from the same artifact that start() installs.
             from ..ios_storage import tree_manifest

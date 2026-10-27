@@ -140,6 +140,17 @@ class InstalledDistributionTests(unittest.TestCase):
         self.assertEqual(origin.returncode, 0)
         self.assertTrue(Path(origin.stdout.strip()).resolve().is_relative_to(self.venv.resolve()))
 
+    def test_installed_ios_launch_contract_and_helper_are_complete(self):
+        result = _command([str(self.python), '-I', '-c',
+            'from reproof.ios_launch import ApprovedIosLaunch, validate_ios_launch; '
+            'from reproof.resources import resource_root; '
+            'source=(resource_root()/"live-ios/Tests/LiveControlTests.swift").read_text(); '
+            'assert "APPROVED IOS LAUNCH PURE CONTRACT" in source; '
+            'assert "approvedLaunchConfiguration" in source; '
+            'print("installed iOS launch contract present")'], cwd=self.work)
+        self.assertEqual(result.returncode, 0, result.stderr[-1000:])
+        self.assertIn('installed iOS launch contract present', result.stdout)
+
     def test_changed_installed_asset_is_reported_without_executing_it(self):
         locate = _command([str(self.python), '-I', '-c',
             'from reproof.resources import resource_root; print(resource_root())'], cwd=self.work)
