@@ -155,6 +155,124 @@ private func uniqueJSONKeys(_ data: Data) -> Bool {
     return scanner.validate()
 }
 
+// BEGIN APPROVED IOS LAUNCH PURE CONTRACT
+// Configuration is operator-selected, not evidence of app readiness or backend state.
+private struct ApprovedLaunchConfiguration {
+    let digest: String
+    let environment: [String: String]
+    struct Handshake: Encodable {
+        let version = 1
+        let digest: String
+    }
+    var handshake: Handshake { Handshake(digest: digest) }
+}
+
+private enum ApprovedLaunchFailure: Error { case invalidConfiguration }
+
+private func approvedLaunchConfiguration(
+    _ environment: [String: String], simulator: Bool
+) throws -> ApprovedLaunchConfiguration? {
+    let names = ["REPRO_LIVE_APPROVED_LAUNCH", "REPRO_LIVE_APPROVED_LAUNCH_DIGEST",
+                 "REPRO_LIVE_APPROVED_LAUNCH_REFERENCE_ID", "REPRO_LIVE_APPROVED_LAUNCH_ARTIFACT_DIGEST"]
+    guard names.contains(where: { environment[$0] != nil }) else { return nil }
+    func matches(_ value: String, _ pattern: String) -> Bool {
+        value.range(of: pattern, options: .regularExpression) == (value.startIndex..<value.endIndex)
+    }
+    func integer(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(),
+              !CFNumberIsFloatType(number),
+              number.stringValue == String(number.int64Value) else { return nil }
+        return Int(exactly: number.int64Value)
+    }
+    guard simulator, names.allSatisfy({ environment[$0] != nil }),
+          generalRuntimeConfiguration(environment) != nil,
+          let text = environment[names[0]], let data = text.data(using: .utf8),
+          data.count <= 8192, uniqueJSONKeys(data),
+          let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          Set(root.keys) == Set(["schemaVersion", "kind", "referenceId", "profileDigest", "artifactDigest", "environment"]),
+          integer(root["schemaVersion"]) == 1,
+          root["kind"] as? String == "reproof-approved-ios-launch",
+          let reference = root["referenceId"] as? String,
+          matches(reference, "^[a-z][a-z0-9_]{0,63}$"),
+          !["password", "secret", "token", "email", "phone"].contains(where: { reference.contains($0) }),
+          reference == environment[names[2]],
+          let profile = root["profileDigest"] as? String,
+          matches(profile, "^[0-9a-f]{64}$"), profile == environment["REPRO_LIVE_GENERAL_PROFILE_DIGEST"],
+          let artifact = root["artifactDigest"] as? String,
+          matches(artifact, "^[0-9a-f]{64}$"), artifact == environment[names[3]],
+          let digest = environment[names[1]], matches(digest, "^[0-9a-f]{64}$"),
+          SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == digest,
+          let canonical = try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys, .withoutEscapingSlashes]),
+          canonical == data,
+          let entries = root["environment"] as? [[String: Any]],
+          (1...4).contains(entries.count) else { throw ApprovedLaunchFailure.invalidConfiguration }
+    var values: [String: String] = [:]
+    var keys: [String] = []
+    for entry in entries {
+        guard Set(entry.keys) == Set(["key", "type", "value"]),
+              let key = entry["key"] as? String, values[key] == nil,
+              let type = entry["type"] as? String else { throw ApprovedLaunchFailure.invalidConfiguration }
+        let value: String
+        switch key {
+        case "QA_FIXTURE_VERSION":
+            guard type == "integer", let number = integer(entry["value"]),
+                  (1...2147483647).contains(number) else { throw ApprovedLaunchFailure.invalidConfiguration }
+            value = String(number)
+        case "QA_MODE", "QA_FIXTURE_ID", "QA_SERVER":
+            guard type == "string", let string = entry["value"] as? String else {
+                throw ApprovedLaunchFailure.invalidConfiguration
+            }
+            value = string
+            if key == "QA_MODE" {
+                guard ["qa", "mock"].contains(value) else { throw ApprovedLaunchFailure.invalidConfiguration }
+            } else if key == "QA_FIXTURE_ID" {
+                guard matches(value, "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$") else {
+                    throw ApprovedLaunchFailure.invalidConfiguration
+                }
+            } else {
+                guard value.utf8.count <= 512,
+                      matches(value, "^https://[a-z0-9.-]+(?:/[A-Za-z0-9._~/-]*)?$") else {
+                    throw ApprovedLaunchFailure.invalidConfiguration
+                }
+                let remainder = String(value.dropFirst(8))
+                let parts = remainder.split(separator: "/", omittingEmptySubsequences: false)
+                let host = String(parts[0])
+                let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+                guard labels.count >= 2, host.utf8.count <= 253,
+                      labels.allSatisfy({ matches(String($0), "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$") }),
+                      !matches(host, "^[0-9.]+$") else { throw ApprovedLaunchFailure.invalidConfiguration }
+                for (index, segment) in parts.dropFirst().enumerated() {
+                    guard segment != ".", segment != "..",
+                          !segment.isEmpty || index == parts.count - 2 else {
+                        throw ApprovedLaunchFailure.invalidConfiguration
+                    }
+                }
+            }
+        default: throw ApprovedLaunchFailure.invalidConfiguration
+        }
+        keys.append(key)
+        values[key] = value
+    }
+    guard keys == keys.sorted(),
+          (values["QA_FIXTURE_ID"] == nil) == (values["QA_FIXTURE_VERSION"] == nil) else {
+        throw ApprovedLaunchFailure.invalidConfiguration
+    }
+    return ApprovedLaunchConfiguration(digest: digest, environment: values)
+}
+// END APPROVED IOS LAUNCH PURE CONTRACT
+
+private enum ApprovedLaunchSelection {
+    // Captured once. Neither incoming input commands nor later launches can replace it.
+    static let result: Result<ApprovedLaunchConfiguration?, Error> = Result {
+        #if targetEnvironment(simulator)
+        return try approvedLaunchConfiguration(ProcessInfo.processInfo.environment, simulator: true)
+        #else
+        return try approvedLaunchConfiguration(ProcessInfo.processInfo.environment, simulator: false)
+        #endif
+    }
+}
+
 private func strictAuthorityNumberTypes(_ data: Data) -> Bool {
     guard uniqueJSONKeys(data),
           let root = try? JSONSerialization.jsonObject(with: data) else { return false }
@@ -224,6 +342,8 @@ final class LiveControlTests: XCTestCase {
     private var activeSanitationPolicyDigest: String?
     private var authoritySequence = 0
     private var generalRuntime: GeneralRuntimeConfiguration?
+    private var approvedLaunch: ApprovedLaunchConfiguration?
+    private var launchConfigurationValid = false
 
     override func setUp() {
         super.setUp()
@@ -234,6 +354,13 @@ final class LiveControlTests: XCTestCase {
             environment["REPRO_LIVE_GENERAL_ACTIONS"] != nil
         generalRuntime = generalRuntimeConfiguration(environment)
         XCTAssertFalse(generalRequested && generalRuntime == nil, "general_profile_invalid")
+        do {
+            approvedLaunch = try ApprovedLaunchSelection.result.get()
+            launchConfigurationValid = true
+        } catch {
+            XCTFail("approved_launch_configuration_invalid")
+            return
+        }
         targetApplication = XCUIApplication(bundleIdentifier: targetBundle)
     }
 
@@ -319,6 +446,7 @@ final class LiveControlTests: XCTestCase {
     }
 
     func testControlSession() {
+        guard launchConfigurationValid else { return }
         guard let bridge = makeBridge() else {
             XCTFail("bridge_configuration_invalid")
             return
@@ -328,6 +456,10 @@ final class LiveControlTests: XCTestCase {
         let authority = NativeAuthorityContext.shared
         guard authority.valid else {
             XCTFail("bridge_configuration_invalid")
+            return
+        }
+        guard approvedLaunch == nil || authority.enabled else {
+            XCTFail("approved_launch_requires_shared_authority")
             return
         }
         var startupAuthority: AuthorityGrant?
@@ -458,6 +590,10 @@ final class LiveControlTests: XCTestCase {
                     XCTFail("egress_configuration_invalid")
                     return
                 }
+            }
+            // Only the fixed QA allowlist is added; never inherit helper environment/argv.
+            if let approvedLaunch {
+                launchEnvironment.merge(approvedLaunch.environment) { _, selected in selected }
             }
             targetApplication.launchEnvironment = launchEnvironment
             targetApplication.launch()
@@ -1177,6 +1313,7 @@ private final class BridgeClient: LiveBridge {
         }
 
         let capabilities: Capabilities
+        let approvedLaunch: ApprovedLaunchConfiguration.Handshake?
         let protocolVersion: Int?
         let helperVersion: Int?
         let helperIncarnation: String?
@@ -1382,6 +1519,7 @@ private final class BridgeClient: LiveBridge {
             capabilities: .init(actions: actions,
                                 inputMode: "gesture-batch", media: "sampled-jpeg",
                                 nativeFrameTimingVersion: authority.enabled ? 1 : nil),
+            approvedLaunch: try ApprovedLaunchSelection.result.get()?.handshake,
             protocolVersion: authority.enabled ? nativeProtocolVersion : nil,
             helperVersion: authority.enabled ? nativeHelperVersion : nil,
             helperIncarnation: authority.enabled ? authority.helperIncarnation : nil,

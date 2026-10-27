@@ -118,6 +118,8 @@ private class Bridge {
  func ack(id: String, ok: Bool, error: String?, timing: String, authority: AuthorityGrant?, cleanupEvidence: CleanupTerminationEvidence?, networkEvidence: NetworkCounterEvidence?) throws { acknowledgements += 1 }
 }
 private class Probe {
+ let launchConfigurationValid = true
+ let approvedLaunch: String? = nil
  let targetApplication: Target
  let bridge: Bridge
  var targetWasLaunched = false
@@ -229,6 +231,11 @@ fun main() { NativeProbe().run() }
     def test_ios_raw_decoder_rejects_ambiguous_keys_and_invalid_authority_types(self):
         source=(ROOT/"live-ios/Tests/LiveControlTests.swift").read_text()
         helpers=source[source.index("private struct AnyCodingKey:"):source.index("private func nativeContinuousTimeMS()")]
+        # The independent launch parser has its own executable contract vectors.
+        # Keep this authority-only harness scoped to its unchanged decoder helpers.
+        begin=helpers.index("// BEGIN APPROVED IOS LAUNCH PURE CONTRACT")
+        end=helpers.index("private func strictAuthorityNumberTypes")
+        helpers=helpers[:begin]+helpers[end:]
         grant=source[source.index("private struct AuthorityGrant:"):source.index("private struct LiveCommand:")]
         base={"protocolVersion":2,"operationId":"operation-one","operationFingerprint":"a"*64,
               "payloadDigest":"b"*64,"projectId":"project-one","sessionId":"session-one",

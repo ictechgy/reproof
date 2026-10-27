@@ -24,6 +24,7 @@ from ..ios_cases import case_spec
 from ..ios_runner import (_require_profile_fixture,
                           prepare_xctestrun, _targets)
 from ..ios_profile import IosAppProfile, validate_ios_profile
+from ..ios_launch import require_ios_launch
 
 ACTIONS=['tap','long_press','swipe','text','home','reset']
 CAPABILITIES={'actions':ACTIONS,'inputMode':'gesture-batch','media':'sampled-jpeg','multitouch':False,'timing':'best-effort','resetContract':'sample-counter-fixture-v1'}
@@ -138,7 +139,7 @@ class DemoProvider:
 
 class IosProvider:
     def __init__(self,udid,products,bundle,identity=None,*,app=None,fixture='counter',record_sdk=False,app_logs_only=False,
-                 profile=None):
+                 profile=None,launch_config=None):
         if profile is not None and not isinstance(profile,IosAppProfile):profile=validate_ios_profile(profile)
         if profile is not None:
             _require_ios_runtime_capabilities(profile, app)
@@ -148,6 +149,7 @@ class IosProvider:
             app_logs_only=profile.data['capabilities']['logAdapter'] is not None
         self.udid=udid;self.products=Path(products).resolve();self.bundle=bundle;self.identity=identity
         self.profile=profile
+        self.launch_config=(require_ios_launch(launch_config,profile) if launch_config is not None else None)
         self.app=Path(app).resolve() if app is not None else None
         self.fixture=fixture;self.record_sdk=record_sdk
         self.app_logs_only=app_logs_only
@@ -228,6 +230,10 @@ class IosProvider:
             else:
                 with self._startup_lock:self._startup_accepting=False
     def start(self,session,lab,permit=None):
+        if self.launch_config is not None:
+            check(self.device_authority is not None,
+                  'authority_required','Approved iOS launch requires shared-v2 authority',400)
+            self.launch_config=require_ios_launch(self.launch_config,self.profile)
         self.sid=session['id'];self.lab=lab
         from .native_frame_clock import NativeFrameClock
         self.frame_clock=NativeFrameClock.for_session(lab,self.sid,self.device_authority)
@@ -291,6 +297,8 @@ class IosProvider:
                     REPRO_LIVE_APPLICATION_ID=self.profile.data['applicationId'],
                     REPRO_LIVE_GENERAL_ACTIONS=','.join(
                         self.profile.data['capabilities']['actions']))
+            if self.launch_config is not None:
+                target['EnvironmentVariables'].update(self.launch_config.native())
             if self.device_authority is not None:
                 target['EnvironmentVariables'].update(
                     REPRO_LIVE_PROTOCOL_VERSION=str(NATIVE_PROTOCOL_VERSION),
@@ -472,10 +480,24 @@ class IosProvider:
             return {'stop':False,'command':command}
         if operation=='ready':
             self._target_boundary_ready=False
+            launch=self.launch_config
+            if launch is not None:
+                check(self.device_authority is not None,'authority_required',
+                      'Approved iOS launch requires shared-v2 authority',400)
+                launch=require_ios_launch(launch,self.profile)
+                reported=body.get('approvedLaunch') if type(body) is dict else None
+                check(type(reported) is dict and set(reported)=={'version','digest'}
+                      and type(reported['version']) is int and reported['version']==1
+                      and reported['digest']==launch.digest,
+                      'native_launch_mismatch','iOS approved launch handshake is invalid',400)
+            else:
+                check(type(body) is dict and 'approvedLaunch' not in body,
+                      'native_launch_mismatch','Unexpected iOS approved launch handshake',400)
             if self.device_authority is not None:
                 self._require_startup_window()
                 expected={'capabilities','protocolVersion','helperVersion','helperIncarnation','hostIncarnation',
                           'providerIncarnation','nativeIncarnation','nativeClockId','nativeTimeMs'}
+                if launch is not None:expected.add('approvedLaunch')
                 check(isinstance(body,dict) and set(body)==expected,
                       'native_protocol_mismatch','iOS helper handshake is invalid',400)
             _require_ios_helper_actions(self.profile,
@@ -692,13 +714,17 @@ def _general_ios_simulator_identity(app,profile):
 
 
 def ios_device(udid,products,bundle,*,app=None,fixture='counter',record_sdk=False,
-               authority_mode='shared-v2',profile=None):
+               authority_mode='shared-v2',profile=None,launch_config=None):
     check(authority_mode in {'shared-v2','legacy-offline-v1'},'invalid_argument','Invalid authority compatibility mode',400)
     if profile is not None and not isinstance(profile,IosAppProfile):profile=validate_ios_profile(profile)
     if profile is not None:
         _require_ios_runtime_capabilities(profile, app)
         check(app is not None and bundle==profile.bundle,'recording_identity',
               'General iOS Simulator profile does not match its target',400)
+    if launch_config is not None:
+        check(authority_mode=='shared-v2','authority_required',
+              'Approved iOS launch requires shared-v2 authority',400)
+        launch_config=require_ios_launch(launch_config,profile)
     identity=(_general_ios_simulator_identity(app,profile) if profile is not None else
               {'bundle':bundle,'artifactDigest':digest(tree_manifest(Path(app).resolve()))}
                if app is not None else installed_identity(udid,bundle))
@@ -707,7 +733,7 @@ def ios_device(udid,products,bundle,*,app=None,fixture='counter',record_sdk=Fals
             'capabilities':dict(CAPABILITIES,applicationIdentity=identity,fixture=fixture,sdkCapture=record_sdk,
                                 resetContract='sample-'+fixture+'-fixture-v1' if bundle=='io.reproof.sample.ios' else 'app-relaunch-only',
                                 authorityMode=authority_mode),
-            'factory':lambda:IosProvider(udid,products,bundle,identity,app=app,fixture=fixture,record_sdk=record_sdk,profile=profile)}
+            'factory':lambda:IosProvider(udid,products,bundle,identity,app=app,fixture=fixture,record_sdk=record_sdk,profile=profile,launch_config=launch_config)}
     if profile is not None:
         descriptor['capabilities'].update(
             actions=list(profile.data['capabilities']['actions']),fixture=None,
@@ -716,5 +742,9 @@ def ios_device(udid,products,bundle,*,app=None,fixture='counter',record_sdk=Fals
             applicationProfileDigest=profile.digest,
             identityEvidence='selected-and-readable-simulator-app-tree',
             locatorKinds=[])
+    if launch_config is not None:
+        descriptor['capabilities']['approvedLaunch']={
+            'referenceId':launch_config.data['referenceId'],
+            'configurationDigest':launch_config.digest}
     if authority_mode=='shared-v2':descriptor['_authority']={'deviceKind':'ios-simulator','physicalId':udid}
     return descriptor

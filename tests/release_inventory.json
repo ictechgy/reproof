@@ -1250,6 +1250,9 @@
             "tests.test_groovy_observation",
             "tests.test_enterprise_build_inputs",
             "tests.test_android_launch",
+            "tests.test_ios_launch",
+            "tests.test_ios_launch_provider",
+            "tests.test_ios_launch_contract",
             "tests.test_android_readiness",
             "tests.test_android_preparation_lifecycle",
             "tests.test_android_readiness_junit"

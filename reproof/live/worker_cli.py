@@ -198,6 +198,8 @@ def main(argv=None):
     parser.add_argument('--android-profile',type=Path,
                         help='Trusted version-2 Android runtime application profile')
     parser.add_argument('--simulator',action='append',default=[]);parser.add_argument('--ios-products',type=Path)
+    parser.add_argument('--ios-app',type=Path,help='Selected general Simulator app artifact')
+    parser.add_argument('--ios-launch-config',type=Path,help='Explicit local approved general Simulator launch environment')
     parser.add_argument('--ios-profile',type=Path,
                         help='Trusted version-2 iOS runtime application profile')
     parser.add_argument('--iphone',action='append',default=[],
@@ -210,9 +212,14 @@ def main(argv=None):
     args=parser.parse_args(argv)
     if args.devices_config and (args.android or args.iphone or args.simulator or args.demo
             or args.android_profile or args.ios_profile or args.android_helper
-            or args.android_app or args.ios_products or args.iphone_app
+            or args.android_app or args.ios_products or args.iphone_app or args.ios_app or args.ios_launch_config
             or args.authority_mode!='shared-v2'):
         parser.error('--devices-config requires shared-v2 and supplies all device and product selections')
+    if args.ios_app and (not args.simulator or not args.ios_profile or args.iphone or args.android):
+        parser.error('--ios-app requires only general Simulator devices and --ios-profile')
+    if args.ios_launch_config and (not args.simulator or not args.ios_profile or not args.ios_app
+            or args.iphone or args.android or args.authority_mode!='shared-v2'):
+        parser.error('--ios-launch-config requires shared-v2, only general Simulator devices, --ios-profile and --ios-app')
     authority=None
     artifact_store=None;artifact_evidence=None;artifact_budget=None
     inventory_stop=None;inventory_thread=None
@@ -272,6 +279,12 @@ def main(argv=None):
         if args.ios_profile is not None:
             from ..ios_profile import load_ios_profile
             ios_profile=load_ios_profile(args.ios_profile)
+        ios_launch=None
+        if args.ios_launch_config is not None:
+            from ..ios_launch import load_ios_launch
+            try:ios_launch=load_ios_launch(args.ios_launch_config,ios_profile)
+            except (ContractError,OSError):
+                raise LiveError('invalid_config','Approved iOS launch configuration is unavailable',400) from None
         for serial in args.android:
             from ..device import AdbDevice
             actual=AdbDevice(None if serial=='auto' else serial)
@@ -285,10 +298,12 @@ def main(argv=None):
                 from .android import android_device
                 devices.append(android_device(actual.serial,authority_mode=args.authority_mode))
         for simulator in args.simulator:
-            check(ios_profile is None,'invalid_config',
-                  'Version-2 iOS profiles currently require the physical iPhone provider',400)
+            check(ios_profile is None or args.ios_app is not None,'invalid_config',
+                  'General Simulator profiles require --ios-app',400)
             check(args.ios_products is not None,'missing_build','Supply Simulator test products',400)
-            devices.append(ios_device(simulator,args.ios_products,args.bundle,authority_mode=args.authority_mode))
+            devices.append(ios_device(simulator,args.ios_products,ios_profile.bundle if ios_profile else args.bundle,
+                                      app=args.ios_app,profile=ios_profile,launch_config=ios_launch,
+                                      authority_mode=args.authority_mode))
         for public_id in args.iphone:
             check(args.ios_products is not None and args.iphone_app is not None
                   and ios_profile is not None,'missing_build',
