@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import copy
 from collections import deque
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -785,8 +786,16 @@ class Lab(ActionPlaybackMixin):
                                recording_id=None,effect_authorizer=None,candidate_binding=None,
                                preparation_unknown=False,device_scope=None,
                                _candidate_identity=None,_candidate_profile=None,
-                               _provider_factory=None,_startup_binding=None):
+                               _provider_factory=None,_startup_binding=None,
+                               _android_preparation=None):
         check(type(preparation_unknown) is bool, 'recording_invalid', 'Invalid initial-condition state', 400)
+        if _android_preparation is not None:
+            from .android_preparation import AndroidPreparation
+            check(type(_android_preparation) is AndroidPreparation
+                  and device_scope is None and _startup_binding is None
+                  and device_reservation is not None and not preparation_receipts
+                  and preparation_unknown is False,
+                  'invalid_argument','Invalid Android preparation admission',400)
         if frame_sink is not None:
             check(callable(getattr(frame_sink,'accept_frame',None)),
                   'recording_unavailable','Recording frame sink is invalid',400)
@@ -828,6 +837,7 @@ class Lab(ActionPlaybackMixin):
                                    _candidate_profile=_candidate_profile,
                                    _provider_factory=_provider_factory,
                                    _startup_binding=_startup_binding,
+                                   _android_preparation=_android_preparation,
                                    _session_id=session_id,
                                    _effect_authorizer=effect_authorizer)
     def _check_device_admission(self,device):
@@ -901,11 +911,38 @@ class Lab(ActionPlaybackMixin):
         """Return current state without extending its operation lease."""
         s=self._session(sid,owner)
         with s['lock']:return self._public(s)
+    def _begin_release_recorder(self,s,_release,identity):
+        try:
+            recorder=self._recording_store.begin_recording(
+                _release['registration'],recording_id=_release['recordingId'],
+                session_id='session_'+s['id'],application_id=_release['applicationId'],
+                build_id=_release['buildId'],
+                device_identity=identity,
+                provider_incarnation=s['providerIncarnation'],
+                preparation_receipts=_release['preparation'],candidate_binding=_release.get('candidateBinding'))
+        except Exception:
+            raise LiveError('recording_unavailable','Durable recording could not start') from None
+        s.update(releaseRecorder=recorder,releaseRecordingId=_release['recordingId'],
+                 releaseRegistration=_release['registration'],
+                 releaseVideoSink=_release.get('frameSink'))
+        if _release.get('preparationUnknown'):
+            recorder.declare_gap('preparation_unknown')
+        if _release.get('frameSink') is not None:
+            try:recorder.attach_frame_sink(_release['frameSink'])
+            except Exception:
+                try:recorder.stop(reason='frame_sink_invalid')
+                except Exception:pass
+                try:_release['frameSink'].close()
+                except Exception:pass
+                raise LiveError('recording_unavailable','Recording frame sink is invalid') from None
+        self.release_recording_owners[_release['recordingId']]=s['owner']
+
+
     def create_session(self,device_id,owner,client_id,*,authority_grant=None,_release=None,
                        _device_reservation=None,_device_scope=None,_session_id=None,
                        _effect_authorizer=None,_candidate_identity=None,
                        _candidate_profile=None,_provider_factory=None,
-                       _startup_binding=None):
+                       _startup_binding=None,_android_preparation=None):
         public_id(client_id)
         if _session_id is not None:public_id(_session_id)
         check(_effect_authorizer is None or callable(_effect_authorizer),
@@ -914,10 +951,22 @@ class Lab(ActionPlaybackMixin):
               'invalid_argument','Retained startup binding requires a retained scope',400)
         check(_startup_binding is None or callable(_provider_factory),
               'invalid_argument','Retained startup binding requires its provider factory',400)
+        if _android_preparation is not None:
+            from .android_preparation import AndroidPreparation
+            check(type(_android_preparation) is AndroidPreparation
+                  and _release is not None and _device_reservation is not None
+                  and _device_scope is None and _startup_binding is None,
+                  'invalid_argument','Android preparation requires its reserved release session',400)
         startup_binding=None;startup_native_payload=None
         startup_provider_incarnation=None
         with self.lock:
             device=self.devices.get(device_id);check(device is not None,'not_found','Device not found',404)
+            if _android_preparation is not None:
+                check(device.get('kind') == 'android-live' and '_authority' in device
+                      and _device_reservation._authority_handle is not None
+                      and _android_preparation.plan.project_digest == _release['registration'].project_digest
+                      and _android_preparation.plan.application_id == _release['applicationId'],
+                      'authority_unavailable','Android app preparation requires reserved shared authority',400)
             if _device_scope is not None:
                 reservation,_=self._require_retained_scope(
                     _device_scope,owner=owner,device_id=device_id,
@@ -977,6 +1026,9 @@ class Lab(ActionPlaybackMixin):
                if _device_scope is not None and _candidate_identity is not None else None,
                '_candidateProfile':copy.deepcopy(_candidate_profile)
                if _device_scope is not None and _candidate_profile is not None else None}
+            if _android_preparation is not None:
+                s.update(_androidPreparation=_android_preparation,
+                         _androidRelease=_release, _androidAdmissionOpen=False)
             if startup_binding is not None:s['_startupBinding']=startup_binding
             if _effect_authorizer is not None:s['effectAuthorizer']=_effect_authorizer
             s['frameCondition']=threading.Condition(s['frameLock'])
@@ -991,33 +1043,10 @@ class Lab(ActionPlaybackMixin):
         permit=None;factory_attempted=False
         try:
             self._authorize_effect(s,'startup')
-            if _release is not None:
-                try:
-                    recorder=self._recording_store.begin_recording(
-                        _release['registration'],recording_id=_release['recordingId'],
-                        session_id='session_'+sid,application_id=_release['applicationId'],
-                        build_id=_release['buildId'],
-                        device_identity=(_candidate_identity if _device_scope is not None and
-                                         _candidate_identity is not None else
-                                         device.get('capabilities',{}).get('applicationIdentity')),
-                        provider_incarnation=s['providerIncarnation'],
-                        preparation_receipts=_release['preparation'],candidate_binding=_release.get('candidateBinding'))
-                except Exception:
-                    raise LiveError('recording_unavailable','Durable recording could not start') from None
-                s.update(releaseRecorder=recorder,releaseRecordingId=_release['recordingId'],
-                         releaseRegistration=_release['registration'],
-                         releaseVideoSink=_release.get('frameSink'))
-                if _release.get('preparationUnknown'):
-                    recorder.declare_gap('preparation_unknown')
-                if _release.get('frameSink') is not None:
-                    try:recorder.attach_frame_sink(_release['frameSink'])
-                    except Exception:
-                        try:recorder.stop(reason='frame_sink_invalid')
-                        except Exception:pass
-                        try:_release['frameSink'].close()
-                        except Exception:pass
-                        raise LiveError('recording_unavailable','Recording frame sink is invalid') from None
-                self.release_recording_owners[_release['recordingId']]=owner
+            if _release is not None and _android_preparation is None:
+                self._begin_release_recorder(s,_release,
+                    _candidate_identity if _device_scope is not None and _candidate_identity is not None
+                    else device.get('capabilities',{}).get('applicationIdentity'))
             if device.get('_remoteAuthority') is True:
                 selected_grant=authority_grant if authority_grant is not None else self.parent_grant
                 check(self.authority is not None and (handle is not None or selected_grant is not None),
@@ -1078,6 +1107,22 @@ class Lab(ActionPlaybackMixin):
                 self._confirm_effect(s,permit,'succeeded',result or {'ok':True},'startup')
             else:
                 s['provider'].start(s,self)
+            if _android_preparation is not None:
+                handoff=_android_preparation.prepare(s['provider'],s,self)
+                receipts=_android_preparation.consume(handoff,s['provider'],s)
+                with s['lock']:
+                    check(s['state']=='connecting' and not s.get('stopAdmission',False),
+                          'startup_unknown','Android preparation admission was revoked')
+                    _release['preparation']=receipts
+                    self._begin_release_recorder(s,_release,
+                        device.get('capabilities',{}).get('applicationIdentity'))
+                check(s['provider'].commit_android_preparation(handoff) is True,
+                      'startup_unknown','Android prepared handoff was not confirmed')
+                with s['lock']:
+                    check(s['state']=='connecting' and not s.get('stopAdmission',False),
+                          'startup_unknown','Android preparation admission was revoked')
+                    _android_preparation.admitted()
+                    s['_androidAdmissionOpen']=True
         except Exception as error:
             release_recorder=s.get('releaseRecorder')
             if release_recorder is not None:
@@ -1110,7 +1155,7 @@ class Lab(ActionPlaybackMixin):
                             s['_releasedDeviceReservation']=_device_reservation
                 if factory_attempted:raise
                 return self.get_session(sid,owner)
-            clean_rejection=(handle is not None and
+            clean_rejection=(_android_preparation is None and handle is not None and
                 (permit is None or (isinstance(error,LiveError) and error.code=='startup_rejected')))
             if clean_rejection:
                 try:clean_rejection=handle.status=='owned'
@@ -1589,6 +1634,8 @@ class Lab(ActionPlaybackMixin):
                       provider_capture_start_ns=None,
                       native_incarnation=None,native_sequence_gap=None,timing_source='host-acquired'):
         s=self._session(sid)
+        with s['lock']:
+            if s.get('_androidAdmissionOpen') is False:return False
         check(mime in {'image/jpeg','image/png','image/svg+xml'} and isinstance(data,bytes) and len(data)<=3*1024*1024,
               'invalid_frame','Invalid frame',400)
         check(type(width) is int and type(height) is int and 0<width<=8192 and 0<height<=8192,'invalid_frame','Invalid frame dimensions',400)
@@ -1643,35 +1690,42 @@ class Lab(ActionPlaybackMixin):
                 if s.get('stopAdmission',False):return False
             if publication is None:return False
             captured_at=publication.stamp.display_ms
-        with s['frameCondition']:
-            if s['state'] in {'draining','closed'}:return
-            previous=s['frame']
-            changed=previous and (previous['width'],previous['height'],previous['orientation'])!=(width,height,orientation)
-            if previous is None or changed:s['geometryVersion']+=1
-            s['frameSequence']+=1;now=time.monotonic();s['frameTimes'].append(now)
-            times=s['frameTimes'];fps=(len(times)-1)/(times[-1]-times[0]) if len(times)>1 and times[-1]>times[0] else 0
-            s['frame']={'id':s['frameSequence'],'geometryVersion':s['geometryVersion'],'width':width,'height':height,
-                        'orientation':orientation,
-                        'capturedAt':(captured_at if captured_at is not None
-                                      else int(time.time()*1000)),
-                        'mime':mime,'bytes':data,'_received':now}
-            if publication is not None:
-                s['releaseFrameSequence']=acquisition_sequence
-                s['frame'].update(objectDigest=publication.digest,
-                                  acquisitionSequence=acquisition_sequence,
-                                  presentationOffsetMs=publication.stamp.offset_ms,
-                                  clockUncertaintyNs=publication.stamp.uncertainty_ns,
-                                  captureTimingSource=publication.timing_source)
-                if publication.stamp.provider_clock_id is not None:
-                    s['frame'].update(providerClockId=publication.stamp.provider_clock_id,
-                                      providerMonotonicNs=provider_monotonic_ns,
-                                      nativeIncarnation=publication.stamp.native_incarnation)
-            s['frameHistory'].append((s['frameSequence'],now,s['geometryVersion']))
-            s['metrics'].update(frames=s['frameSequence'],fps=round(fps,2));s['frameCondition'].notify_all()
-        # Do not hold the media lock while waiting for the input/control lock.
-        if s['state']=='connecting':s['state']='active';s['knownStart']=False
-        if changed:s['geometryChanged']=True
-        return True
+        # Android preparation and publication share one admission boundary.
+        # A frame racing cleanup cannot reopen a failed/closing session.
+        with (s['lock'] if '_androidPreparation' in s else nullcontext()):
+            if '_androidPreparation' in s and (
+                    s.get('_androidAdmissionOpen') is not True
+                    or s.get('stopAdmission',False)
+                    or s['state'] not in {'connecting','active'}):return False
+            with s['frameCondition']:
+                if s['state'] in {'draining','closed'}:return
+                previous=s['frame']
+                changed=previous and (previous['width'],previous['height'],previous['orientation'])!=(width,height,orientation)
+                if previous is None or changed:s['geometryVersion']+=1
+                s['frameSequence']+=1;now=time.monotonic();s['frameTimes'].append(now)
+                times=s['frameTimes'];fps=(len(times)-1)/(times[-1]-times[0]) if len(times)>1 and times[-1]>times[0] else 0
+                s['frame']={'id':s['frameSequence'],'geometryVersion':s['geometryVersion'],'width':width,'height':height,
+                            'orientation':orientation,
+                            'capturedAt':(captured_at if captured_at is not None
+                                          else int(time.time()*1000)),
+                            'mime':mime,'bytes':data,'_received':now}
+                if publication is not None:
+                    s['releaseFrameSequence']=acquisition_sequence
+                    s['frame'].update(objectDigest=publication.digest,
+                                      acquisitionSequence=acquisition_sequence,
+                                      presentationOffsetMs=publication.stamp.offset_ms,
+                                      clockUncertaintyNs=publication.stamp.uncertainty_ns,
+                                      captureTimingSource=publication.timing_source)
+                    if publication.stamp.provider_clock_id is not None:
+                        s['frame'].update(providerClockId=publication.stamp.provider_clock_id,
+                                          providerMonotonicNs=provider_monotonic_ns,
+                                          nativeIncarnation=publication.stamp.native_incarnation)
+                s['frameHistory'].append((s['frameSequence'],now,s['geometryVersion']))
+                s['metrics'].update(frames=s['frameSequence'],fps=round(fps,2));s['frameCondition'].notify_all()
+            # Do not hold the media lock while waiting for the input/control lock.
+            if s['state']=='connecting':s['state']='active';s['knownStart']=False
+            if changed:s['geometryChanged']=True
+            return True
     def frame(self,sid,owner=None):
         s=self._session(sid,owner)
         with s['frameLock']:
@@ -2424,6 +2478,22 @@ class Lab(ActionPlaybackMixin):
             try:recorder.freeze()
             except Exception:pass
         with self.lock:self.devices[s['deviceId']]['state']='quarantined';self._persist_devices()
+    def abandon_android_preparation_cleanup(self,sid,owner):
+        """Fence a timed-out close; late terminal callbacks cannot release it."""
+        s=self._session(sid,owner)
+        with s['lock']:
+            preparation=s.get('_androidPreparation')
+            if preparation is None:return None
+            if s['state']=='closed':return False
+            s['_androidCleanupAbandoned']=True
+            s['_androidAdmissionOpen']=False
+            s.update(state='failed',stopAdmission=True,
+                     error='Android cleanup deadline expired')
+            with self.lock:
+                self.devices[s['deviceId']]['state']='quarantined';self._persist_devices()
+        preparation.abandon_cleanup()
+        return True
+
     def close_session(self,sid,owner,controller=None,epoch=None,*,reserve_for_repair=False,
                       require_finished_inputs=False):
         s=self._session(sid,owner)
@@ -2467,6 +2537,32 @@ class Lab(ActionPlaybackMixin):
         if not authority_bound:
             try:self._cancel_active_pointers(s)
             except LiveError:pass
+        preparation=s.get('_androidPreparation')
+        if preparation is not None:
+            with s['lock']:
+                s['_androidAdmissionOpen']=False
+                if s['inflightCommands']:s['_androidInputUncertain']=True
+                input_uncertain=s.get('_androidInputUncertain',False)
+            if not input_uncertain:
+                try:self._cancel_active_pointers(s)
+                except LiveError:input_uncertain=True
+            if input_uncertain:
+                with s['lock']:
+                    s['_androidInputUncertain']=True
+                    s.update(state='failed',error='Android input completion is unconfirmed')
+                    handle=s.get('deviceAuthority')
+                    if handle is not None:
+                        try:handle.revoke_dispatches()
+                        except Exception:pass
+                with self.lock:
+                    self.devices[s['deviceId']]['state']='quarantined';self._persist_devices()
+                return self._public(s)
+            if not preparation.quiesce_and_cleanup(s.get('provider')):
+                with s['lock']:
+                    s.update(state='failed',error='Android app preparation cleanup is unconfirmed')
+                with self.lock:
+                    self.devices[s['deviceId']]['state']='quarantined';self._persist_devices()
+                return self._public(s)
         self._save_app_logs_if_available(s)
         with s['lock']:
             s.update(state='draining',epoch=s['epoch']+1);s['cancel'].set();self._invalidate_recording(s,'session_closed')
@@ -2487,6 +2583,8 @@ class Lab(ActionPlaybackMixin):
                 cleanup_confirmed=True
             else:s['provider'].close()
         except Exception:
+            if s.get('_androidPreparation') is not None:
+                self.abandon_android_preparation_cleanup(sid,owner)
             abort=getattr(s['provider'],'abort',None)
             if callable(abort):
                 try:abort()
@@ -2494,35 +2592,42 @@ class Lab(ActionPlaybackMixin):
             s.update(state='failed',error='Provider cleanup failed')
             with self.lock:self.devices[s['deviceId']]['state']='quarantined';self._persist_devices()
             handle=s.get('deviceAuthority')
-            if handle is not None and s.get('_retainedDeviceScope') is None:handle.close()
+            if (handle is not None and s.get('_retainedDeviceScope') is None
+                    and s.get('_androidPreparation') is None):handle.close()
             return self._public(s)
-        handle=s.get('deviceAuthority')
-        retained_scope=s.get('_retainedDeviceScope')
-        if handle is not None:
-            check(cleanup_confirmed,'cleanup_uncertain','Authority cleanup was not confirmed')
-            handle.confirm_native_cleanup(cleanup_permit)
-            if retained_scope is None and not handle.close():
-                s.update(state='failed',error='Device release was not durably confirmed')
+        with (s['lock'] if '_androidPreparation' in s else nullcontext()):
+            if s.get('_androidCleanupAbandoned'):
+                s.update(state='failed',error='Android cleanup deadline expired')
                 with self.lock:
                     self.devices[s['deviceId']]['state']='quarantined';self._persist_devices()
                 return self._public(s)
-        with s['lock']:
-            if require_finished_inputs and s['inflightCommands']:
-                s.update(state='failed',error='Input completion is still unconfirmed')
-                with self.lock:
-                    self.devices[s['deviceId']]['state']='quarantined';self._persist_devices()
-                return self._public(s)
-            s['state']='closed'
-            s['activePointers'].clear();s['pointerLastActivity'].clear()
-            with s['frameLock']:s['frame']=None
-        with self.lock:
-            if retained_scope is not None:
-                self.devices[s['deviceId']].update(
-                    state='reserved',sessionId=retained_scope.reservation_id)
-            else:
-                self.devices[s['deviceId']].update(
-                    state='repairing' if reserve_for_repair else 'available',sessionId=None)
-            self._persist_devices()
+            handle=s.get('deviceAuthority')
+            retained_scope=s.get('_retainedDeviceScope')
+            if handle is not None:
+                check(cleanup_confirmed,'cleanup_uncertain','Authority cleanup was not confirmed')
+                handle.confirm_native_cleanup(cleanup_permit)
+                if retained_scope is None and not handle.close():
+                    s.update(state='failed',error='Device release was not durably confirmed')
+                    with self.lock:
+                        self.devices[s['deviceId']]['state']='quarantined';self._persist_devices()
+                    return self._public(s)
+            with s['lock']:
+                if require_finished_inputs and s['inflightCommands']:
+                    s.update(state='failed',error='Input completion is still unconfirmed')
+                    with self.lock:
+                        self.devices[s['deviceId']]['state']='quarantined';self._persist_devices()
+                    return self._public(s)
+                s['state']='closed'
+                s['activePointers'].clear();s['pointerLastActivity'].clear()
+                with s['frameLock']:s['frame']=None
+            with self.lock:
+                if retained_scope is not None:
+                    self.devices[s['deviceId']].update(
+                        state='reserved',sessionId=retained_scope.reservation_id)
+                else:
+                    self.devices[s['deviceId']].update(
+                        state='repairing' if reserve_for_repair else 'available',sessionId=None)
+                self._persist_devices()
         with s['lock']:self._event(s,'session_closed',reason=s.get('closeReason','requested'))
         return self._public(s)
     def close_all(self):
@@ -2553,7 +2658,9 @@ class Lab(ActionPlaybackMixin):
                         device.update(state='quarantined',sessionId=scope.reservation_id)
                         self._persist_devices()
         elif self._owns_authority and self.authority is not None:
-            self.authority.close()
+            unresolved_android=any(s.get('_androidPreparation') is not None
+                and s.get('state')!='closed' for s in self.sessions.values())
+            if not unresolved_android:self.authority.close()
         self.close_evidence_store()
     def close_evidence_store(self):
         if self._evidence_closed:return

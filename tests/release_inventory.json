@@ -552,7 +552,9 @@
             "tests.test_g1b_remote_authority",
             "tests.test_live_authority",
             "tests.test_authority_recovery_migration",
-            "tests.test_g1b_lab_boundaries"
+            "tests.test_g1b_lab_boundaries",
+            "tests.test_android_readiness",
+            "tests.test_android_preparation_lifecycle"
           ],
           "environment": "local-python-owned-temp-loopback-live-regressions",
           "effects": [
@@ -1247,7 +1249,10 @@
             "tests.test_native_fixture_inputs",
             "tests.test_groovy_observation",
             "tests.test_enterprise_build_inputs",
-            "tests.test_android_launch"
+            "tests.test_android_launch",
+            "tests.test_android_readiness",
+            "tests.test_android_preparation_lifecycle",
+            "tests.test_android_readiness_junit"
           ],
           "environment": "local-python-standard-library",
           "effects": [

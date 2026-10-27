@@ -1,6 +1,7 @@
 """Persistent Android instrumentation over an authenticated ADB-forwarded port."""
 from __future__ import annotations
 import base64
+import copy
 from collections import OrderedDict
 import http.client
 import json
@@ -179,6 +180,8 @@ class AndroidLiveProvider:
         self.native_frame_timing_declared=False
         self.installed_identity_evidence=None
         self.helper_ready=threading.Event();self.target_launched=False
+        self.fixture_config=None;self._fixture_challenge=None;self._fixture_session=None
+        self._fixture_context=None;self._fixture_committed=False
     def bind_authority(self,device_authority,provider_incarnation):
         self.device_authority=device_authority;self.provider_incarnation=provider_incarnation
         self.lease=device_authority.borrowed_lease()
@@ -291,11 +294,23 @@ class AndroidLiveProvider:
             check(self.installed_identity_evidence is not None,'app_changed',
                   'Android installed identity evidence is unavailable')
             result['identityEvidence']=dict(self.installed_identity_evidence,
-                launchedPackage=self.target_package,profileDigest=self.app_profile.digest,
+                launchedPackage=(self.target_package if self.fixture_config is None else None),profileDigest=self.app_profile.digest,
                 helperProtocolVersion=NATIVE_PROTOCOL_VERSION,helperVersion=HELPER_VERSION)
         return result
     def start(self,session,lab,permit=None):
         self.sid=session['id'];self.lab=lab
+        self._fixture_session=session
+        context=session.get('_androidPreparation')
+        if context is not None:
+            from .android_preparation import AndroidPreparation
+            from ..android_readiness import require_android_fixture
+            check(type(context) is AndroidPreparation and self.general_profile
+                  and self.device_authority is not None and permit is not None,
+                  'unsupported_operation','App-owned preparation requires shared Android authority',400)
+            check(not self.automatic_app_logs,'unsupported_operation',
+                  'App-owned preparation does not yet support automatic app-log startup',400)
+            self.fixture_config=require_android_fixture(context.configuration,self.app_profile,self.launch_config)
+            self._fixture_context=context
         from .native_frame_clock import NativeFrameClock
         self.frame_clock=NativeFrameClock.for_session(lab,self.sid,self.device_authority)
         install_apk=self.sample_apk
@@ -327,6 +342,8 @@ class AndroidLiveProvider:
             from ..android_launch import require_android_launch
             self.launch_config=require_android_launch(self.launch_config,self.app_profile)
             config['approvedLaunch']=self.launch_config.native()
+        if self.fixture_config is not None:
+            config['appOwnedFixture']=self.fixture_config.native()
         config_bytes=json.dumps(config,separators=(',',':')).encode('utf-8')
         check(len(config_bytes)<=16*1024,
               'invalid_config','Android helper configuration exceeds its bound',400)
@@ -382,6 +399,10 @@ class AndroidLiveProvider:
         self.app_log_run_id=str(uuid.uuid4()) if self.automatic_app_logs else None
         log_args=['--es','repro_log_run_id',self.app_log_run_id] if self.app_log_run_id else []
         if self.device_authority is not None:self._check_target_startup(permit)
+        if self.fixture_config is not None:
+            # The fixed Debug service owns the only initial gated launch.
+            # No ordinary launch/frame can race ahead of preparation.
+            return
         if self.general_profile:
             check(self.helper_ready.wait(15),'native_protocol_mismatch',
                   'Android helper did not become ready before target launch')
@@ -402,6 +423,9 @@ class AndroidLiveProvider:
     def _component_name(self):
         return self.app_profile.component_name
     def _receive_frame(self):
+        if getattr(self,'fixture_config',None) is not None:
+            with self._fixture_session['lock']:
+                if self._fixture_session.get('_androidAdmissionOpen') is not True:return
         buffered=getattr(self,'native_frame_buffered',False)
         frame_path=f'/frames/after/{self.last_native_frame}' if buffered else '/frame'
         metadata,data=decode_native_frame(self.transport.call(frame_path,binary=True))
@@ -484,6 +508,9 @@ class AndroidLiveProvider:
                         continue
                 if self.general_profile and not self.target_launched:
                     continue
+                if (getattr(self,'fixture_config',None) is not None
+                        and self._fixture_session.get('_androidAdmissionOpen') is not True):
+                    continue
                 self._receive_frame()
             except Exception as exc:
                 if startup:
@@ -544,6 +571,11 @@ class AndroidLiveProvider:
                   and value.get('launchConfigurationDigest')==self.launch_config.digest,
                   'native_profile_mismatch','Android helper approved launch binding differs',400)
             self.launch_configuration_verified=True
+        if getattr(self,'fixture_config',None) is not None:
+            check(type(capabilities.get('appOwnedFixtureVersion')) is int
+                  and capabilities['appOwnedFixtureVersion']==1
+                  and value.get('appOwnedFixtureConfigurationDigest')==self.fixture_config.digest,
+                  'native_protocol_mismatch','Android helper app-owned preparation binding differs',400)
         if self.general_profile:
             check(value.get('targetPackage')==self.target_package
                   and value.get('generalProfile') is True
@@ -728,6 +760,210 @@ class AndroidLiveProvider:
                 return {'ok':False,'outcome':'rejected','code':result['error']}
             return {'ok':result.get('ok') is True,'timing':'best-effort'}
         raise LiveError('session_inactive','Android session is closing')
+    def _fixture_guard(self):
+        from .android_preparation import AndroidPreparation
+        check(type(self._fixture_context) is AndroidPreparation
+              and self.fixture_config is not None and self._fixture_session is not None
+              and self._fixture_session.get('_androidPreparation') is self._fixture_context
+              and self.device_authority is not None and not self.stop.is_set(),
+              'fixture_unavailable','Android app-owned preparation is unavailable',409)
+        # Passive observation is valid while this exact generation's dispatched
+        # operation awaits its ACK; it does not authorize a new mutation.
+        self.device_authority.check_observation_authority()
+        check(self.process is not None and self.process.poll() is None,
+              'fixture_unknown','Android preparation producer disconnected',409)
+        self.lab._authorize_effect(self._fixture_session,'fixture_observe')
+
+    def preparation_challenge(self, session, *, project_digest, build_id):
+        from .. import contracts
+        self._fixture_guard()
+        check(session is self._fixture_session and self._fixture_challenge is None,
+              'fixture_binding','Android preparation challenge is one-use',409)
+        self.device_authority.check_ownership()
+        contracts.validate_digest(project_digest);contracts.validate_id(build_id)
+        config=self.fixture_config.data
+        check(build_id==self.app_profile.data['buildId'],
+              'fixture_binding','Android preparation build differs',409)
+        permit=self._startup_permit
+        self._fixture_challenge={
+            'schemaVersion':1,'attemptId':'attempt_'+uuid.uuid4().hex,
+            'nonce':secrets.token_hex(32),'sessionId':'session_'+session['id'],
+            'deviceScopeDigest':permit._device_fingerprint,'projectDigest':project_digest,
+            'buildId':build_id,'applicationId':self.app_profile.data['applicationId'],
+            'artifactDigest':config['artifactDigest'],'profileDigest':config['profileDigest'],
+            'fixtureId':config['fixtureId'],'fixtureVersion':config['fixtureVersion'],
+            'policyDigest':config['policyDigest'],'configurationDigest':self.fixture_config.digest,
+            'launchConfigurationDigest':config['launchConfigurationDigest'],
+            'hostIncarnation':permit.host_incarnation,'helperIncarnation':permit.helper_incarnation,
+            'providerIncarnation':permit.provider_incarnation,
+            'ownershipGeneration':permit.ownership_generation}
+        return copy.deepcopy(self._fixture_challenge)
+
+    def _fixture_status(self, timeout_seconds=2):
+        self._fixture_guard()
+        value=self.transport.call('/status',timeout=timeout_seconds)
+        self._validate_native_metadata(value)
+        receipts=value.get('fixtureReceipts')
+        check(type(receipts) is list and len(receipts)<=4
+              and type(value.get('fixturePending')) is bool
+              and type(value.get('fixtureQuiescent')) is bool
+              and type(value.get('fixtureCancelled')) is bool,
+              'fixture_protocol','Android preparation status is invalid',409)
+        return value
+
+    def _fixture_native_command(self, action, payload, timeout_seconds):
+        """Private prepared-session commands, never normal Live input actions."""
+        self._fixture_guard()
+        check(action in {'fixture_prepare','fixture_check','fixture_cleanup','fixture_cancel','fixture_activate'},
+              'fixture_protocol','Unsupported preparation operation',400)
+        session=self._fixture_session
+        self.device_authority.check_ownership()
+        self.lab._authorize_effect(session,action)
+        with session['lock']:
+            permit=self.lab._prepare_effect(session,action,payload)
+        check(permit is not None,'authority_required','Android preparation requires shared authority',409)
+        self._check_permit(permit)
+        grant=self.device_authority.native_grant(permit,self.native_handshake).wire()
+        command={'id':permit.operation_id,'action':action,'payload':payload,'authority':grant}
+        accepted=self.transport.call('/command',command,timeout=min(2,timeout_seconds))
+        check(type(accepted) is dict and accepted.get('accepted') is True,
+              'fixture_unknown','Android preparation command was not acknowledged',409)
+        deadline=time.monotonic()+timeout_seconds
+        while time.monotonic()<deadline:
+            self._fixture_guard();self._check_permit(permit)
+            result=self.transport.call('/ack/'+permit.operation_id,timeout=min(2,max(.001,deadline-time.monotonic())))
+            check(time.monotonic()<deadline,'fixture_unknown','Android preparation acknowledgement expired',409)
+            if result=={'pending':True}:
+                self.stop.wait(.01);continue
+            expected={'pending','id','ok','timing','authority'}|({'error'} if 'error' in result else set())
+            check(type(result) is dict and set(result)==expected and result['pending'] is False
+                  and result['id']==permit.operation_id and type(result['ok']) is bool
+                  and result['timing']=='best-effort' and _exact_flat_mapping(result['authority'],grant),
+                  'fixture_unknown','Android preparation acknowledgement identity differs',409)
+            # A generic helper failure may follow launch/bind/partial app work.
+            # Keep that authority operation unresolved rather than asserting no effect.
+            check(result['ok'] is True,'fixture_unknown','Android preparation operation was not confirmed',409)
+            self.lab._confirm_effect(session,permit,'succeeded',{'ok':True},action)
+            return
+        # A missing ACK remains an unconfirmed authority operation. Do not
+        # renew, resend, or convert timeout into a rejected/no-effect result.
+        raise LiveError('fixture_unknown','Android preparation acknowledgement timed out',409)
+
+    def fixture_operation(self, operation, challenge, timeout_seconds, *, status_only=False):
+        from .. import contracts
+        self._fixture_guard()
+        check(type(timeout_seconds) in (int,float) and not isinstance(timeout_seconds,bool)
+              and 0<timeout_seconds<=60 and type(status_only) is bool,
+              'fixture_protocol','Invalid Android preparation timeout',400)
+        check(type(operation) is dict and set(operation)=={
+            'operationId','allocationId','generation','idempotencyKey','operation','recipeId','payloadDigest'}
+            and operation['operation'] in {'prepare','check','cleanup'}
+            and type(operation['generation']) is int and operation['generation']>0,
+            'fixture_protocol','Invalid Android fixture operation',400)
+        for key in ('operationId','allocationId','recipeId'):contracts.validate_id(operation[key])
+        for key in ('idempotencyKey','payloadDigest'):contracts.validate_digest(operation[key])
+        check(operation['payloadDigest']==contracts.digest({}),
+              'fixture_protocol','App-owned fixture payload must be closed',400)
+        check(type(challenge) is dict and self._fixture_challenge is not None
+              and contracts.digest(challenge)==contracts.digest(self._fixture_challenge),
+              'fixture_binding','Android preparation challenge differs',409)
+        deadline=time.monotonic()+timeout_seconds
+        if not status_only:
+            self._fixture_native_command('fixture_'+operation['operation'],{
+                'challenge':copy.deepcopy(challenge),'operation':copy.deepcopy(operation),
+                'timeoutMs':max(1,int(timeout_seconds*1000))},timeout_seconds)
+        while time.monotonic()<deadline:
+            state=self._fixture_status(min(2,max(.001,deadline-time.monotonic())))
+            check(time.monotonic()<deadline,'fixture_unknown','Android app preparation deadline expired',409)
+            matches=[item for item in state['fixtureReceipts'] if type(item) is dict
+                     and type(item.get('operation')) is dict
+                     and item['operation'].get('operationId')==operation['operationId']]
+            check(len(matches)<=1,'fixture_protocol','Duplicate Android fixture terminal receipt',409)
+            if matches:
+                receipt=matches[0]
+                check(set(receipt)=={'challenge','operation','phase','status','quiescent'}
+                      and contracts.digest(receipt['challenge'])==contracts.digest(challenge)
+                      and contracts.digest(receipt['operation'])==contracts.digest(operation)
+                      and receipt['phase']==operation['operation']
+                      and receipt['status'] in {'complete','failed'} and receipt['quiescent'] is True,
+                      'fixture_binding','Android terminal preparation receipt differs',409)
+                self._fixture_guard()
+                return copy.deepcopy(receipt)
+            self.stop.wait(.025)
+        raise LiveError('fixture_unknown','Android app preparation did not reach a terminal state',409)
+
+    def _verify_fixture_installed_artifact(self):
+        self._fixture_guard()
+        entries=self.device.shell('pm','path',self.target_package).splitlines()
+        paths=[line[8:].strip() for line in entries if line.startswith('package:')]
+        check(len(paths)==1 and re.fullmatch(r'/data/app/[A-Za-z0-9_./=+-]+\.apk',paths[0]) is not None,
+              'app_identity','Expected the selected single Android APK',409)
+        actual=self.device.shell('sha256sum',paths[0]).split()
+        check(actual and actual[0]==self.fixture_config.data['artifactDigest']
+              and sha_file(self.sample_apk)==self.fixture_config.data['artifactDigest'],
+              'app_changed','Android preparation installed artifact changed',409)
+        self._fixture_guard()
+
+    def validate_android_preparation(self, binding):
+        from .android_preparation import AndroidStartupHandoff
+        from .. import contracts
+        self._fixture_guard()
+        check(type(binding) is AndroidStartupHandoff and binding.provider is self
+              and binding.session_id==self.sid and binding.configuration_digest==self.fixture_config.digest
+              and contracts.digest(binding.challenge)==contracts.digest(self._fixture_challenge)
+              and not self._fixture_committed,
+              'fixture_binding','Android startup handoff differs',409)
+        self.device_authority.check_ownership()
+        self._verify_fixture_installed_artifact()
+        state=self._fixture_status()
+        check(state['fixturePending'] is False and state['fixtureQuiescent'] is True
+              and state['fixtureCancelled'] is False,
+              'fixture_unknown','Android preparation is not quiescent and ready',409)
+        ready=[r for r in state['fixtureReceipts'] if type(r) is dict and r.get('phase')=='check'
+               and r.get('status')=='complete' and r.get('quiescent') is True
+               and contracts.digest(r.get('challenge'))==contracts.digest(self._fixture_challenge)]
+        check(len(ready)==1,'fixture_unknown','Android preparation check is unavailable',409)
+        return True
+
+    def commit_android_preparation(self, binding):
+        from .native_frame_clock import NativeFrameClock
+        self.validate_android_preparation(binding)
+        check(self._fixture_session.get('releaseRecorder') is not None,
+              'fixture_binding','Recording must exist before Android activation',409)
+        self._fixture_native_command('fixture_activate',{
+            'challenge':copy.deepcopy(self._fixture_challenge),'timeoutMs':10000},10)
+        # The pre-preparation clock had no recorder anchor. Replace it before
+        # admitting any native frame; never reuse pre-admission media/timing.
+        clock=NativeFrameClock.for_session(self.lab,self.sid,self.device_authority)
+        sent=clock.synchronizer.sample()
+        state=self._fixture_status()
+        received=clock.synchronizer.sample()
+        clock.accept_status(self.native_handshake,state,sent,received)
+        self.frame_clock=clock
+        self._fixture_committed=True
+        self.target_launched=True
+        return True
+
+    def quiesce_android_preparation(self, timeout_seconds):
+        """Disconnect/unbind/timeout is never evidence that app work stopped."""
+        if self._fixture_challenge is None:
+            # No app-owned operation was dispatched at all.
+            return True
+        deadline=time.monotonic()+timeout_seconds
+        state=self._fixture_status()
+        # Even a completed preparation needs a native input barrier before app
+        # cleanup: older queued commands and held pointers must be fenced first.
+        self._fixture_native_command('fixture_cancel',{
+            'challenge':copy.deepcopy(self._fixture_challenge),
+            'timeoutMs':max(1,int(timeout_seconds*1000))},timeout_seconds)
+        while time.monotonic()<deadline:
+            state=self._fixture_status(min(2,max(.001,deadline-time.monotonic())))
+            if time.monotonic()>=deadline:return False
+            if (state['fixturePending'] is False and state['fixtureQuiescent'] is True
+                    and state['fixtureCancelled'] is True):return True
+            self.stop.wait(.025)
+        return False
+
     def _read_sdk_json(self,path,*,maximum=20*1024*1024):
         raw=self.device.adb_call('exec-out','run-as',self.target_package,'cat',path,timeout=8)
         check(len(raw)<=maximum,'capture_invalid','Android capture exceeds the size limit')

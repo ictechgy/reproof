@@ -1,0 +1,42 @@
+// Integration sketch, not included in any shipping manifest or build.
+// Use an existing operator-controlled helper signing key. The default Android
+// Debug signing identity is deliberately rejected. Do not put key material here.
+class FixtureApplication : android.app.Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // Your Debug bootstrap MUST wait here: no production networking or
+        // automatic navigation until the registered handler releases the gate.
+        val bootstrap = io.reproof.sdk.ReproofFixtureBootstrapGate.holdForQa(this)
+        val gate = MyDebugBootstrapGate.closed()
+        // Every ordinary startup entry checks bootstrap.normalStartupAllowed.
+        // Keep bootstrap held for the entire QA session.
+        io.reproof.sdk.ReproofFixtures.install(
+            this, bootstrapGate = bootstrap,
+            helperSignerDigest = BuildConfig.APPROVED_HELPER_SIGNER_SHA256,
+            fixtureId = "empty_dashboard", fixtureVersion = 1,
+            policyDigest = BuildConfig.APPROVED_FIXTURE_POLICY_SHA256,
+            handler = object : io.reproof.sdk.ReproofFixtureHandler {
+                override fun prepare(attempt: io.reproof.sdk.ReproofFixtureAttempt): Boolean {
+                    attempt.ensureActive()
+                    // Application-owned, bounded, cooperative preparation only.
+                    // No detached coroutine/thread may survive this method.
+                    gate.selectInMemoryFixture("empty_dashboard")
+                    attempt.ensureActive()
+                    gate.showPreparedScreenAndWaitForIdle()
+                    return true
+                }
+                override fun check(attempt: io.reproof.sdk.ReproofFixtureAttempt): Boolean {
+                    attempt.ensureActive()
+                    return gate.isPreparedScreenIdle()
+                }
+                override fun cleanup(attempt: io.reproof.sdk.ReproofFixtureAttempt): Boolean {
+                    attempt.ensureActive()
+                    gate.closeAndWaitForAllOwnedWork()
+                    return true
+                }
+            },
+        )
+    }
+}
+// Register this Application and the fixed service ONLY in src/debug manifest.
+// App-owned acknowledgment does not prove network determinism or fix correctness.
