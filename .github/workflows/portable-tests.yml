@@ -36,6 +36,11 @@ jobs:
         run: python scripts/release-check.py --goal CLI --effects filesystem,process
       - name: Run review-only locator proposal checks
         run: python scripts/release-check.py --goal LOCATOR --effects filesystem,process,loopback
+      - name: Run bounded local source snapshot contracts
+        run: python scripts/release-check.py --goal SOURCE_SNAPSHOT_CONTRACTS --effects filesystem,process
+      - name: Measure synthetic enterprise source snapshot scale once
+        if: matrix.python-version == '3.12'
+        run: python scripts/release-check.py --goal SOURCE_SNAPSHOT_SCALE --effects filesystem,process
       - name: Run synthetic native-provider contract checks
         run: python scripts/release-check.py --goal NATIVE_CONTRACTS --effects filesystem,process
       - name: Run deployment preflight and loopback observation binding checks

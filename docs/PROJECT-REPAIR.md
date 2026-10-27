@@ -233,3 +233,10 @@ Android 의존성 검사 3개는 차단됐다. 대조 자료는 `g9-parent-cover
 현재 실제 브라우저 기록은 `artifacts/qa-delivery/g9-protected-browser-r4/result.json`에 있다.
 제안·검증 버튼, 3회 후보 결과, 패치 검토, 390px 화면, 늦은 응답의 프로젝트 경계,
 credential 회수 후 소스 제거를 확인했다. 회사 앱과 실제 AI·VM·실기기 검증은 여전히 남아 있다.
+
+## Large-source foundation (not a G9 input)
+
+[Local bounded source snapshots](LOCAL-SOURCE-SNAPSHOTS.md) can capture and verify
+explicit large source selections without builds or transmission. G9 does not yet
+accept that format; its source/artifact limits and external-AI consent remain
+unchanged. A stored local digest is not trusted provenance.

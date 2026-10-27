@@ -1546,6 +1546,93 @@
           "gate": "software"
         }
       ]
+    },
+    "SOURCE_SNAPSHOT": {
+      "available": true,
+      "checks": [
+        {
+          "id": "local-source-snapshot-contracts",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_source_snapshot",
+            "tests.test_source_snapshot_cli",
+            "tests.test_source_snapshot_metadata"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 90,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
+          "id": "local-source-snapshot-scale",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_source_snapshot_scale"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 600,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "SOURCE_SNAPSHOT_CONTRACTS": {
+      "available": true,
+      "checks": [
+        {
+          "id": "local-source-snapshot-contracts",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_source_snapshot",
+            "tests.test_source_snapshot_cli",
+            "tests.test_source_snapshot_metadata"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 90,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "SOURCE_SNAPSHOT_SCALE": {
+      "available": true,
+      "checks": [
+        {
+          "id": "local-source-snapshot-scale",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_source_snapshot_scale"
+          ],
+          "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 600,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }
