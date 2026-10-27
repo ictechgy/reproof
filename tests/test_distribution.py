@@ -151,6 +151,28 @@ class InstalledDistributionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr[-1000:])
         self.assertIn('installed iOS launch contract present', result.stdout)
 
+    def test_installed_source_snapshot_cli_roundtrip_without_checkout(self):
+        source = self.root / 'snapshot-input'; source.mkdir()
+        (source / 'file.swift').write_bytes(b'synthetic source only')
+        selection = self.root / 'source-selection.json'
+        selection.write_text(json.dumps({'schemaVersion': 1, 'kind': 'reproof-source-selection',
+                                         'paths': ['file.swift']}))
+        snapshot = self.root / 'sealed-source'
+        output = self.root / 'materialized-source'
+        invocations = [
+            ['capture', '--source', str(source), '--selection', str(selection), '--output', str(snapshot)],
+            ['verify', '--snapshot', str(snapshot)],
+            ['materialize', '--snapshot', str(snapshot), '--output', str(output)],
+        ]
+        results = []
+        for arguments in invocations:
+            result = _command([str(self.command), 'source-snapshot', *arguments], cwd=self.work)
+            self.assertEqual(result.returncode, 0, result.stderr[-1000:])
+            results.append(json.loads(result.stdout))
+        self.assertEqual(len({result['digest'] for result in results}), 1)
+        self.assertEqual((output / 'file.swift').read_bytes(), b'synthetic source only')
+        self.assertTrue(all(result['provenance'] == 'unverified-local-content' for result in results))
+
     def test_changed_installed_asset_is_reported_without_executing_it(self):
         locate = _command([str(self.python), '-I', '-c',
             'from reproof.resources import resource_root; print(resource_root())'], cwd=self.work)

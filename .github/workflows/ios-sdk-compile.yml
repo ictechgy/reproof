@@ -5,6 +5,9 @@ on:
     paths:
       - 'ios/**'
       - 'live-ios/**'
+      - 'reproof/source_snapshot*.py'
+      - 'reproof/cli.py'
+      - 'tests/test_source_snapshot*.py'
       - 'reproof/ios_launch.py'
       - 'tests/test_ios_launch*.py'
       - 'scripts/check-ios-launch-contract.py'
@@ -35,6 +38,9 @@ on:
     paths:
       - 'ios/**'
       - 'live-ios/**'
+      - 'reproof/source_snapshot*.py'
+      - 'reproof/cli.py'
+      - 'tests/test_source_snapshot*.py'
       - 'reproof/ios_launch.py'
       - 'tests/test_ios_launch*.py'
       - 'scripts/check-ios-launch-contract.py'
@@ -98,6 +104,13 @@ jobs:
           export REPRO_SDK_TEST_EXPORT_DIRECTORY="$RUNNER_TEMP/reproof-sdk-synthetic-export"
           xcrun swift test --package-path ios/SDK --disable-automatic-resolution 2>&1 | tee "$RUNNER_TEMP/reproof-sdk-logs/swift-tests.log"
           grep -E 'Executed [1-9][0-9]* tests?, with 0 failures' "$RUNNER_TEMP/reproof-sdk-logs/swift-tests.log"
+      - name: Verify local snapshot filesystem contracts without devices
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$REPRO_PYTHON" scripts/release-check.py --goal SOURCE_SNAPSHOT_CONTRACTS \
+            --effects filesystem,process \
+            | tee "$RUNNER_TEMP/reproof-sdk-logs/source-snapshot-contracts.json"
       - name: Prove bounded sample Swift logic repair with the unchanged XCTest oracle
         shell: bash
         env:

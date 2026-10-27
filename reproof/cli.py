@@ -39,6 +39,9 @@ def print_summary(value):print(json.dumps(value,ensure_ascii=False,indent=2,defa
 
 def main(argv=None):
     effective=list(sys.argv[1:] if argv is None else argv)
+    if effective and effective[0]=='source-snapshot':
+        from .source_snapshot_cli import main as source_snapshot_main
+        return source_snapshot_main(effective[1:])
     if effective and effective[0]=='sdk-review':
         from .sdk_review_cli import main as sdk_review_main
         return sdk_review_main(effective[1:])
@@ -88,6 +91,7 @@ def main(argv=None):
     sub=parser.add_subparsers(dest='command',required=True)
     sub.add_parser('doctor',help='Check local tools and authorized device count')
     sub.add_parser('installation-check',help='Check public installed resources without accessing devices or credentials')
+    sub.add_parser('source-snapshot',help='Explicit local source capture/verify/materialize; not a build or upload')
     sub.add_parser('sdk-review',help='Review a local finalized SDK session without upload or authority; use --help')
     sub.add_parser('android-signing',help='Inspect or recover existing Android signing operations; use --help')
     sub.add_parser('ios-signing',help='Build fixed iOS signing tools, inspect or recover operations; use --help')
