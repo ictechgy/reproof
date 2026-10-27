@@ -543,6 +543,8 @@
             "tests.test_live_jobs",
             "tests.test_live_operations",
             "tests.test_live_recording_trust",
+            "tests.test_live_action_playback",
+            "tests.test_live_action_playback_review",
             "tests.test_live_worker",
             "tests.test_live_model",
             "tests.test_issue_sessions",

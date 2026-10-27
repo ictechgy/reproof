@@ -52,3 +52,14 @@ library portable ticket-reference gate:
 ```sh
 python3 -m unittest tests.test_ticket_reference_browser -v
 ```
+
+## Ordinary action playback
+
+The console separates **Trusted replay** from **Unverified action playback**.
+For an ordinary app, opt into **Record without reset**, stop the recording, then
+preview the exact actions and explicitly acknowledge the current screen and
+unknown state before execution. Actions may affect app/server data; Reproof has
+not verified a QA/non-production environment. Completed actions are **not** proof
+of reproduction or verification. Initially only direct same-session, same-process captures are
+eligible; imported/restored/derived recordings and prepared/release sessions are
+excluded. See [the contract and limitations](../docs/UNVERIFIED-PLAYBACK.md).

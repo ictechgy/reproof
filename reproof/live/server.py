@@ -282,13 +282,13 @@ class Handler(BaseHTTPRequestHandler):
     def _static(self, path):
         if self.command != "GET" or path not in {
                 "/", "/index.html", "/styles.css", "/app.js", "/stream.js", "/pointer.js",
-                "/boot.js", "/issue.js", "/video.js"}:
+                "/boot.js", "/issue.js", "/video.js", "/playback.js"}:
             return False
         name = "index.html" if path == "/" else path[1:]
         mime = {"index.html": "text/html; charset=utf-8", "styles.css": "text/css",
                 "app.js": "text/javascript", "stream.js": "text/javascript",
                 "boot.js": "text/javascript", "issue.js": "text/javascript", "video.js": "text/javascript",
-                "pointer.js": "text/javascript"}[name]
+                "pointer.js": "text/javascript", "playback.js": "text/javascript"}[name]
         self.respond(200, (WEB / name).read_bytes(), mime,
                      cookie=(name == "index.html") if self.server.access is None else None)
         return True
@@ -657,11 +657,11 @@ class Handler(BaseHTTPRequestHandler):
         action = "/".join(parts[3:])
         read_capability = "media.read" if action in {"frame", "stream"} else "session.read"
         capability = read_capability if self.command == "GET" else (
-            "replay.execute" if action.startswith("replay") else
+            "replay.execute" if action.startswith(("replay", "playbacks/")) else
             "recording.create" if action.startswith("recordings/") else "session.operate")
         if action in {"observe", "app-logs", "app-logs/export"}:
             capability = "evidence.collect"
-        cleanup = self.command == "POST" and action in {"close", "replay/cancel"}
+        cleanup = self.command == "POST" and action in {"close", "replay/cancel", "playbacks/cancel"}
         binding = access.authorize_resource(
             principal, "session", session_id, capability,
             executable=(self.command == "POST" and not cleanup) or capability == "evidence.collect")
@@ -738,6 +738,8 @@ class Handler(BaseHTTPRequestHandler):
         elif action == "replay/cancel":
             result = {"replay": self.server.lab.cancel_replay(session_id, owner),
                       "session": self.server.lab.peek_session(session_id, owner)}
+        elif action.startswith("playbacks/"):
+            raise LiveError("playback_scope", "Unverified action playback is not available in durable shared sessions", 409)
         elif action == "repair":
             raise LiveError("unsupported_operation", "Shared repair requires protected project policy", 403)
         else:
@@ -967,6 +969,21 @@ class Handler(BaseHTTPRequestHandler):
                           "invalid_argument", "Invalid repair request", 400)
                     result = {"job": self.server.repairs.submit(
                         sid, owner, controller, epoch, body["recordingId"], body["requestId"])}
+                elif action == "playbacks/plan":
+                    check(set(body) == {"controllerId", "epoch", "recordingId", "variables", "frameId", "geometryVersion"},
+                          "invalid_argument", "Invalid action plan request", 400)
+                    result = {"plan": lab.plan_playback(sid, owner, controller, epoch,
+                        body["recordingId"], body["variables"], body["frameId"], body["geometryVersion"]),
+                        "session": lab.get_session(sid, owner)}
+                elif action == "playbacks/confirm":
+                    check(set(body) == {"controllerId", "epoch", "token", "acknowledgeUnknownStart", "frameId", "geometryVersion"},
+                          "invalid_argument", "Invalid action plan confirmation", 400)
+                    result = {"playback": lab.confirm_playback(sid, owner, controller, epoch,
+                        body["token"], body["acknowledgeUnknownStart"], body["frameId"], body["geometryVersion"]),
+                        "session": lab.get_session(sid, owner)}
+                elif action == "playbacks/cancel":
+                    check(not body, "invalid_argument", "Cancel expects an empty object", 400)
+                    result = {"playback": lab.cancel_playback(sid, owner), "session": lab.get_session(sid, owner)}
                 elif action == "replay":
                     result = {"replay": lab.start_replay(
                         sid, owner, controller, epoch, body.get("recordingId"), body.get("variables")),
