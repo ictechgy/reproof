@@ -9,6 +9,7 @@ apply(plugin = "org.jetbrains.kotlin.android")
 
 android {
     namespace = "io.reproof.sdk"
+    sourceSets.getByName("main").java.srcDir("../native-common/src/main/java/io/reproof/fixture")
     compileSdk = 35
 
     defaultConfig {

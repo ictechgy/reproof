@@ -36,7 +36,12 @@ private data class Profile(val general: Boolean = true, val observations: Set<St
  val applicationId = "inventory_app"
  val componentName = "com.example.inventory/.MainActivity"
 }
+private class ApprovedLaunch(val digest: String = "a".repeat(64), val shellArguments: String = "")
+private class AppOwnedFixture
+private class FixtureClient { fun status() = JSONObject() }
 private data class Config(val profile: Profile = Profile()) {
+ val approvedLaunch: ApprovedLaunch? = null
+ val appOwnedFixture: AppOwnedFixture? = null
  val profileDigest = "b".repeat(64)
  val targetPackage = "com.example.inventory"
  val protocolVersion: Int? = 2
@@ -55,6 +60,7 @@ private class ReadinessProbe(val config: Config) {
 private class Probe {
  var config: Config? = Config()
  private val server: Server? = Server()
+ private val appOwnedFixtureClient: FixtureClient? = null
  private val nativeIncarnation = "native"
  private val inputLock = Any()
  private val captureLock = Any()
@@ -136,6 +142,7 @@ class JSONObject {
  private val values = linkedMapOf<String, Any?>()
  fun put(key: String, value: Any?): JSONObject { values[key] = value; return this }
  fun opt(key: String): Any? = values[key]
+ fun get(key: String): Any = values[key] ?: error("missing")
  fun optString(key: String): String = values[key] as? String ?: ""
  fun has(key: String) = values.containsKey(key)
  fun keys() = values.keys.iterator()

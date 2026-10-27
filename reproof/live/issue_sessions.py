@@ -126,6 +126,42 @@ class IssueSessionService:
             result.append(FixturePreparation(plan, payload))
         return tuple(result)
 
+    def start_android_prepared_recording(self, *, device_id, owner, controller_id,
+                                         registration, application_id, build_id,
+                                         preparation, configuration, frame_sink=None,
+                                         authority_grant=None, cancellation=None,
+                                         timeout_seconds=30, effect_authorizer=None,
+                                         issue_id=None, session_id=None, recording_id=None):
+        """Opt-in Debug Android preparation, independent of v1 numeric repair.
+
+        ``preparation`` uses a registered AndroidFixtureAdapter. Its empty
+        payload and exact prepare/check/cleanup recipes remain G0 contracts.
+        Neither JSON imports nor ordinary Live reset can create this context.
+        """
+        from .android_preparation import (AndroidPreparation, AndroidFixtureAdapter,
+                                          android_fixture_endpoint)
+        checked=self._checked_preparations((preparation,),registration,application_id)
+        item=checked[0]
+        _require(type(item.plan.adapter) is AndroidFixtureAdapter
+                 and type(item.payload) is dict and item.payload == {}, 'trusted_fixture')
+        recipes={item['id']:item for item in registration.project['fixtures']}
+        contract=android_fixture_endpoint(configuration)
+        _require(all(recipes[identifier]['endpointId'] == contract for identifier in
+                     (item.plan.fixture_id,*item.plan.check_recipe_ids,item.plan.cleanup_recipe_id)),
+                 'fixture_binding','Android fixture recipe contract differs')
+        issue_id=issue_id or 'issue_'+uuid.uuid4().hex
+        cancel=cancellation or threading.Event()
+        context=AndroidPreparation(self.fixtures,item.plan,registration=registration,configuration=configuration,
+            issue_id=issue_id,timeout_seconds=timeout_seconds,cancellation=cancel,
+            effect_authorizer=effect_authorizer)
+        return self.start_prepared_recording(
+            device_id=device_id,owner=owner,controller_id=controller_id,
+            registration=registration,application_id=application_id,build_id=build_id,
+            preparations=checked,frame_sink=frame_sink,authority_grant=authority_grant,
+            cancellation=cancel,timeout_seconds=timeout_seconds,effect_authorizer=effect_authorizer,
+            issue_id=issue_id,session_id=session_id or uuid.uuid4().hex,
+            recording_id=recording_id,_android_preparation=context)
+
     def start_prepared_recording(self, *, device_id, owner, controller_id,
                                  registration, application_id, build_id,
                                  preparations, frame_sink=None,
@@ -134,8 +170,28 @@ class IssueSessionService:
                                  issue_id=None, session_id=None, recording_id=None,candidate_binding=None,
                                  device_scope=None,_candidate_identity=None,
                                  _candidate_profile=None,_provider_factory=None,
-                                 _startup_binding=None):
+                                 _startup_binding=None,_android_preparation=None):
         preparations = self._checked_preparations(preparations, registration, application_id)
+        from .android_preparation import AndroidFixtureAdapter
+        android_plans=[item for item in preparations if type(item.plan.adapter) is AndroidFixtureAdapter]
+        if _android_preparation is None and android_plans:
+            _require(len(preparations)==1 and len(android_plans)==1
+                     and device_scope is None and candidate_binding is None
+                     and _candidate_identity is None and _candidate_profile is None
+                     and _provider_factory is None and _startup_binding is None,
+                     'fixture_binding','Android preparation does not support mixed or candidate scopes')
+            return self.start_android_prepared_recording(
+                device_id=device_id,owner=owner,controller_id=controller_id,
+                registration=registration,application_id=application_id,build_id=build_id,
+                preparation=android_plans[0],configuration=android_plans[0].plan.adapter.configuration,
+                frame_sink=frame_sink,authority_grant=authority_grant,cancellation=cancellation,
+                timeout_seconds=timeout_seconds,effect_authorizer=effect_authorizer,
+                issue_id=issue_id,session_id=session_id,recording_id=recording_id)
+        if _android_preparation is not None:
+            from .android_preparation import AndroidPreparation
+            _require(type(_android_preparation) is AndroidPreparation
+                     and len(preparations)==1 and preparations[0].plan is _android_preparation.plan
+                     and device_scope is None and _startup_binding is None, 'trusted_fixture')
         _require(type(timeout_seconds) in (int,float)
                  and not isinstance(timeout_seconds,bool)
                  and 0<timeout_seconds<=60,"issue_invalid")
@@ -166,6 +222,13 @@ class IssueSessionService:
         with self._lock:
             _require(issue_id not in self._records,"issue_conflict")
             self._persist(record)
+        if _android_preparation is not None:
+            def android_progress(receipts):
+                record['preparation']=copy.deepcopy(receipts)
+                record['fixtures']=[self.fixtures.status(allocation) for _,allocation in allocated]
+                record['updatedAtMs']=int(time.time()*1000)
+                self._persist(record)
+            _android_preparation.on_progress=android_progress
         device_reservation=None;allocated=[];session=None
         try:
             authorize("reservation")
@@ -190,6 +253,9 @@ class IssueSessionService:
                 # preparation can start or its response can be interrupted.
                 record["fixtures"].append(self.fixtures.status(allocation))
                 record["updatedAtMs"]=int(time.time()*1000);self._persist(record)
+                if _android_preparation is not None:
+                    _android_preparation.reserve(allocation)
+                    continue
                 outcome=self.fixtures.prepare(
                     plan,allocation,payload=item.payload,
                     operation_id=_operation(issue_id,plan.fixture_id,"prepare"),
@@ -213,7 +279,8 @@ class IssueSessionService:
                 session_id=session_id,recording_id=recording_id,candidate_binding=candidate_binding,
                 device_scope=device_scope,_candidate_identity=_candidate_identity,
                 _candidate_profile=_candidate_profile,_provider_factory=_provider_factory,
-                _startup_binding=_startup_binding)
+                _startup_binding=_startup_binding,
+                _android_preparation=_android_preparation)
             device_reservation=None
             # Remote and native providers can acknowledge startup before their
             # first frame. Keep preparation closed to QA input until the actual
@@ -239,12 +306,22 @@ class IssueSessionService:
                           recordingId=recording_id,
                           updatedAtMs=int(time.time()*1000))
             active={"handle":handle,"record":record,"registration":registration,
-                    "allocations":allocated,"cancel":cancel,"deviceScope":device_scope}
+                    "allocations":allocated,"cancel":cancel,"deviceScope":device_scope,
+                    "androidPreparation":_android_preparation}
             with self._lock:
                 self._active[issue_id]=active;self._persist(record)
             return handle
         except Exception as error:
             device_ok=True
+            if _android_preparation is not None and session is None and session_id is not None:
+                # create_session can fail after taking reservation ownership.
+                # Recover its exact private ID rather than release the original
+                # reservation ahead of a still-running app preparation.
+                try:
+                    session=self.lab.peek_session(session_id,owner)
+                    device_reservation=None
+                except LiveError:
+                    pass
             if device_reservation is not None:
                 try:
                     released=self.lab.release_device_reservation(device_reservation)
@@ -252,9 +329,14 @@ class IssueSessionService:
                 except Exception:
                     device_ok=False
             if session is not None:
+                if _android_preparation is not None:
+                    record['sessionId']=session['id']
+                    record['recordingId']=session.get('releaseRecordingId')
+                    record['updatedAtMs']=int(time.time()*1000)
+                    self._persist(record)
                 device_ok=self._close_device(session["id"],owner,timeout_seconds) and device_ok
             cleanup=self._cleanup_fixtures(issue_id,allocated,timeout_seconds,
-                                           producer_stopped=device_ok)
+                                           producer_stopped=device_ok,android_preparation=_android_preparation)
             unsafe=(any(item["status"]!="complete" for item in cleanup)
                     or not device_ok)
             record.update(state="quarantined" if unsafe else "failed",
@@ -326,7 +408,7 @@ class IssueSessionService:
                                      cleanup_timeout_seconds,controller,epoch)
         cleanup=self._cleanup_fixtures(
             handle.issue_id,active["allocations"],cleanup_timeout_seconds,
-            producer_stopped=device_ok)
+            producer_stopped=device_ok,android_preparation=active.get("androidPreparation"))
         fixture_ok=all(item["status"]=="complete" for item in cleanup)
         if original_digest is not None:
             for item in cleanup:
@@ -384,10 +466,18 @@ class IssueSessionService:
             finally:
                 completed.set()
         threading.Thread(target=close,name="reproof-issue-cleanup",daemon=True).start()
-        return (completed.wait(timeout_seconds)
-                and result.get("closed",{}).get("state")=="closed")
+        finished=completed.wait(timeout_seconds)
+        if not finished:
+            try:
+                abandoned=self.lab.abandon_android_preparation_cleanup(session_id,owner)
+                if abandoned is False and self.lab.peek_session(session_id,owner)['state']=='closed':
+                    return True
+            except Exception:
+                pass
+        return finished and result.get("closed",{}).get("state")=="closed"
 
-    def _cleanup_fixtures(self, issue_id, allocations, timeout_seconds, *, producer_stopped=True):
+    def _cleanup_fixtures(self, issue_id, allocations, timeout_seconds, *, producer_stopped=True,
+                          android_preparation=None):
         results=[]
         for plan,allocation in reversed(allocations):
             operation_id=_operation(issue_id,plan.fixture_id,"cleanup",
@@ -397,9 +487,18 @@ class IssueSessionService:
                     self.fixtures.retain_for_cleanup(allocation)
                     status="unknown"
                 else:
-                    result=self.fixtures.cleanup(
-                        plan,allocation,operation_id=operation_id,
-                        timeout_seconds=timeout_seconds)
+                    if android_preparation is not None:
+                        _require(android_preparation.plan is plan
+                                 and android_preparation.allocation is allocation
+                                 and android_preparation._state == 'cleaned'
+                                 and type(android_preparation.cleanup_result) is dict
+                                 and android_preparation.cleanup_result.get('operationId') == operation_id,
+                                 'fixture_binding')
+                        result=android_preparation.cleanup_result
+                    else:
+                        result=self.fixtures.cleanup(
+                            plan,allocation,operation_id=operation_id,
+                            timeout_seconds=timeout_seconds)
                     status=("complete" if result["status"]=="complete"
                             and self.fixtures.status(allocation)["state"]=="available"
                             else "failed" if result["status"]=="failed" else "unknown")

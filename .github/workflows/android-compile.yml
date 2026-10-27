@@ -6,12 +6,16 @@ on:
       - 'android/**'
       - 'reproof/instrumentation_templates/android/**'
       - '.github/workflows/android-compile.yml'
+      - 'scripts/check-android-fixture-junit.py'
+      - 'tests/test_android_readiness_junit.py'
   push:
     branches: [main]
     paths:
       - 'android/**'
       - 'reproof/instrumentation_templates/android/**'
       - '.github/workflows/android-compile.yml'
+      - 'scripts/check-android-fixture-junit.py'
+      - 'tests/test_android_readiness_junit.py'
 
 permissions:
   contents: read
@@ -37,3 +41,12 @@ jobs:
       - name: Compile SDK, samples and helper; run pure SDK policy tests
         working-directory: android
         run: ./gradlew --no-daemon --no-build-cache --console=plain :sdk:compileDebugKotlin :sdk:testDebugUnitTest :sample:compileBuggyDebugKotlin :sample:compileFixedDebugKotlin :live:compileDebugKotlin
+      - name: Require non-skipped fixture JVM state-machine evidence
+        run: python3 scripts/check-android-fixture-junit.py android/sdk/build/test-results/testDebugUnitTest
+      - name: Preserve SDK JVM test reports (not device qualification)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-sdk-jvm-results
+          path: android/sdk/build/test-results/testDebugUnitTest/TEST-*.xml
+          if-no-files-found: error

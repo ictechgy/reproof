@@ -1,0 +1,8 @@
+<!-- Example only. Copy into the consuming app's src/debug/AndroidManifest.xml.
+     Never put this component into a release/main manifest. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <service android:name="io.reproof.sdk.ReproofFixtureService"
+            android:exported="true" android:enabled="true" />
+    </application>
+</manifest>

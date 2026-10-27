@@ -16,6 +16,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import io.reproof.nativecommon.NativeAppProfile
+import io.reproof.fixture.FixtureOperation
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
@@ -130,6 +131,9 @@ class LiveInstrumentation : Instrumentation() {
     private var frameId = 0L
     private var screenshotRunning = AtomicBoolean(false)
     private val generalTargetReady = AtomicBoolean(false)
+    private var appOwnedFixtureClient: AppOwnedFixtureClient? = null
+    private var fixtureBootstrapLaunched = false
+    private val fixtureAdmissionClosed = AtomicBoolean(false)
     private val nativeIncarnation = "native_" + UUID.randomUUID().toString().replace("-", "")
     private val effectGrant = ThreadLocal<AuthorityGrant?>()
     @Volatile private var cleanupGrant: AuthorityGrant? = null
@@ -145,6 +149,9 @@ class LiveInstrumentation : Instrumentation() {
         if (liveConfig == null) {
             finish(1, Bundle().apply { putString("error", "invalid_live_config") })
             return
+        }
+        if (liveConfig.appOwnedFixture != null) {
+            appOwnedFixtureClient = AppOwnedFixtureClient(context.applicationContext, liveConfig.appOwnedFixture, liveConfig.targetPackage)
         }
         val ui = getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         automation = ui
@@ -194,7 +201,11 @@ class LiveInstrumentation : Instrumentation() {
             return false to "stale_geometry"
         }
         val selectedProfile = config?.profile
-        if (command.action !in setOf("report_capture") &&
+        if (config?.appOwnedFixture != null && (!generalTargetReady.get() || fixtureAdmissionClosed.get()) &&
+            !command.action.startsWith("fixture_")) {
+            effectGrant.remove(); return false to "target_unavailable"
+        }
+        if (command.action !in setOf("report_capture", "fixture_prepare", "fixture_check", "fixture_cancel", "fixture_cleanup", "fixture_activate") &&
             selectedProfile != null && command.action !in selectedProfile.actions) {
             effectGrant.remove()
             return false to "unsupported_action"
@@ -206,12 +217,13 @@ class LiveInstrumentation : Instrumentation() {
             "text" -> insertText(command.payload)
             "home" -> pressHome()
             "reset" -> resetTarget(command.payload)
-            "launch" -> launchGeneralTarget(command.payload)
+            "launch" -> if (config?.appOwnedFixture != null) false to "unsupported_action" else launchGeneralTarget(command.payload)
             "terminate" -> terminateGeneralTarget(command.payload)
             // This is an authenticated host-only operation. It is intentionally
             // omitted from the advertised action list: the helper clicks the
             // sample's fixed Report resource while retaining UiAutomation.
             "report_capture" -> reportCapture()
+            "fixture_prepare", "fixture_check", "fixture_cancel", "fixture_cleanup", "fixture_activate" -> fixtureCommand(command)
             "pointer" -> rawPointer(command.payload)
             else -> false to "unsupported_action"
         } } catch (_: Throwable) {
@@ -239,6 +251,57 @@ class LiveInstrumentation : Instrumentation() {
         // expiry, and that path can inject ACTION_CANCEL only.
         return binding && (SystemClock.elapsedRealtime() < grant.nativeDeadlineMs ||
             (cleanupOnly && current == null))
+    }
+
+    private fun fixtureGrantValid(grant: AuthorityGrant): Boolean {
+        val selected = config ?: return false
+        return screenshotRunning.get() && grant.protocolVersion == NATIVE_PROTOCOL_VERSION &&
+            grant.helperIncarnation == selected.helperIncarnation && grant.hostIncarnation == selected.hostIncarnation &&
+            grant.providerIncarnation == selected.providerIncarnation && grant.nativeIncarnation == nativeIncarnation &&
+            grant.nativeClockId == NATIVE_CLOCK_ID && SystemClock.elapsedRealtime() < grant.nativeDeadlineMs
+    }
+
+    private fun fixtureCommand(command: LiveCommand): Pair<Boolean, String?> {
+        val liveConfig = config ?: return false to "invalid_config"
+        val client = appOwnedFixtureClient ?: return false to "unsupported_action"
+        val grant = command.authority ?: return false to "authority_expired"
+        val timeout = command.payload.opt("timeoutMs") as? Int ?: return false to "invalid_config"
+        if (timeout !in 1..60_000 || !fixtureGrantValid(grant)) return false to "authority_expired"
+        val challenge = try { parseChallenge(command.payload.getJSONObject("challenge")) } catch (_: Throwable) { return false to "invalid_config" }
+        if (challenge.sessionId != grant.sessionId || challenge.hostIncarnation != grant.hostIncarnation ||
+            challenge.helperIncarnation != grant.helperIncarnation || challenge.providerIncarnation != grant.providerIncarnation ||
+            challenge.ownershipGeneration != grant.ownershipGeneration.toLong() || challenge.applicationId != liveConfig.profile.applicationId ||
+            liveConfig.appOwnedFixture?.matches(challenge) != true) return false to "invalid_config"
+        val authorized = { fixtureGrantValid(grant) }
+        if (command.action == "fixture_prepare" && !fixtureBootstrapLaunched) {
+            if (!client.identityValid()) return false to "target_unavailable"
+            val launched = launchGeneralTarget(JSONObject().put("applicationId", liveConfig.profile.applicationId))
+            if (!launched.first) return launched
+            fixtureBootstrapLaunched = true
+        }
+        if (command.action == "fixture_activate") {
+            if (!client.activate(command.payload, authorized) || !targetAppVisible()) return false to "target_unavailable"
+            synchronized(captureLock) { generalTargetReady.set(true) }
+            if (!captureFrame()) { synchronized(captureLock) { generalTargetReady.set(false) }; return false to "frame_capture_failed" }
+            return true to null
+        }
+        if (command.action == "fixture_cancel") {
+            // A serialized, irreversible native input barrier precedes app-owned cleanup.
+            fixtureAdmissionClosed.set(true)
+            synchronized(captureLock) { generalTargetReady.set(false) }
+            synchronized(inputLock) { if (!cancelPointersUnsafe()) { cleanupFailed = true; return false to "cancel_failed" } }
+            if (!fixtureGrantValid(grant)) return false to "authority_expired"
+        }
+        if (command.action == "fixture_cleanup" && !fixtureAdmissionClosed.get()) return false to "invalid_config"
+        val phase = when (command.action) {
+            "fixture_prepare" -> FixtureOperation.PREPARE
+            "fixture_check" -> FixtureOperation.CHECK
+            "fixture_cancel" -> FixtureOperation.CANCEL
+            "fixture_cleanup" -> FixtureOperation.CLEANUP
+            else -> return false to "unsupported_action"
+        }
+        val deadline = minOf(grant.nativeDeadlineMs, SystemClock.elapsedRealtime() + timeout)
+        return if (client.accept(phase, command.payload, deadline, authorized)) true to null else false to "invalid_config"
     }
 
     private fun targetAppVisible(): Boolean = try {
@@ -481,6 +544,7 @@ class LiveInstrumentation : Instrumentation() {
         while (SystemClock.uptimeMillis() < deadline) {
             if (targetAppVisible()) {
                 if (!effectAuthorized()) return false to "authority_expired"
+                if (liveConfig.appOwnedFixture != null) return true to null
                 synchronized(captureLock) { generalTargetReady.set(true) }
                 if (captureFrame()) return true to null
                 synchronized(captureLock) { generalTargetReady.set(false) }
@@ -629,6 +693,7 @@ class LiveInstrumentation : Instrumentation() {
         put("targetPackage", liveConfig?.targetPackage ?: JSONObject.NULL)
         put("generalProfile", liveConfig?.profile?.general == true)
         put("launchConfigurationDigest", liveConfig?.approvedLaunch?.digest ?: JSONObject.NULL)
+        appOwnedFixtureClient?.status()?.let { snapshot -> snapshot.keys().forEach { key -> put(key, snapshot.get(key)) } }
         if (liveConfig?.protocolVersion != null) {
             put("protocolVersion", NATIVE_PROTOCOL_VERSION)
             put("helperVersion", HELPER_VERSION)
@@ -640,6 +705,7 @@ class LiveInstrumentation : Instrumentation() {
             put("nativeTimeMs", SystemClock.elapsedRealtime())
         }
         put("capabilities", JSONObject().apply {
+            if (liveConfig?.appOwnedFixture != null) put("appOwnedFixtureVersion", 1)
             put("actions", org.json.JSONArray(liveConfig?.profile?.actions?.toList() ?: emptyList<String>()))
             put("inputMode", "continuous-pointer")
             put("maxPointers", 5)
@@ -661,6 +727,8 @@ class LiveInstrumentation : Instrumentation() {
         // remain one snapshot throughout the bounded accessibility traversal.
         val result = statusSnapshot()
         return synchronized(captureLock) {
+            if (config?.appOwnedFixture != null && !generalTargetReady.get())
+                return@synchronized result.put("ready", false).put("nodes", org.json.JSONArray())
             val profile = config?.profile
                 ?: return@synchronized result.put("ready", false).put("nodes", org.json.JSONArray())
             val observedGeometry = geometryVersion
@@ -761,6 +829,7 @@ class LiveInstrumentation : Instrumentation() {
     private fun cleanupAndFinish() {
         synchronized(inputLock) { if (!cancelPointersUnsafe()) cleanupFailed = true }
         screenshotRunning.set(false)
+        appOwnedFixtureClient?.close()
         watchdogExecutor.shutdownNow()
         screenshotExecutor.shutdownNow()
         server?.shutdown()
@@ -803,6 +872,7 @@ class LiveInstrumentation : Instrumentation() {
         val hostIncarnation: String?,
         val providerIncarnation: String?,
         val approvedLaunch: ApprovedLaunch?,
+        val appOwnedFixture: AppOwnedFixture?,
     ) {
         companion object {
             fun read(context: Context): LiveConfig? {
@@ -816,7 +886,7 @@ class LiveInstrumentation : Instrumentation() {
                     // fields; SDK capture remains opt-in.
                     val required = setOf("token", "port", "targetPackage", "maxFps", "maxWidth")
                     val authorityFields = setOf("protocolVersion", "helperVersion", "helperIncarnation", "hostIncarnation", "providerIncarnation")
-                    val expected = required + setOf("recordSdk", "appProfile", "profileDigest", "approvedLaunch") + authorityFields
+                    val expected = required + setOf("recordSdk", "appProfile", "profileDigest", "approvedLaunch", "appOwnedFixture") + authorityFields
                     val keys = objectValue.keys().asSequence().toSet()
                     if (!keys.containsAll(required) || !keys.all { it in expected }) return null
                     val token = objectValue.getString("token")
@@ -840,6 +910,11 @@ class LiveInstrumentation : Instrumentation() {
                         if (!profile.general) return null
                         ApprovedLaunch.parse(objectValue.opt("approvedLaunch") as? JSONObject ?: return null, profileDigest) ?: return null
                     } else null
+                    val appOwnedFixture = if (objectValue.has("appOwnedFixture")) {
+                        if (!profile.general || "logs" in profile.observations) return null
+                        AppOwnedFixture.parse(objectValue.opt("appOwnedFixture") as? JSONObject ?: return null,
+                            profileDigest, approvedLaunch?.digest) ?: return null
+                    } else null
                     val hasAuthority = authorityFields.all { objectValue.has(it) }
                     if (authorityFields.any { objectValue.has(it) } != hasAuthority) return null
                     val protocolVersion = if (hasAuthority) exactInt(objectValue, "protocolVersion") ?: return null else null
@@ -847,6 +922,7 @@ class LiveInstrumentation : Instrumentation() {
                     val helperIncarnation = if (hasAuthority) objectValue.getString("helperIncarnation") else null
                     val hostIncarnation = if (hasAuthority) objectValue.getString("hostIncarnation") else null
                     val providerIncarnation = if (hasAuthority) objectValue.getString("providerIncarnation") else null
+                    if (appOwnedFixture != null && !hasAuthority) return null
                     val idPattern = Regex("[a-z][a-z0-9_-]{0,63}")
                     if (token.isEmpty() || token.length > 512 || port !in 1..65535 ||
                         targetPackage != profile.packageName ||
@@ -856,7 +932,7 @@ class LiveInstrumentation : Instrumentation() {
                             helperIncarnation?.matches(idPattern) != true || hostIncarnation?.matches(idPattern) != true ||
                             providerIncarnation?.matches(idPattern) != true))) null
                     else LiveConfig(token, port, targetPackage, maxFps, maxWidth, recordSdk, profile, profileDigest,
-                        protocolVersion, helperVersion, helperIncarnation, hostIncarnation, providerIncarnation, approvedLaunch)
+                        protocolVersion, helperVersion, helperIncarnation, hostIncarnation, providerIncarnation, approvedLaunch, appOwnedFixture)
                 } catch (_: Throwable) { null }
             }
         }

@@ -62,6 +62,15 @@ cleanup can release its slot. A timed-out close or unreturned input leaves
 device cleanup unknown and retains fixture exclusion. Confirming device cleanup
 does not release an uncertain fixture. Every domain keeps its own outcome.
 
+## Opt-in Android Debug application fixtures
+
+General Android runtime profiles can use the separate [app-owned fixture SDK
+composition](ANDROID-APP-OWNED-FIXTURES.md), without v1 numeric oracle/edit fields.
+It retains shared native authority, gates recorder/media/input until fresh app
+prepare/check acknowledgments, and supports fresh same-build scenario replay.
+This Android-only path is not device-runtime qualified; ordinary unverified
+playback remains available without app integration.
+
 ## Fixture durability and recovery
 
 `FixtureCoordinator` journals an operation before dispatch. Its idempotency key

@@ -152,12 +152,14 @@ class AndroidLogicContractTests(unittest.TestCase):
         _, frozen = demo._load_source(ROOT)
         entries = dict(frozen.entries)
         distributed = json.loads((ROOT / 'distribution-resources.json').read_text())['files']
-        for path in (ROOT / 'android/live/src/main').rglob('*'):
-            if path.is_file() and path.suffix in ('.kt', '.java', '.xml'):
-                relative = path.relative_to(ROOT).as_posix()
-                with self.subTest(path=relative):
-                    self.assertIn(relative, entries)
-                    self.assertIn(relative, distributed)
+        for source_root in ('android/live/src/main', 'android/native-common/src/main',
+                            'android/sdk/src/main', 'android/sdk/src/test'):
+            for path in (ROOT / source_root).rglob('*'):
+                if path.is_file() and path.suffix in ('.kt', '.java', '.xml'):
+                    relative = path.relative_to(ROOT).as_posix()
+                    with self.subTest(path=relative):
+                        self.assertIn(relative, entries)
+                        self.assertIn(relative, distributed)
 
     def test_all_build_and_oracle_inputs_protected(self):
         source, frozen = demo._load_source(ROOT)
@@ -179,7 +181,12 @@ class AndroidLogicContractTests(unittest.TestCase):
         _, frozen = demo._load_source(ROOT)
         for target in (demo.PRODUCT, demo.CALLSITE, demo.ORACLE, 'android/sample/build.gradle.kts', demo.RECIPE, demo.PIN_FILE,
                        'android/live/src/main/java/io/reproof/live/ApprovedLaunch.kt',
-                       'android/live/src/main/java/io/reproof/live/LiveInstrumentation.kt'):
+                       'android/live/src/main/java/io/reproof/live/LiveInstrumentation.kt',
+                       'android/live/src/main/java/io/reproof/live/AppOwnedFixture.kt',
+                       'android/native-common/src/main/java/io/reproof/fixture/FixtureIdentity.kt',
+                       'android/native-common/src/main/java/io/reproof/fixture/FixtureWire.kt',
+                       'android/sdk/src/main/java/io/reproof/sdk/FixtureExecution.kt',
+                       'android/sdk/src/main/java/io/reproof/sdk/ReproofFixtures.kt'):
             with self.subTest(target=target), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 entries = frozen.entries + ((demo.PIN_FILE, (ROOT/demo.PIN_FILE).read_bytes()),)
