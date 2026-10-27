@@ -386,7 +386,25 @@ class SnapshotTests(unittest.TestCase):
             finally:destination.close()
 
     def test_reused_directory_identity_never_authorizes_mutation(self):
-        with patch.object(implementation, '_identity', return_value=(7, 11)):
+        # A retained directory FD prevents inode reuse, but APFS can still
+        # report nlink=2 after rmdir. Prove rejection from real bound/live
+        # identity, even with nonzero nlink and no useful metadata changes.
+        import stat
+        real_stamp, real_fstat = implementation._stamp, os.fstat
+        old_directory = None
+        class LinkedDirectory:
+            st_nlink = 2
+            def __init__(self, info):self.info = info
+            def __getattr__(self, name):return getattr(self.info, name)
+        def fstat(fd):
+            info = real_fstat(fd)
+            return LinkedDirectory(info) if fd == old_directory else info
+        def identity_only_directory_stamp(info):
+            if stat.S_ISDIR(info.st_mode):
+                return (implementation._identity(info), stat.S_IFDIR, 2, 0, 0, 0)
+            return real_stamp(info)
+        with patch.object(implementation, '_stamp', side_effect=identity_only_directory_stamp), \
+                patch.object(implementation.os, 'fstat', side_effect=fstat):
             destination = implementation._Output(self.output)
             try:
                 with destination.create('folder/file.txt') as writer:writer.write(b'original')
@@ -395,8 +413,9 @@ class SnapshotTests(unittest.TestCase):
                 (self.output/'folder').rmdir()
                 (self.output/'folder').mkdir()
                 (self.output/'folder/foreign.txt').write_bytes(b'preserve')
-                destination.root_stamp = implementation._stamp(os.fstat(destination.fd))
-                self.assertEqual(os.fstat(old_directory).st_nlink, 0)
+                self.assertNotEqual(implementation._identity(real_fstat(old_directory)),
+                                    implementation._identity((self.output/'folder').stat()))
+                self.assertEqual(os.fstat(old_directory).st_nlink, 2)
                 with self.assertRaises(SnapshotError):destination.create('folder/new.txt')
                 self.assertFalse(destination.rollback())
                 self.assertEqual((self.output/'folder/foreign.txt').read_bytes(), b'preserve')
