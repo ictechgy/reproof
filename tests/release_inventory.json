@@ -1558,7 +1558,8 @@
             "unittest",
             "tests.test_source_snapshot",
             "tests.test_source_snapshot_cli",
-            "tests.test_source_snapshot_metadata"
+            "tests.test_source_snapshot_metadata",
+            "tests.test_source_snapshot_ownership"
           ],
           "environment": "local-python-standard-library",
           "effects": [
@@ -1599,7 +1600,8 @@
             "unittest",
             "tests.test_source_snapshot",
             "tests.test_source_snapshot_cli",
-            "tests.test_source_snapshot_metadata"
+            "tests.test_source_snapshot_metadata",
+            "tests.test_source_snapshot_ownership"
           ],
           "environment": "local-python-standard-library",
           "effects": [

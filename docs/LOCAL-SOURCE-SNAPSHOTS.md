@@ -96,13 +96,35 @@ preserved. This is an inert byte snapshot, not an arbitrary filesystem backup.
 
 ## Failure and cancellation
 
-Normal failure, byte-limit overflow and cancellation roll back only newly created
-owned output. Preexisting output is never overwritten. Cleanup uses pinned
-directories and ownership records, not recursive deletion of a caller-supplied
-path. If a concurrent replacement or foreign entry prevents safe cleanup, it is
-preserved and the error reports `cleanupIncomplete: true`. Do not mistake this
-for successful rollback: inspect the owned destination before retrying with a
-new name. No unknown path is automatically removed to make a retry work.
+Rollback is **best effort**, including ordinary failure, byte-limit overflow and
+cancellation. Preexisting output is never overwritten. Cleanup requires live
+file-descriptor ownership pins for the entry and its directory ancestors, plus
+unchanged completed-file metadata. A saved device/inode number is not ownership:
+filesystems can reuse inode numbers after a file is removed.
+
+The tool retains at most 32 recent file pins and the active directory prefix
+(up to 32 directories, in addition to the output root/parent). After leaving a
+subtree, it never reenters that unpinned prefix for writes. Evicted pins are not
+reacquired as cleanup authority. These bounds allow large successful operations
+without retaining tens of thousands of descriptors, but **even ordinary failures
+can leave newly created output behind**. Verification of completed/unpinned files
+is content verification only, not authority to delete them. Capture leaves the
+`data/` prefix to write the root manifest, so a failure at that late stage may
+retain source data even for a one-file snapshot.
+
+Changed files—including same-inode edits—foreign entries and entries lacking live
+ownership proof are preserved. The error reports `cleanupIncomplete: true` when
+safe cleanup cannot finish. Do not mistake this for successful rollback: inspect
+the destination and residual local source data before retrying with a new name.
+No unknown path is automatically removed to make a retry work. There is no
+recursive deletion of a caller-supplied path based on stored inode numbers.
+
+The pin bound is not the total process-descriptor bound: bounded directory scans,
+source reads and runtime descriptors add overhead. Deep trees can safely fail
+under very low process limits (for example 96 descriptors); the tool does not
+raise limits or close unrelated descriptors to force success. Synthetic child
+tests cover success at 256, controlled failure at 96, and descriptor counts
+returning to baseline in both cases.
 
 The Python API also accepts a cancellation event (`is_set()`); CLI interruption
 is reported as cancelled after safe cleanup, or cleanup-incomplete when that is

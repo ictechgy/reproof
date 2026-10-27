@@ -208,20 +208,62 @@ def _require_separate(root, output_parent_fd):
         os.close(current)
 
 
-class _Output:
-    """Fresh output with a pinned root and an inode ledger for failure cleanup.
+@dataclass(slots=True)
+class _FilePin:
+    fd: int
+    stamp: tuple | None = None
 
-    Detected replacements/foreign entries are preserved. This is not a sandbox
-    against a malicious process with the same UID racing every filesystem call.
+
+@dataclass(slots=True)
+class _DirectoryPin:
+    path: str
+    fd: int
+    stamp: tuple
+
+
+class _OwnedWriter:
+    """Seal a completed writer while a separate live descriptor pins its inode."""
+    def __init__(self, owner, path, stream, pin):
+        self.owner, self.path, self.stream, self.pin = owner, path, stream, pin
+
+    def __enter__(self):
+        return self.stream
+
+    def __exit__(self, kind, value, traceback):
+        try:
+            self.stream.close()
+        finally:
+            try:
+                self.owner._seal_file(self.path, self.pin)
+            finally:
+                self.owner.writer_active = False
+        return False
+
+
+class _Output:
+    """Fresh output with bounded *live* cleanup ownership, not an inode ledger.
+
+    At most 32 recently written files and the active directory prefix are pinned.
+    Evicted files and closed directories are never reacquired for mutation or
+    cleanup. Missing proof means preserved output and cleanupIncomplete, even on
+    an otherwise ordinary failure. This is not a same-UID adversarial sandbox.
     """
+    FILE_PIN_LIMIT = 32
+
     def __init__(self, path, *, source_root=None):
         self.path = Path(path).absolute()
         _require(self.path.name not in ('', '.', '..'), 'snapshot_output_invalid')
         self.parent = open_directory(self.path.parent)
         self.fd = None
-        self.ledger = []
-        self.created = {}
         self.identity = None
+        self.root_stamp = None
+        self.directories = []
+        self.file_pins = {}
+        self.created_directories = set()
+        self.created_files = set()
+        self.retired_directories = set()
+        self.retired_files = set()
+        self.writer_active = False
         created_root = False
         try:
             if source_root is not None:
@@ -232,7 +274,10 @@ class _Output:
             self.identity = _identity(info)
             self.fd = os.open(self.path.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                               dir_fd=self.parent)
-            _require(_identity(os.fstat(self.fd)) == self.identity, 'snapshot_output_changed')
+            live = os.fstat(self.fd)
+            _require(_identity(live) == self.identity and live.st_nlink > 0,
+                     'snapshot_output_changed')
+            self.root_stamp = _stamp(live)
         except BaseException as error:
             if self.fd is not None:
                 os.close(self.fd)
@@ -242,8 +287,10 @@ class _Output:
             raise
 
     def current(self):
+        live = os.fstat(self.fd)
         info = os.stat(self.path.name, dir_fd=self.parent, follow_symlinks=False)
-        _require(stat.S_ISDIR(info.st_mode) and _identity(info) == self.identity,
+        _require(stat.S_ISDIR(live.st_mode) and live.st_nlink > 0
+                 and _stamp(live) == self.root_stamp and _stamp(info) == self.root_stamp,
                  'snapshot_output_changed')
         current = open_directory(self.path.parent)
         try:
@@ -252,73 +299,177 @@ class _Output:
         finally:
             os.close(current)
 
+    def _check_chain(self):
+        self.current()
+        parent = self.fd
+        for entry in self.directories:
+            live = os.fstat(entry.fd)
+            bound = os.stat(entry.path.rsplit('/', 1)[-1], dir_fd=parent, follow_symlinks=False)
+            _require(stat.S_ISDIR(live.st_mode) and live.st_nlink > 0
+                     and _stamp(live) == entry.stamp and _stamp(bound) == entry.stamp,
+                     'snapshot_output_changed')
+            parent = entry.fd
+
+    def _parent_pin(self, path):
+        parent_path = path.rpartition('/')[0]
+        if not parent_path:
+            return self.fd
+        for entry in self.directories:
+            if entry.path == parent_path:
+                return entry.fd
+        raise SnapshotError('snapshot_output_unpinned')
+
+    def _refresh_parent(self, path):
+        parent_path = path.rpartition('/')[0]
+        if not parent_path:
+            self.root_stamp = _stamp(os.fstat(self.fd))
+            return
+        for entry in self.directories:
+            if entry.path == parent_path:
+                entry.stamp = _stamp(os.fstat(entry.fd))
+                return
+        raise SnapshotError('snapshot_output_unpinned')
+
+    def _retire_file(self, path):
+        pin = self.file_pins.pop(path)
+        self.retired_files.add(path)
+        os.close(pin.fd)
+
+    def _retire_directory(self):
+        entry = self.directories.pop()
+        for path in list(self.file_pins):
+            if path.startswith(entry.path + '/'):
+                self._retire_file(path)
+        self.retired_directories.add(entry.path)
+        os.close(entry.fd)
+
+    def _file_current(self, path, pin, *, sealed=True):
+        self._check_chain()
+        _require(self.file_pins.get(path) is pin, 'snapshot_output_unpinned')
+        parent = self._parent_pin(path)
+        live = os.fstat(pin.fd)
+        bound = os.stat(path.rsplit('/', 1)[-1], dir_fd=parent, follow_symlinks=False)
+        _require(stat.S_ISREG(live.st_mode) and live.st_nlink == 1
+                 and _stamp(bound) == _stamp(live), 'snapshot_output_changed')
+        if sealed:
+            _require(pin.stamp is not None and _stamp(live) == pin.stamp,
+                     'snapshot_output_changed')
+        return live
+
+    def _seal_file(self, path, pin):
+        pin.stamp = _stamp(self._file_current(path, pin, sealed=False))
+
+    def validate_pins(self):
+        self._check_chain()
+        for path, pin in self.file_pins.items():
+            self._file_current(path, pin)
+
     def create(self, relative):
-        current = os.dup(self.fd)
-        prefix = []
-        try:
-            for part in relative.split('/')[:-1]:
-                prefix.append(part)
-                path = '/'.join(prefix)
-                try:
-                    os.mkdir(part, mode=0o700, dir_fd=current)
-                    info = os.stat(part, dir_fd=current, follow_symlinks=False)
-                    self.ledger.append((path, _identity(info), True))
-                    self.created[path] = (_identity(info), True)
-                except FileExistsError:
-                    info = os.stat(part, dir_fd=current, follow_symlinks=False)
-                    _require(self.created.get(path) == (_identity(info), True),
-                             'snapshot_output_changed')
-                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
-                try:
-                    _require(_identity(os.fstat(child)) == _identity(info), 'snapshot_output_changed')
-                except BaseException:
-                    os.close(child)
-                    raise
-                os.close(current)
-                current = child
-            name = relative.split('/')[-1]
-            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                         0o600, dir_fd=current)
+        _require(not self.writer_active and relative not in self.created_files,
+                 'snapshot_output_changed')
+        self._check_chain()
+        parts = relative.split('/')[:-1]
+        prefixes = ['/'.join(parts[:i]) for i in range(1, len(parts) + 1)]
+        _require(len(prefixes) <= MAX_DEPTH, 'snapshot_output_changed')
+        common = 0
+        while (common < len(prefixes) and common < len(self.directories)
+               and self.directories[common].path == prefixes[common]):
+            common += 1
+        while len(self.directories) > common:
+            self._retire_directory()
+        for path in prefixes[common:]:
+            self._check_chain()
+            _require(path not in self.created_directories, 'snapshot_output_unpinned')
+            parent = self._parent_pin(path)
+            name = path.rsplit('/', 1)[-1]
+            os.mkdir(name, mode=0o700, dir_fd=parent)
+            self.created_directories.add(path)
+            child = None
             try:
-                self.ledger.append((relative, _identity(os.fstat(fd)), False))
-                return os.fdopen(fd, 'wb')
+                self._refresh_parent(path)
+                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                live = os.fstat(child)
+                bound = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                _require(stat.S_ISDIR(live.st_mode) and live.st_nlink > 0
+                         and _stamp(live) == _stamp(bound), 'snapshot_output_changed')
+                self.directories.append(_DirectoryPin(path, child, _stamp(live)))
+                child = None
             except BaseException:
-                os.close(fd)
+                self.retired_directories.add(path)
                 raise
-        finally:
-            os.close(current)
+            finally:
+                if child is not None:
+                    os.close(child)
+        self._check_chain()
+        while len(self.file_pins) >= self.FILE_PIN_LIMIT:
+            self._retire_file(next(iter(self.file_pins)))
+        parent = self._parent_pin(relative)
+        name = relative.rsplit('/', 1)[-1]
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                     0o600, dir_fd=parent)
+        self.created_files.add(relative)
+        pin_fd = None
+        try:
+            self._refresh_parent(relative)
+            pin_fd = os.dup(fd)
+            pin = _FilePin(pin_fd)
+            self.file_pins[relative] = pin
+            self._file_current(relative, pin, sealed=False)
+            stream = os.fdopen(fd, 'wb')
+            self.writer_active = True
+            return _OwnedWriter(self, relative, stream, pin)
+        except BaseException:
+            self.file_pins.pop(relative, None)
+            self.retired_files.add(relative)
+            if pin_fd is not None:
+                os.close(pin_fd)
+            os.close(fd)
+            raise
 
     def rollback(self):
-        clean = True
-        for path, identity, directory in reversed(self.ledger):
-            parent = None
+        clean = not (self.retired_files or self.retired_directories or self.writer_active)
+        for path, pin in reversed(list(self.file_pins.items())):
             try:
-                parent = _parent(self.fd, path)
-                name = path.split('/')[-1]
-                info = os.stat(name, dir_fd=parent, follow_symlinks=False)
-                if _identity(info) != identity:
-                    clean = False
-                    continue
-                (os.rmdir if directory else os.unlink)(name, dir_fd=parent)
-            except FileNotFoundError:
+                self._file_current(path, pin)
+                parent = self._parent_pin(path)
+                os.unlink(path.rsplit('/', 1)[-1], dir_fd=parent)
+                self._refresh_parent(path)
+                # Keep the inode alive until after the bound name is removed.
+                os.close(pin.fd)
+                del self.file_pins[path]
+            except (OSError, ArtifactError, SnapshotError):
                 clean = False
-            except (OSError, SnapshotError):
+        while self.directories:
+            entry = self.directories[-1]
+            try:
+                self._check_chain()
+                parent = self._parent_pin(entry.path)
+                os.rmdir(entry.path.rsplit('/', 1)[-1], dir_fd=parent)
+                self._refresh_parent(entry.path)
+                self.directories.pop()
+                os.close(entry.fd)
+            except (OSError, ArtifactError, SnapshotError):
                 clean = False
-            finally:
-                if parent is not None:
-                    os.close(parent)
+                break
         try:
             self.current()
-            if clean:
+            if clean and not self.file_pins and not self.directories:
                 os.rmdir(self.path.name, dir_fd=self.parent)
+            else:
+                clean = False
         except (OSError, ArtifactError, SnapshotError):
             clean = False
         return clean
 
     def close(self):
+        for pin in self.file_pins.values():
+            os.close(pin.fd)
+        self.file_pins.clear()
+        for entry in reversed(self.directories):
+            os.close(entry.fd)
+        self.directories.clear()
         os.close(self.fd)
         os.close(self.parent)
-
 
 def _chunks(value):
     for text in _ENCODER.iterencode(value):
@@ -473,17 +624,9 @@ def _tree(root_fd, names, cancel):
 
 def _validate_output(destination, document, budget, cancel, *, snapshot):
     """Recheck every owned output inode and actual file bytes before success."""
-    for path, identity, directory in destination.ledger:
-        _cancel(cancel)
-        parent = _parent(destination.fd, path)
-        try:
-            info = os.stat(path.split('/')[-1], dir_fd=parent, follow_symlinks=False)
-            _require(_identity(info) == identity
-                     and (stat.S_ISDIR(info.st_mode) if directory else
-                          stat.S_ISREG(info.st_mode) and info.st_nlink == 1),
-                     'snapshot_output_changed')
-        finally:
-            os.close(parent)
+    # Only live retained pins prove cleanup ownership. Retired entries below
+    # are checked as content, never promoted from stored inode numbers.
+    destination.validate_pins()
     names = [item['path'] for item in document['files']]
     if snapshot:
         actual, manifest_stamp = _load(destination, budget)
@@ -502,7 +645,7 @@ def _validate_output(destination, document, budget, cancel, *, snapshot):
                  'snapshot_manifest_changed')
     else:
         _exact_tree(destination.fd, names, cancel)
-    destination.current()
+    destination.validate_pins()
 
 
 def _consume(snapshot, output, budget, cancel):

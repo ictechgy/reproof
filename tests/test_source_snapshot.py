@@ -176,8 +176,10 @@ class SnapshotTests(unittest.TestCase):
                 self.source.rename(self.root/'old-source')
                 self.source.mkdir();(self.source/'main.txt').write_text('foreign')
             return result
-        with patch.object(implementation, '_stream', side_effect=replace):
-            self.assert_clean_error(capture, self.source, ['main.txt'], self.output)
+        with patch.object(implementation, '_stream', side_effect=replace), self.assertRaises(SnapshotError) as error:
+            capture(self.source, ['main.txt'], self.output)
+        self.assertEqual(error.exception.code, 'snapshot_cleanup_incomplete')
+        self.assertTrue(self.output.exists())
         self.assertEqual((self.source/'main.txt').read_text(), 'foreign')
 
     def test_destination_replacement_is_preserved_and_cleanup_uncertain(self):
@@ -233,14 +235,13 @@ class SnapshotTests(unittest.TestCase):
                     return real(*args, **kwargs)
                 with patch.object(implementation, '_manifest', side_effect=mutate), self.assertRaises(SnapshotError) as error:
                     capture(self.source, ['main.txt'], self.output)
+                self.assertEqual(error.exception.code, 'snapshot_cleanup_incomplete')
+                self.assertTrue(self.output.exists())
                 if mutation == 'same-inode':
-                    self.assertFalse(self.output.exists())
-                else:
-                    self.assertEqual(error.exception.code, 'snapshot_cleanup_incomplete')
-                    self.assertTrue(self.output.exists())
-                    # Test-owned synthetic leftovers, never production cleanup logic.
-                    import shutil
-                    shutil.rmtree(self.output)
+                    self.assertEqual((self.output/'data/main.txt').read_bytes(), b'bad!!!')
+                # Test-owned synthetic leftovers, never production cleanup logic.
+                import shutil
+                shutil.rmtree(self.output)
 
     def test_directory_cardinality_is_checked_incrementally(self):
         with patch.object(implementation, 'MAX_DIRECTORIES', 2):
@@ -274,7 +275,8 @@ class SnapshotTests(unittest.TestCase):
                 with self.assertRaises(OSError):destination.create('nested/file.txt')
             self.assertEqual(len(opened), 1)
             with self.assertRaises(OSError):real_fstat(opened[0])
-            self.assertTrue(destination.rollback())
+            self.assertFalse(destination.rollback())
+            self.assertTrue((self.output/'nested').is_dir())
         finally:
             destination.close()
 
@@ -286,8 +288,10 @@ class SnapshotTests(unittest.TestCase):
                 path = self.output/'manifest.json'
                 path.write_bytes(path.read_bytes()+b' ')
             return result
-        with patch.object(implementation, '_stream', side_effect=mutate):
-            self.assert_clean_error(capture, self.source, ['main.txt'], self.output)
+        with patch.object(implementation, '_stream', side_effect=mutate), self.assertRaises(SnapshotError) as error:
+            capture(self.source, ['main.txt'], self.output)
+        self.assertEqual(error.exception.code, 'snapshot_cleanup_incomplete')
+        self.assertTrue((self.output/'manifest.json').exists())
 
     def test_parent_inode_ancestry_rejects_nested_output_even_without_lexical_guard(self):
         nested = self.source/'nested'/'output'
@@ -355,6 +359,150 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(result['files'], 1)
         self.assertEqual(verify(self.output)['files'], 1)
         self.assertFalse((self.output/'data/nested').exists())
+
+    def test_reused_inode_numbers_never_authorize_file_deletion(self):
+        # Model both inode reuse and coarse timestamps. A stat-only ledger
+        # sees a matching replacement; only the still-live old pin has nlink=0.
+        real_identity, real_stamp = implementation._identity, implementation._stamp
+        import stat
+        def identity(info):
+            return (7, 11) if stat.S_ISREG(info.st_mode) else real_identity(info)
+        def coarse(info):
+            return real_stamp(info)[:-2] + (0, 0)
+        with patch.object(implementation, '_identity', side_effect=identity), \
+                patch.object(implementation, '_stamp', side_effect=coarse):
+            destination = implementation._Output(self.output)
+            try:
+                with destination.create('active/file.txt') as writer:writer.write(b'original')
+                old_pin = destination.file_pins['active/file.txt'].fd
+                sealed = destination.file_pins['active/file.txt'].stamp
+                (self.output/'active/file.txt').unlink()
+                (self.output/'active/file.txt').write_bytes(b'foreign!')
+                (self.output/'active/file.txt').chmod(0o600)
+                self.assertEqual(coarse((self.output/'active/file.txt').stat()), sealed)
+                self.assertEqual(os.fstat(old_pin).st_nlink, 0)
+                self.assertFalse(destination.rollback())
+                self.assertEqual((self.output/'active/file.txt').read_bytes(), b'foreign!')
+            finally:destination.close()
+
+    def test_reused_directory_identity_never_authorizes_mutation(self):
+        with patch.object(implementation, '_identity', return_value=(7, 11)):
+            destination = implementation._Output(self.output)
+            try:
+                with destination.create('folder/file.txt') as writer:writer.write(b'original')
+                old_directory = destination.directories[-1].fd
+                (self.output/'folder/file.txt').unlink()
+                (self.output/'folder').rmdir()
+                (self.output/'folder').mkdir()
+                (self.output/'folder/foreign.txt').write_bytes(b'preserve')
+                destination.root_stamp = implementation._stamp(os.fstat(destination.fd))
+                self.assertEqual(os.fstat(old_directory).st_nlink, 0)
+                with self.assertRaises(SnapshotError):destination.create('folder/new.txt')
+                self.assertFalse(destination.rollback())
+                self.assertEqual((self.output/'folder/foreign.txt').read_bytes(), b'preserve')
+                self.assertFalse((self.output/'folder/new.txt').exists())
+            finally:destination.close()
+
+    def test_same_inode_completed_write_changes_are_preserved(self):
+        destination = implementation._Output(self.output)
+        try:
+            with destination.create('file.txt') as writer:writer.write(b'original')
+            (self.output/'file.txt').write_bytes(b'changed contents')
+            self.assertFalse(destination.rollback())
+            self.assertEqual((self.output/'file.txt').read_bytes(), b'changed contents')
+        finally:destination.close()
+
+    def test_file_pin_window_is_bounded_and_evicted_files_are_never_deleted(self):
+        destination = implementation._Output(self.output)
+        live_fds = []
+        try:
+            for index in range(80):
+                with destination.create(f'file-{index:03d}.txt') as writer:
+                    writer.write(b'content')
+                    self.assertLessEqual(len(destination.file_pins), 32)
+                self.assertTrue(all(pin.stamp is not None for pin in destination.file_pins.values()))
+            self.assertEqual(len(destination.file_pins), 32)
+            self.assertEqual(len(destination.retired_files), 48)
+            live_fds = [destination.fd, destination.parent,
+                        *(pin.fd for pin in destination.file_pins.values())]
+            self.assertFalse(destination.rollback())
+            self.assertTrue(all((self.output/f'file-{index:03d}.txt').exists() for index in range(48)))
+            self.assertFalse(any((self.output/f'file-{index:03d}.txt').exists() for index in range(48,80)))
+        finally:destination.close()
+        for fd in live_fds:
+            with self.assertRaises(OSError):os.fstat(fd)
+
+    def test_closed_directory_prefixes_are_not_reopened_for_mutation(self):
+        destination = implementation._Output(self.output)
+        try:
+            with destination.create('a/file.txt') as writer:writer.write(b'one')
+            closed_pin = destination.directories[0].fd
+            with destination.create('b/file.txt') as writer:writer.write(b'two')
+            self.assertIn('a', destination.retired_directories)
+            self.assertNotIn('a/file.txt', destination.file_pins)
+            with self.assertRaises(SnapshotError) as error:destination.create('a/new.txt')
+            self.assertEqual(error.exception.code, 'snapshot_output_unpinned')
+            self.assertFalse((self.output/'a/new.txt').exists())
+            self.assertFalse(destination.rollback())
+            self.assertEqual((self.output/'a/file.txt').read_bytes(), b'one')
+        finally:destination.close()
+
+    def test_active_directory_prefix_pin_count_is_bounded(self):
+        destination = implementation._Output(self.output)
+        try:
+            for index in range(40):
+                path = f'sub-{index:03d}/' + '/'.join(f'level-{depth}' for depth in range(30)) + '/file.txt'
+                with destination.create(path) as writer:
+                    writer.write(b'x')
+                    self.assertLessEqual(len(destination.directories), 32)
+                    self.assertLessEqual(len(destination.file_pins), 32)
+            self.assertFalse(destination.rollback())
+        finally:destination.close()
+
+    def test_materialize_failure_preserves_completed_file_replacement(self):
+        self.create()
+        real = implementation._validate_output
+        def replace(destination, document, budget, cancel, *, snapshot):
+            self.assertFalse(snapshot)
+            path = self.output/'main.txt'
+            path.unlink();path.write_bytes(b'foreign data')
+            return real(destination, document, budget, cancel, snapshot=snapshot)
+        with patch.object(implementation, '_validate_output', side_effect=replace), self.assertRaises(SnapshotError) as error:
+            materialize(self.snapshot, self.output)
+        self.assertEqual(error.exception.code, 'snapshot_cleanup_incomplete')
+        self.assertEqual((self.output/'main.txt').read_bytes(), b'foreign data')
+
+    def test_actual_descriptor_ceiling_and_no_leak_with_maximum_pins(self):
+        real_open, real_dup, real_close, real_fstat = os.open, os.dup, os.close, os.fstat
+        observed = set();peak = 0
+        def note(fd):
+            nonlocal peak
+            observed.add(fd)
+            live = 0
+            for descriptor in tuple(observed):
+                try:real_fstat(descriptor);live += 1
+                except OSError:observed.discard(descriptor)
+            peak = max(peak, live)
+            return fd
+        def opening(*args, **kwargs):return note(real_open(*args, **kwargs))
+        def duplicate(*args, **kwargs):return note(real_dup(*args, **kwargs))
+        def closing(fd):
+            real_close(fd);observed.discard(fd)
+        prefix = '/'.join(f'd{index:02d}' for index in range(31))
+        with patch.object(implementation.os, 'open', side_effect=opening), \
+                patch.object(implementation.os, 'dup', side_effect=duplicate), \
+                patch.object(implementation.os, 'close', side_effect=closing):
+            destination = implementation._Output(self.output)
+            try:
+                for index in range(40):
+                    with destination.create(prefix+f'/file-{index:03d}') as writer:writer.write(b'x')
+                self.assertEqual(len(destination.directories), 31)
+                self.assertEqual(len(destination.file_pins), 32)
+            finally:destination.close()
+        self.assertGreaterEqual(peak, 65)
+        self.assertLessEqual(peak, 2+32+32+8)
+        for fd in observed:
+            with self.assertRaises(OSError):real_fstat(fd)
 
     def test_manifest_is_not_provenance_but_actual_content_is_required(self):
         self.create()
