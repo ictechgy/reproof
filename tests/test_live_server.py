@@ -66,6 +66,33 @@ class HttpTests(unittest.TestCase):
         replay=subprocess.run([sys.executable,'-c',code,'--server',self.server.origin],capture_output=True,timeout=10)
         self.assertEqual(replay.returncode,0,replay.stderr.decode())
         self.assertEqual(self.lab.list_devices()[0]['state'],'available')
+    def test_explicit_unknown_start_action_playback_api(self):
+        self.request('/')
+        s=self.request('/api/sessions',{'deviceId':'demo','clientId':'c'})[1]['session']
+        path='/api/sessions/'+s['id'];control={'controllerId':'c','epoch':s['epoch']}
+        self.assertEqual(self.request(path+'/recordings/start',dict(control,reset=False))[0],200)
+        f=self.request(path+'/frame')[1]
+        command=dict(control,sequence=1,commandId='unverified-tap',frameId=f['id'],
+                     geometryVersion=f['geometryVersion'],action='tap',payload={'x':.5,'y':.5})
+        self.assertEqual(self.request(path+'/input',command)[0],200)
+        r=self.request(path+'/recordings/stop',control)[1]['recording']
+        self.assertFalse(r['replayable'])
+        f=self.request(path+'/frame')[1]
+        status,value=self.request(path+'/playbacks/plan',dict(control,recordingId=r['id'],variables={},
+            frameId=f['id'],geometryVersion=f['geometryVersion']))
+        self.assertEqual(status,200,value);plan=value['plan']
+        self.assertEqual(plan['startingState'],'unknown');self.assertFalse(plan['verified'])
+        self.assertNotIn(plan['token'],json.dumps(self.request(path)[1]))
+        status,value=self.request(path+'/playbacks/confirm',dict(control,token=plan['token'],
+            acknowledgeUnknownStart=True,frameId=f['id'],geometryVersion=f['geometryVersion']))
+        self.assertEqual(status,200,value)
+        self.lab.sessions[s['id']]['playbackThread'].join(3)
+        public=self.request(path)[1]['session']
+        self.assertEqual(public['playback']['state'],'actions_played_unverified')
+        self.assertIsNone(public['replay']);self.assertFalse(public['playback']['verified'])
+        self.assertEqual(self.lab._session(s['id'])['provider'].count,2)
+        self.assertEqual(self.request(path+'/playbacks/cancel',{})[0],200)
+
     def test_empty_recording_and_corrupt_export_rejected(self):
         self.request('/');s=self.request('/api/sessions',{'deviceId':'demo','clientId':'c'})[1]['session']
         path='/api/sessions/'+s['id'];control={'controllerId':'c','epoch':s['epoch']}

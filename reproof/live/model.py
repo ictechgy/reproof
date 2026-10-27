@@ -17,6 +17,7 @@ from ..core import ContractError,digest
 from ..storage import read_json,write_json
 from .authority import ProviderResult, canonical_device_fingerprint
 from .retained_startup import RetainedStartupBinding
+from .action_playback import ActionPlaybackMixin
 
 MAX_VIDEO_SINKS = 32
 
@@ -111,7 +112,7 @@ def validate_gesture(action,payload):
         public_id(payload['applicationId'])
 
 
-class Lab:
+class Lab(ActionPlaybackMixin):
     def __init__(self,devices,output,*,idle_timeout=120,max_session_seconds=900,clock=None,
                  authority=None,parent_grant=None,recording_clock_sync=None,
                  recording_wall_clock_ms=None,delegated_authority_only=False,
@@ -878,6 +879,7 @@ class Lab:
         result={'id':s['id'],'deviceId':s['deviceId'],'state':s['state'],'controllerId':s['controllerId'],
                 'epoch':s['epoch'],'lastSequence':s['lastSequence'],'mode':s['mode'],'recordingId':s.get('recordingId'),
                 'frame':meta,'capabilities':capabilities,
+                'playback':copy.deepcopy(s.get('playback')),
                 'metrics':dict(s['metrics']),'replay':copy.deepcopy(s.get('replay')),'error':s.get('error'),
                 'createdAt':s['createdAt'],'expiresAt':int(time.time()*1000+max(0,min(s['lastActivity']+self.idle_timeout,s['createdMonotonic']+self.max_session_seconds)-self.clock())*1000),
                 'idleTimeoutSeconds':self.idle_timeout,'maxSessionSeconds':self.max_session_seconds,'closeReason':s.get('closeReason'),
@@ -1743,6 +1745,8 @@ class Lab:
             self._authorize_effect(s,'control')
             check(s['state']=='active','session_inactive','Session is not active')
             check(not s.get('stopAdmission',False),'session_inactive','Session is stopping')
+            check(not s.get('playbackThread') or not s['playbackThread'].is_alive(),
+                  'playback_busy','Cancel action playback and wait for it to stop before taking control')
             check(not s['inflightCommands'],'injection_pending',
                   'An input outcome is still pending')
             self._renew(s)
@@ -1752,18 +1756,25 @@ class Lab:
             check(s['state']=='active' and expected_epoch==s['epoch'],
                   'stale_controller','Refresh the control epoch')
             check(not s.get('stopAdmission',False),'session_inactive','Session is stopping')
+            check(not s.get('playbackThread') or not s['playbackThread'].is_alive(),
+                  'playback_busy','Cancel action playback and wait for it to stop before taking control')
             check(not s['inflightCommands'],'injection_pending',
                   'An input outcome is still pending')
+            s.pop('playbackPlan',None)
             s['cancel'].set();self._invalidate_recording(s,'controller_changed')
             s.update(controllerId=client_id,epoch=s['epoch']+1,lastSequence=0,mode=mode)
             self._event(s,'controller_changed',controllerId=client_id,mode=mode)
             return self._public(s)
-    def input(self,sid,owner,command,*,recording_input=None):
+    def input(self,sid,owner,command,*,recording_input=None,_playback_run=None):
         s=self._session(sid,owner)
         with s['lock']:
             check(isinstance(command,dict) and set(command)=={'controllerId','epoch','sequence','commandId','frameId','geometryVersion','action','payload'},
                   'invalid_argument','Invalid input envelope',400)
             self._control(s,command['controllerId'],command['epoch'])
+            check(s['mode']!='playback' or (_playback_run is s.get('playback')
+                  and not s['cancel'].is_set()
+                  and s.get('playbackExecutionBinding')==self._playback_execution_binding(s)),
+                  'playback_cancelled','Action playback was cancelled or its execution scope changed')
             cid=public_id(command['commandId']);fingerprint=digest(command)
             if cid in s['receipts']:
                 old_hash,receipt=s['receipts'][cid];check(old_hash==fingerprint,'idempotency_conflict','Command ID was reused for different input')
@@ -1805,6 +1816,7 @@ class Lab:
                       'Release input requires a parameterized typed input',400)
                 durable_input=self._recording_input_for_dispatch(
                     s,action,command['payload'],recording_frame,recording_input)
+            s.pop('playbackPlan',None)
             s['lastSequence']=seq
             permit=self._prepare_effect(s,action,command['payload'],operation_id=operation_id)
             if recorder is not None:
@@ -1913,6 +1925,8 @@ class Lab:
         if reason:r['replayable']=False;r['reason']=reason
         r['endedAt']=int(time.time()*1000);r['digest']=digest(r)
         write_json(self.output/'recordings'/f'{r["id"]}.json',{'owner':entry['owner'],'recording':r})
+        if r['status']=='complete' and r['events']:
+            entry['actionOrigin']=self._action_origin(r,entry['owner'])
         if r['replayable'] and entry.get('resetContract') is not None:
             entry['replayBinding']=self._recording_binding(r,entry['owner'],entry['resetContract'])
     def _invalidate_recording(self,s,reason):
@@ -1948,7 +1962,7 @@ class Lab:
     def start_recording(self,sid,owner,controller,epoch,reset=False):
         s=self._session(sid,owner)
         with s['lock']:
-            self._control(s,controller,epoch);check(s['mode']!='replay','replay_busy','Stop replay before recording')
+            self._control(s,controller,epoch);check(s['mode'] not in {'replay','playback'},'replay_busy','Stop replay or action playback before recording')
             previous=s.get('recordingId')
             check(not previous or self.recordings[previous]['data']['status']!='recording','recording_busy','Recording already active')
             if reset:
@@ -1956,6 +1970,7 @@ class Lab:
         if reset:self._reset(s)
         with s['lock']:
             self._control(s,controller,epoch)
+            check(s['mode'] not in {'replay','playback'},'replay_busy','Stop automatic actions before recording')
             s.pop('geometryChanged',None)
             s['knownStart']=bool(s['knownStart'] and s.get('knownStartBinding') is not None
                                  and s['knownStartBinding']==self._reset_binding(s))
@@ -2301,6 +2316,7 @@ class Lab:
         s=self._session(sid,owner);variables=variables or {}
         with s['lock']:
             self._control(s,controller,epoch)
+            check(s['mode']!='playback','playback_busy','Stop action playback first')
             check(not s.get('replay') or s['replay']['state'] not in {'running','cancelling'},'replay_busy','Replay already active')
             r=self.recording(rid,owner);check(r['status']=='complete' and r['replayable'],'not_replayable','Recording has no supported starting state')
             check(r.get('applicationIdentity')==self.devices[s['deviceId']]['capabilities'].get('applicationIdentity'),'app_changed','Recorded application differs from the installed app')
@@ -2400,6 +2416,7 @@ class Lab:
             if recorder is not None:
                 try:recorder.stop_barrier(reason='provider_failed')
                 except Exception:pass
+            s.pop('playbackPlan',None)
             s.update(state='failed',error=message,epoch=s['epoch']+1);s['cancel'].set();self._invalidate_recording(s,'provider_failed')
         if recorder is not None:
             try:recorder.freeze()
@@ -2439,6 +2456,7 @@ class Lab:
             if release_recorder is not None:
                 try:release_recorder.stop_barrier(reason='session_closed')
                 except Exception:pass
+            s.pop('playbackPlan',None)
             s['stopAdmission']=True
             authority_bound=s.get('deviceAuthority') is not None
         if release_recorder is not None:

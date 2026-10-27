@@ -1,3 +1,4 @@
+import { PlaybackReview } from "./playback.js";
 import { decodeFramedStream } from "./stream.js";
 import { PointerScheduler } from "./pointer.js";
 
@@ -149,6 +150,36 @@ class ApiError extends Error {
     this.status = status;
     this.code = code;
   }
+}
+
+const playbackReview = new PlaybackReview({
+  context: playbackContext,
+  send: (id, path, body) => request(sessionPath(id, path), { method: "POST", body: JSON.stringify(body) }),
+  changed: () => syncControls(),
+});
+
+function playbackContext() {
+  const s = state.session, r = state.recording;
+  const running = ["running", "cancelling"].includes(s?.playback?.state);
+  return { id: s?.id, controllerId: state.clientId, epoch: s?.epoch, recordingId: r?.id, frame: state.frame, running,
+    key: JSON.stringify([state.selectedDeviceId, s?.id, s?.epoch, s?.controllerId, s?.state, s?.mode, state.sequence, s?.lastSequence, r?.id, r?.digest, state.frame?.geometryVersion]),
+    eligible: s?.state === "active" && isController() && Boolean(state.frame) && r?.status === "complete" && !state.recordingBusy && s?.mode !== "replay" && s?.mode !== "playback" && !running,
+  };
+}
+
+function renderPlayback() {
+  playbackReview.reconcile();
+  const p = playbackReview.plan, c = playbackContext();
+  $("#playback-review").hidden = !p;
+  if (!p || $("#playback-review").dataset.token !== p.token) $("#playback-ack").checked = false;
+  $("#playback-review").dataset.token = p?.token || "";
+  $("#playback-warning").textContent = p?.warning || "";
+  $("#playback-actions").textContent = p ? JSON.stringify(p.actions, null, 2) : "";
+  $("#playback-expiry").textContent = p ? `Expires in ${Math.max(0, Math.ceil((p.deadline - Date.now()) / 1000))} seconds. Review the current live screen before confirming.` : "";
+  $("#playback-state").textContent = playbackReview.error || (playbackReview.busy ? "Request pending — no automatic retry" : p ? "Review required — not executed" : state.session?.playback?.state || "No playback");
+  $("#playback-preview").disabled = !c.eligible || playbackReview.busy || playbackReview.cancelling || Boolean(p);
+  $("#playback-confirm").disabled = !p || playbackReview.busy || playbackReview.cancelling || !$("#playback-ack").checked;
+  $("#playback-cancel").disabled = playbackReview.cancelling || (!p && !c.running && playbackReview.pendingConfirm !== c.id);
 }
 
 function getClientId() {
@@ -328,7 +359,7 @@ function sessionActive() {
 }
 
 function canInteract() {
-  return state.session?.state === "active" && Boolean(state.frame) && isController() && state.session?.mode !== "replay" && state.session?.replay?.state !== "running";
+  return !playbackReview.busy && !playbackReview.cancelling && !playbackReview.plan && state.session?.mode !== "playback" && !["running", "cancelling"].includes(state.session?.playback?.state) && state.session?.state === "active" && Boolean(state.frame) && isController() && state.session?.mode !== "replay" && state.session?.replay?.state !== "running";
 }
 
 function renderSessionSurface() {
@@ -362,9 +393,10 @@ function renderSessionSurface() {
 }
 
 function syncControls() {
+  renderPlayback();
   const interactive = canInteract() && !state.recordingBusy;
   const active = sessionActive();
-  refs.takeControl.disabled = !active || isController() || state.session?.mode === "replay";
+  refs.takeControl.disabled = !active || isController() || state.session?.mode === "replay" || state.session?.mode === "playback" || playbackReview.busy || Boolean(playbackReview.plan);
   refs.takeControl.textContent = state.session?.mode === "replay" ? "Replay in progress" : isController() ? "You have control" : "Take control";
   refs.closeSession.disabled = !active || (!isController() && state.session?.state !== "failed");
   const actions = state.session?.capabilities?.actions || [];
@@ -372,7 +404,8 @@ function syncControls() {
   refs.resetButton.disabled = !interactive || !actions.includes("reset");
   refs.textInput.disabled = !interactive || !actions.includes("text");
   refs.textSubmit.disabled = !interactive || !actions.includes("text");
-  refs.recordStart.lastChild.textContent = actions.includes("reset") ? "Reset & record" : "Record inputs";
+  refs.recordStart.lastChild.textContent = actions.includes("reset") && !$("#record-without-reset").checked ? "Reset & record" : "Record inputs";
+  $("#record-without-reset").disabled = !interactive || state.recording?.status === "recording";
   refs.recordStart.disabled = !interactive || Boolean(state.recording?.status === "recording");
   refs.recordStop.disabled = !interactive || state.recording?.status !== "recording";
   refs.submitRepair.disabled = !interactive || !state.repairEnabled || !state.session?.capabilities?.sdkCapture || state.recording?.status !== "complete" || !state.recording?.replayable;
@@ -421,6 +454,7 @@ async function takeControl() {
 }
 
 async function closeSession() {
+  playbackReview.invalidate();
   if (!state.session || (!isController() && state.session.state !== "failed")) return;
   try {
     const result = await request(sessionPath(state.session.id, "/close"), { method: "POST", body: JSON.stringify({ controllerId: state.clientId, epoch: state.session.epoch }) });
@@ -901,6 +935,7 @@ async function sendText() {
 }
 
 async function startRecording() {
+  if (!canInteract()) return;
   if (!state.session || !isController() || state.recordingBusy) return;
   state.recordingBusy = true;
   syncControls();
@@ -908,12 +943,12 @@ async function startRecording() {
     await cancelContinuousPointers();
     await state.pointerScheduler?.drain();
     await state.inputQueue;
-    const result = await request(sessionPath(state.session.id, "/recordings/start"), { method: "POST", body: JSON.stringify({ controllerId: state.clientId, epoch: state.session.epoch, reset: (state.session.capabilities?.actions || []).includes("reset") }) });
+    const result = await request(sessionPath(state.session.id, "/recordings/start"), { method: "POST", body: JSON.stringify({ controllerId: state.clientId, epoch: state.session.epoch, reset: !$("#record-without-reset").checked && (state.session.capabilities?.actions || []).includes("reset") }) });
     state.recording = result?.recording || result;
     state.replay = null;
     renderRecordingState();
     syncControls();
-    toast((state.session.capabilities?.actions || []).includes("reset") ? "Recording started after app reset." : "Recording started without a replayable reset fixture.");
+    toast(!$("#record-without-reset").checked && (state.session.capabilities?.actions || []).includes("reset") ? "Recording started after app reset." : "Recording started without a replayable reset fixture.");
   } catch (error) { showError(error.message); }
   finally { state.recordingBusy = false; syncControls(); }
 }
@@ -933,7 +968,7 @@ async function stopRecording() {
     await loadRecordings(true);
     renderRecordingState();
     syncControls();
-    toast("Recording stopped and ready to replay.");
+    toast(state.recording?.replayable ? "Recording stopped and ready for trusted replay." : "Recording stopped. Starting state is unknown; action playback requires review.");
   } catch (error) { showError(error.message); }
   finally { state.recordingBusy = false; syncControls(); }
 }
@@ -1208,7 +1243,7 @@ function renderRecordingLibrary() {
       const selected = state.selectedRecording?.id === recording.id;
       const replayable = recordingIsReplayable(recording);
       const frozen = ["complete", "invalid"].includes(recording.status);
-      const stateLabel = invalid ? "Invalid" : replayable ? "Replayable" : "Incomplete";
+      const stateLabel = invalid ? "Invalid" : replayable ? "Replayable" : recording.status === "complete" ? "Unknown start" : "Incomplete";
       const canUse = canUseLibraryRecording(recording);
       return `<div class="library-item ${selected ? "selected" : ""} ${invalid ? "invalid" : ""}" data-recording-id="${escapeHtml(recording.id)}" role="group">
         <button class="library-item-select" data-select-recording="${escapeHtml(recording.id)}" type="button" aria-pressed="${selected}">
@@ -1235,7 +1270,7 @@ function renderRecordingLibrary() {
 function canUseLibraryRecording(recording) {
   const recordingDeviceId = recording?.deviceId || recording?.source?.deviceId || recording?.sourceDeviceId;
   const replay = state.replay || state.session?.replay;
-  return Boolean(recording && state.session?.state === "active" && isController() && recordingDeviceId && recordingDeviceId === state.session.deviceId && state.session.mode !== "replay" && replay?.state !== "running" && state.recording?.status !== "recording");
+  return Boolean(!playbackReview.busy && !playbackReview.cancelling && !playbackReview.plan && state.session?.mode !== "playback" && recording && state.session?.state === "active" && isController() && recordingDeviceId && recordingDeviceId === state.session.deviceId && state.session.mode !== "replay" && replay?.state !== "running" && state.recording?.status !== "recording");
 }
 
 function syncLibraryActionState() {
@@ -1549,6 +1584,7 @@ function stopBackgroundPolling() {
 }
 
 async function startReplay() {
+  if (!canInteract()) return;
   if (!state.session || !isController() || !state.recording?.id) return;
   const variables = {};
   refs.variablesForm.querySelectorAll("[data-variable]").forEach((input) => { variables[input.dataset.variable] = input.value; });
@@ -1590,6 +1626,26 @@ async function exportRecording(script = false, recording = state.recording) {
 }
 
 function bindEvents() {
+  $("#record-without-reset").addEventListener("change", syncControls);
+  $("#playback-ack").addEventListener("change", syncControls);
+  $("#playback-preview").addEventListener("click", () => {
+    const variables = {};
+    refs.variablesForm.querySelectorAll("[data-variable]").forEach(input => { variables[input.dataset.variable] = input.value; });
+    playbackReview.prepare(variables);
+  });
+  $("#playback-confirm").addEventListener("click", async () => {
+    const result = await playbackReview.confirm($("#playback-ack").checked);
+    refs.variablesForm.querySelectorAll("input").forEach(input => { input.value = ""; });
+    if (result?.session) adoptSession(result.session);
+  });
+  $("#playback-cancel").addEventListener("click", async () => {
+    const result = await playbackReview.cancel();
+    if (result?.session) adoptSession(result.session);
+  });
+  window.setInterval(() => { if (playbackReview.plan) syncControls(); }, 250);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") { playbackReview.invalidate(); syncControls(); } });
+  window.addEventListener("beforeunload", () => playbackReview.invalidate());
+
   refs.submitRepair.addEventListener("click", submitRepair);
   refs.repairList.addEventListener("click", (event) => {
     const resume = event.target.closest("[data-resume-repair]");

@@ -68,6 +68,7 @@
     "live-web/boot.js",
     "live-web/index.html",
     "live-web/issue.js",
+    "live-web/playback.js",
     "live-web/pointer.js",
     "live-web/stream.js",
     "live-web/styles.css",
