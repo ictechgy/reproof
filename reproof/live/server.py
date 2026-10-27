@@ -975,11 +975,19 @@ class Handler(BaseHTTPRequestHandler):
                     result = {"plan": lab.plan_playback(sid, owner, controller, epoch,
                         body["recordingId"], body["variables"], body["frameId"], body["geometryVersion"]),
                         "session": lab.get_session(sid, owner)}
+                elif action == "playbacks/reviewed-plan":
+                    check(set(body) == {"controllerId", "epoch", "recordingId", "variables", "frameId", "geometryVersion"},
+                          "invalid_argument", "Invalid reviewed action plan request", 400)
+                    result = {"plan": lab.plan_reviewed_actions(sid, owner, controller, epoch,
+                        body["recordingId"], body["variables"], body["frameId"], body["geometryVersion"]),
+                        "session": lab.get_session(sid, owner)}
                 elif action == "playbacks/confirm":
-                    check(set(body) == {"controllerId", "epoch", "token", "acknowledgeUnknownStart", "frameId", "geometryVersion"},
+                    check(set(body) in ({"controllerId", "epoch", "token", "acknowledgeUnknownStart", "frameId", "geometryVersion"},
+                                       {"controllerId", "epoch", "token", "acknowledgeUnknownStart", "acknowledgeUntrustedSource", "frameId", "geometryVersion"}),
                           "invalid_argument", "Invalid action plan confirmation", 400)
                     result = {"playback": lab.confirm_playback(sid, owner, controller, epoch,
-                        body["token"], body["acknowledgeUnknownStart"], body["frameId"], body["geometryVersion"]),
+                        body["token"], body["acknowledgeUnknownStart"], body["frameId"], body["geometryVersion"],
+                        acknowledge_untrusted_source=body.get("acknowledgeUntrustedSource", False)),
                         "session": lab.get_session(sid, owner)}
                 elif action == "playbacks/cancel":
                     check(not body, "invalid_argument", "Cancel expects an empty object", 400)

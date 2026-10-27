@@ -323,6 +323,18 @@ class ProjectAccessHttpTests(unittest.TestCase):
                 self.assertEqual(self.fixture.request(
                     path, method="POST", body={})[0], 401)
 
+    def test_reviewed_action_plans_remain_unavailable_in_shared_sessions(self):
+        session, cookie, csrf = self.fixture.create_session()
+        before = list(self.fixture.calls)
+        for action in ('playbacks/plan', 'playbacks/reviewed-plan', 'playbacks/confirm'):
+            status, result, _ = self.fixture.request(
+                f"/api/sessions/{session['id']}/{action}", method="POST", cookie=cookie, csrf=csrf,
+                body={"controllerId": "browser", "epoch": session['epoch']})
+            self.assertEqual(status, 409, result)
+            self.assertEqual(result['error']['code'], 'playback_scope')
+        self.assertEqual(self.fixture.calls, before)
+        self.assertNotIn('playbackPlan', self.fixture.lab._session(session['id']))
+
     def test_viewer_read_does_not_renew_or_collect_and_operator_can_input(self):
         session, _, _ = self.fixture.create_session()
         raw = self.fixture.lab._session(session["id"])

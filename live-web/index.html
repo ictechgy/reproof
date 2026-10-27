@@ -157,13 +157,16 @@
             <h3 id="playback-title">Unverified action playback</h3>
             <p>Repeat actions from the current screen, without proving a starting state or a defect.</p>
             <p id="playback-state" role="status">No playback</p>
-            <button class="button button-secondary" id="playback-preview" type="button" disabled>Preview actions from current screen</button>
+            <button class="button button-secondary" id="playback-preview" type="button" disabled>Preview current-session capture</button>
+            <button class="button button-secondary" id="playback-reviewed-preview" type="button" disabled>Review saved / imported data as new actions</button>
             <div id="playback-review" hidden>
               <p id="playback-warning"></p>
+              <pre id="playback-target"></pre>
               <p>Actions may change app or server data. Reproof has NOT verified that this is a QA / non-production environment. Review the current live screen and every exact action below; coordinates do not identify a verified target. Entered text is shown here, only in memory.</p>
               <pre id="playback-actions"></pre>
               <p id="playback-expiry"></p>
               <label><input id="playback-ack" type="checkbox" /> I reviewed the current live screen and exact actions, accept these changes, and understand the starting state and result are unverified.</label>
+              <label id="playback-source-review" hidden><input id="playback-source-ack" type="checkbox" /> I understand this source is untrusted, review these as NEW actions on the displayed target, and accept possible changes to real app/server data. This does not trust the source or prove reproduction.</label>
               <button class="button button-secondary" id="playback-confirm" type="button" disabled>Execute reviewed actions (unverified)</button>
             </div>
             <button class="button button-secondary" id="playback-cancel" type="button" disabled>Cancel action playback</button>
