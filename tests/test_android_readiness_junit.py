@@ -45,3 +45,13 @@ class FixtureJvmEvidenceTests(unittest.TestCase):
         self.assertIn('actions/upload-artifact@v4',workflow)
         for forbidden in ('connectedAndroidTest','connectedDebugAndroidTest','managedDevice','adb ','emulator ','signingConfig'):
             self.assertNotIn(forbidden,workflow)
+
+    def test_native_authority_generation_is_widened_not_truncated(self):
+        # Source wiring regression, not a substitute for helper compilation.
+        helper=(ROOT/'android/live/src/main/java/io/reproof/live/LiveInstrumentation.kt').read_text()
+        wire=(ROOT/'android/native-common/src/main/java/io/reproof/fixture/FixtureWire.kt').read_text()
+        self.assertIn('val ownershipGeneration: Long', wire)
+        self.assertIn('val ownershipGeneration: Int', helper)
+        self.assertIn('challenge.ownershipGeneration != grant.ownershipGeneration.toLong()', helper)
+        self.assertNotIn('challenge.ownershipGeneration.toInt()', helper)
+        self.assertIn('exactInt(value, "ownershipGeneration") ?: return null', helper)

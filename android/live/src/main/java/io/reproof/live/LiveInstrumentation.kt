@@ -270,7 +270,7 @@ class LiveInstrumentation : Instrumentation() {
         val challenge = try { parseChallenge(command.payload.getJSONObject("challenge")) } catch (_: Throwable) { return false to "invalid_config" }
         if (challenge.sessionId != grant.sessionId || challenge.hostIncarnation != grant.hostIncarnation ||
             challenge.helperIncarnation != grant.helperIncarnation || challenge.providerIncarnation != grant.providerIncarnation ||
-            challenge.ownershipGeneration != grant.ownershipGeneration || challenge.applicationId != liveConfig.profile.applicationId ||
+            challenge.ownershipGeneration != grant.ownershipGeneration.toLong() || challenge.applicationId != liveConfig.profile.applicationId ||
             liveConfig.appOwnedFixture?.matches(challenge) != true) return false to "invalid_config"
         val authorized = { fixtureGrantValid(grant) }
         if (command.action == "fixture_prepare" && !fixtureBootstrapLaunched) {
