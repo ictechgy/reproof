@@ -31,6 +31,7 @@ class PortableDistributionTests(unittest.TestCase):
 # A closed allowlist, not name filtering or discovery: newly added broad tests
 # cannot silently introduce compiler, device, signing or AI effects in this lane.
 PORTABLE_TESTS = (
+    'test_installed_ios_snapshot_preparation_without_checkout',
     'test_installed_source_snapshot_cli_roundtrip_without_checkout',
     'test_installed_console_serves_every_runtime_asset',
     'test_installed_check_confirms_native_templates_and_avoids_checkout',

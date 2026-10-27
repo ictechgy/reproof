@@ -1559,7 +1559,8 @@
             "tests.test_source_snapshot",
             "tests.test_source_snapshot_cli",
             "tests.test_source_snapshot_metadata",
-            "tests.test_source_snapshot_ownership"
+            "tests.test_source_snapshot_ownership",
+            "tests.test_source_snapshot_derivation"
           ],
           "environment": "local-python-standard-library",
           "effects": [
@@ -1601,7 +1602,8 @@
             "tests.test_source_snapshot",
             "tests.test_source_snapshot_cli",
             "tests.test_source_snapshot_metadata",
-            "tests.test_source_snapshot_ownership"
+            "tests.test_source_snapshot_ownership",
+            "tests.test_source_snapshot_derivation"
           ],
           "environment": "local-python-standard-library",
           "effects": [
@@ -1626,6 +1628,55 @@
             "tests.test_source_snapshot_scale"
           ],
           "environment": "local-python-standard-library",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 600,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "IOS_SNAPSHOT_CONTRACTS": {
+      "available": true,
+      "checks": [
+        {
+          "id": "ios-snapshot-observation-contracts",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_ios_snapshot_observation",
+            "tests.test_ios_snapshot_cli",
+            "tests.test_source_snapshot_derivation",
+            "tests.test_ios_snapshot_native_contract",
+            "tests.test_ios_observation",
+            "tests.test_ios_workspace"
+          ],
+          "environment": "local-python-synthetic-compiler-double-no-native-execution",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "IOS_SNAPSHOT_SCALE": {
+      "available": true,
+      "checks": [
+        {
+          "id": "ios-snapshot-observation-scale",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_ios_snapshot_observation_scale"
+          ],
+          "environment": "local-python-synthetic-compiler-double-no-native-execution",
           "effects": [
             "filesystem",
             "process"

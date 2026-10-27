@@ -49,6 +49,10 @@ class IosAutoProfile:
 
 
 def validate_ios_auto_profile(document):
+    if type(document) is dict and type(document.get('schemaVersion')) is int and document['schemaVersion'] == 3:
+        from .ios_snapshot_observation import validate_snapshot_observation_document
+        validate_snapshot_observation_document(document)
+        return IosAutoProfile(json.dumps(document, sort_keys=True, separators=(',', ':')))
     if type(document) is dict and type(document.get('schemaVersion')) is int and document['schemaVersion'] == 2:
         from .ios_observation import validate_observation_document
         validate_observation_document(document)
@@ -229,13 +233,19 @@ def _configure_project(document, profile):
     return document
 
 
-def prepare_ios_instrumentation(source, output, *, profile=None, sanitation_policy=None):
+def prepare_ios_instrumentation(source, output, *, profile=None, sanitation_policy=None, snapshot_budgets=None):
     sanitation_policy = _sanitation_policy(sanitation_policy)
     if profile is not None:
         profile = validate_ios_auto_profile(profile.data if isinstance(profile, IosAutoProfile) else profile)
         from .ios_observation import is_observation_profile, prepare_observation
         if is_observation_profile(profile):
+            if profile.data.get('kind') == 'uikit-observation-v3':
+                from .ios_snapshot_observation import prepare_snapshot_observation
+                return prepare_snapshot_observation(source, output, profile,
+                    sanitation_policy=sanitation_policy, budgets=snapshot_budgets)
+            require(snapshot_budgets is None, 'Snapshot budgets require a v3 observation profile')
             return prepare_observation(source, output, profile, sanitation_policy=sanitation_policy)
+    require(snapshot_budgets is None, 'Snapshot budgets require a v3 observation profile')
     from .ios_storage import copy_ios_source, tree_manifest
     source, output = Path(source), Path(output)
     require(source.is_dir() and not source.is_symlink() and not output.exists() and not output.is_symlink(),

@@ -173,6 +173,35 @@ class InstalledDistributionTests(unittest.TestCase):
         self.assertEqual((output / 'file.swift').read_bytes(), b'synthetic source only')
         self.assertTrue(all(result['provenance'] == 'unverified-local-content' for result in results))
 
+    def test_installed_ios_snapshot_preparation_without_checkout(self):
+        from tests.test_ios_observation import ordinary_project
+        source = self.root / 'ios-snapshot-input'
+        document = ordinary_project(source)
+        selection = self.root / 'ios-snapshot-selection.json'
+        selection.write_text(json.dumps({'schemaVersion': 1, 'kind': 'reproof-source-selection',
+                                         'paths': document.pop('sourceInputs')}))
+        snapshot = self.root / 'ios-original-snapshot'
+        result = _command([str(self.command), 'source-snapshot', 'capture', '--source', str(source),
+            '--selection', str(selection), '--output', str(snapshot)], cwd=self.work)
+        self.assertEqual(result.returncode, 0, result.stderr[-1000:])
+        reference = json.loads(result.stdout)
+        document.update(schemaVersion=3, kind='uikit-observation-v3', sourceSnapshot={
+            'schemaVersion': 1, 'kind': 'reproof-local-source-snapshot',
+            **{key: reference[key] for key in ('digest', 'files', 'bytes')}})
+        profile = self.root / 'ios-snapshot-profile.json'; profile.write_text(json.dumps(document))
+        prepared = self.root / 'ios-prepared-snapshot'
+        result = _command([str(self.command), 'ios-instrument', '--source', str(snapshot),
+            '--output', str(prepared), '--profile', str(profile)], cwd=self.work)
+        self.assertEqual(result.returncode, 0, result.stdout[-1000:] + result.stderr[-1000:])
+        self.assertEqual(json.loads(result.stdout)['status'], 'prepared')
+        checked = _command([str(self.command), 'source-snapshot', 'verify',
+                            '--snapshot', str(prepared / 'snapshot')], cwd=self.work)
+        self.assertEqual(checked.returncode, 0, checked.stderr[-1000:])
+        receipt = json.loads((prepared / 'instrumentation.json').read_text())
+        self.assertEqual(receipt['preparedSnapshot']['digest'], json.loads(checked.stdout)['digest'])
+        self.assertFalse(receipt['behaviorVerified'])
+        self.assertIn('uikit-observation-v3', (prepared / 'snapshot/data/ReproofInstrumentation/Runtime/RLAutomaticRecorder.swift').read_text())
+
     def test_changed_installed_asset_is_reported_without_executing_it(self):
         locate = _command([str(self.python), '-I', '-c',
             'from reproof.resources import resource_root; print(resource_root())'], cwd=self.work)
