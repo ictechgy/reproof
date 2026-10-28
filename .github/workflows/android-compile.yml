@@ -85,7 +85,8 @@ jobs:
                     'compiledApps': 1, 'schemaVersion': 3,
                     'signed': False, 'deviceExecution': False, 'behaviorVerified': False,
                     'onlineWarmBuild': True, 'offlineConsumerBuild': True, 'asmVerified': True,
-                    'embeddedProfileVerified': True, 'keystoreCreated': False}
+                    'embeddedProfileVerified': True, 'keystoreCreated': False,
+                    'groovyDispatchReceivers': 3 if dsl == 'groovy' else 0}
                    for dsl in ('kotlin', 'groovy')]
           expected = {'status': 'pass', 'cases': cases}
           proof = json.loads((root / 'reproof-android-snapshot-build/compile-proof.json').read_text())

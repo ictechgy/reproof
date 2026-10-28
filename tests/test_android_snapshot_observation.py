@@ -164,7 +164,7 @@ class AndroidSnapshotObservationTests(unittest.TestCase):
         other=self.root/'groovy';other.mkdir();source,profile=fixture(other,groovy=True)
         result=prepare_snapshot_observation(source,profile,other/'prepared',analyzer=analyzer())
         actual=(result['source']/'data/app/build.gradle').read_text()
-        self.assertIn('setSigningConfig((com.android.build.api.dsl.ApkSigningConfig) null)',actual)
+        self.assertIn("dimensionType.getMethod('setSigningConfig', [signingType] as Class[])",actual)
         self.assertEqual((source/'data'/ACTIVITY).read_bytes(),(result['source']/'data'/ACTIVITY).read_bytes())
 
     def test_unsigned_inspection_rejects_v2_block_malformed_directory_and_zip64(self):
@@ -297,15 +297,27 @@ class AndroidSnapshotObservationTests(unittest.TestCase):
             suffix='.gradle' if groovy else '.gradle.kts'
             relative='app/build'+suffix
             changed=(result['source']/'data'/relative).read_text()
-            clear = ('setSigningConfig((com.android.build.api.dsl.ApkSigningConfig) null)'
-                     if groovy else 'signingConfig = null')
-            self.assertIn('defaultConfig { ' + clear + ' }',changed)
-            self.assertIn('productFlavors.configureEach { ' + clear + ' }',changed)
-            self.assertIn(('debug' if groovy else 'getByName("debug")') + ' { ' + clear + ' }',changed)
-            self.assertEqual(changed.count(clear),3)
             if groovy:
+                self.assertEqual(changed.count('__reproofClearUnsignedSigning('),3)
+                self.assertIn('__reproofClearUnsignedSigning(defaultConfig)',changed)
+                self.assertIn('productFlavors.configureEach { dimension -> __reproofClearUnsignedSigning(dimension) }',changed)
+                self.assertIn("__reproofClearUnsignedSigning(buildTypes.getByName('debug'))",changed)
+                self.assertIn('dimension instanceof com.android.build.api.dsl.ApplicationVariantDimension',changed)
+                self.assertIn("dimensionType.getMethod('setSigningConfig', [signingType] as Class[])",changed)
+                self.assertIn('setter.getDeclaringClass() != dimensionType',changed)
+                self.assertIn('setter.getReturnType() != Void.TYPE',changed)
+                self.assertIn('getter.getReturnType() != signingType',changed)
+                self.assertIn('setter.invoke(dimension, new Object[1])',changed)
+                self.assertIn('getter.invoke(dimension, new Object[0]) != null',changed)
+                self.assertNotIn('setAccessible',changed)
                 self.assertNotIn('signingConfig = null',changed)
                 self.assertNotIn('setSigningConfig(null)',changed)
+                self.assertNotIn('setSigningConfig((com.android',changed)
+            else:
+                self.assertIn('defaultConfig { signingConfig = null }',changed)
+                self.assertIn('productFlavors.configureEach { signingConfig = null }',changed)
+                self.assertIn('getByName("debug") { signingConfig = null }',changed)
+                self.assertEqual(changed.count('signingConfig = null'),3)
             self.assertNotIn('signingConfig = null',(source/'data'/relative).read_text())
             selected=validate_snapshot_observation_profile(json.loads(result['appProfile'].read_bytes()))
             self.assertEqual(selected.data['build']['task'],':app:assembleQaDebug')

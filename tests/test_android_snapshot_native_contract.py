@@ -54,11 +54,13 @@ class AndroidSnapshotNativeContractTests(unittest.TestCase):
                         prepared = prepare_snapshot_observation(root / 'snapshot', selected,
                                                                 root / 'prepared', analyzer=analyzer)
                     derived = (prepared['source'] / 'data/app/build.gradle').read_text()
-                    typed = 'setSigningConfig((com.android.build.api.dsl.ApkSigningConfig) null)'
-                    self.assertEqual(derived.count(typed), 3)
-                    self.assertIn('defaultConfig { ' + typed + ' }', derived)
-                    self.assertIn('productFlavors.configureEach { ' + typed + ' }', derived)
-                    self.assertIn('debug { ' + typed + ' }', derived)
+                    self.assertEqual(derived.count('__reproofClearUnsignedSigning('), 3)
+                    self.assertIn('setter.invoke(dimension, new Object[1])', derived)
+                    self.assertIn('getter.invoke(dimension, new Object[0]) != null', derived)
+                    self.assertIn('assert android.defaultConfig.getSigningConfig() != null', module)
+                    self.assertIn("assert android.productFlavors.getByName('demo').getSigningConfig() != null", module)
+                    self.assertIn("dimension.getClass().getName().contains('AgpDecorated')", module)
+                    self.assertIn('assert dimension.getSigningConfig() == null', module)
                     self.assertEqual((root / 'source/app/build.gradle').read_text(), module)
                 self.assertEqual((root / 'source' / harness['ACTIVITY']).read_text().count('setOnClickListener'), 1)
 
@@ -83,6 +85,10 @@ class AndroidSnapshotNativeContractTests(unittest.TestCase):
         self.assertIn("receipt['bytecodeInstrumentation']", source)
         self.assertIn('embedded.digest == prepared_profile.digest', source)
         self.assertIn('build_snapshot_observation_app(snapshot', source)
+        self.assertIn("':app:verifyReproofUnsignedConfiguration'", source)
+        self.assertIn("verified.count('REPROOF_GROOVY_UNSIGNED_DIMENSIONS 3') == 1", source)
+        self.assertLess(source.index("':app:verifyReproofUnsignedConfiguration'"), source.index("task, '--dry-run'"))
+        self.assertIn("'groovyDispatchReceivers': decorated_receivers", source)
         self.assertNotIn('build_android(', source)
         self.assertNotIn('adb ', source)
 
@@ -121,6 +127,7 @@ class AndroidSnapshotNativeContractTests(unittest.TestCase):
         self.assertIn('exact(proof, expected)', workflow)
         self.assertIn('exact(reports[0], expected)', workflow)
         self.assertIn("'deviceExecution': False, 'behaviorVerified': False", workflow)
+        self.assertIn("'groovyDispatchReceivers': 3 if dsl == 'groovy' else 0", workflow)
         self.assertNotIn('connectedAndroidTest', workflow)
         self.assertNotIn('emulator -', workflow)
 

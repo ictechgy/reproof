@@ -204,12 +204,32 @@ def _changes(original,profile,metadata,sites):
     if groovy:
         from .groovy_integration import configure_groovy
         integration=configure_groovy(settings_text,module_text)
-        # Groovy null property assignment is ambiguous across AGP's legacy
-        # setters. A direct public-API typed argument selects the nullable setter.
-        clear = 'setSigningConfig((com.android.build.api.dsl.ApkSigningConfig) null)'
-        signing=('\nandroid {\n    defaultConfig { ' + clear + ' }\n'
-                 '    productFlavors.configureEach { ' + clear + ' }\n'
-                 '    buildTypes { debug { ' + clear + ' } }\n}\n')
+        # AGP's decorated Groovy objects still dynamically overload typed null.
+        # Resolve the exact public JVM setter descriptor, never a dynamic setter.
+        signing = """
+def __reproofClearUnsignedSigning = { Object dimension ->
+    if (!(dimension instanceof com.android.build.api.dsl.ApplicationVariantDimension)) {
+        throw new GradleException('Unsupported unsigned Android dimension')
+    }
+    def dimensionType = com.android.build.api.dsl.ApplicationVariantDimension.class
+    def signingType = com.android.build.api.dsl.ApkSigningConfig.class
+    def setter = dimensionType.getMethod('setSigningConfig', [signingType] as Class[])
+    def getter = dimensionType.getMethod('getSigningConfig', new Class[0])
+    if (setter.getDeclaringClass() != dimensionType || setter.getReturnType() != Void.TYPE ||
+        getter.getDeclaringClass() != dimensionType || getter.getReturnType() != signingType) {
+        throw new GradleException('Unsupported unsigned Android public API')
+    }
+    setter.invoke(dimension, new Object[1])
+    if (getter.invoke(dimension, new Object[0]) != null) {
+        throw new GradleException('Android signing configuration was not cleared')
+    }
+}
+android {
+    __reproofClearUnsignedSigning(defaultConfig)
+    productFlavors.configureEach { dimension -> __reproofClearUnsignedSigning(dimension) }
+    __reproofClearUnsignedSigning(buildTypes.getByName('debug'))
+}
+"""
     else:
         from .kotlin_instrumenter import configure_gradle
         integration=configure_gradle(settings_text,module_text)

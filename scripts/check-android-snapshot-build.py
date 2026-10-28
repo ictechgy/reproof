@@ -104,6 +104,24 @@ android {
 kotlin { jvmToolchain(17) }
 '''
         suffix = '.gradle'
+    if dsl == 'groovy':
+        module += """
+assert android.defaultConfig.getSigningConfig() != null
+assert android.productFlavors.getByName('demo').getSigningConfig() != null
+ext.reproofInheritedSigningObserved = true
+tasks.register('verifyReproofUnsignedConfiguration') {
+    doLast {
+        assert project.ext.reproofInheritedSigningObserved == true
+        [android.defaultConfig, android.productFlavors.getByName('demo'),
+         android.buildTypes.getByName('debug')].each { dimension ->
+            assert dimension instanceof com.android.build.api.dsl.ApplicationVariantDimension
+            assert dimension.getClass().getName().contains('AgpDecorated')
+            assert dimension.getSigningConfig() == null
+        }
+        println 'REPROOF_GROOVY_UNSIGNED_DIMENSIONS 3'
+    }
+}
+"""
     files = {'settings' + suffix: settings, 'app/build' + suffix: module,
         'app/src/main/AndroidManifest.xml': '''<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 <application android:label="Snapshot Synthetic" android:theme="@android:style/Theme.Material.Light.NoActionBar">
@@ -224,6 +242,15 @@ def main():
         prepared_profile = validate_snapshot_observation_profile(json.loads(Path(prepared['appProfile']).read_text()))
         snapshot = Path(prepared['source'])
         warm = case / 'warm'; materialize(snapshot, warm)
+        decorated_receivers = 0
+        if dsl == 'groovy':
+            run([str(args.gradle), '--no-daemon', '--no-build-cache', '--console=plain',
+                 ':app:verifyReproofUnsignedConfiguration'], warm, environment,
+                case / 'decorated-signing-verification.log')
+            verified = (case / 'decorated-signing-verification.log').read_text().splitlines()
+            assert verified.count('REPROOF_GROOVY_UNSIGNED_DIMENSIONS 3') == 1
+            no_keys(root)
+            decorated_receivers = 3
         run([str(args.gradle), '--no-daemon', '--no-build-cache', '--console=plain',
              task, '--dry-run'], warm, environment, case / 'online-task-plan.log')
         planned = [line.split()[0] for line in (case / 'online-task-plan.log').read_text().splitlines()
@@ -251,7 +278,8 @@ def main():
         proofs.append({'dsl': dsl, 'buildTask': task, 'compiledApps': 1, 'schemaVersion': 3,
             'signed': False, 'deviceExecution': False, 'behaviorVerified': False,
             'onlineWarmBuild': True, 'offlineConsumerBuild': True, 'asmVerified': True,
-            'embeddedProfileVerified': True, 'keystoreCreated': False})
+            'embeddedProfileVerified': True, 'keystoreCreated': False,
+            'groovyDispatchReceivers': decorated_receivers})
     report = {'status': 'pass', 'cases': proofs}
     (root / 'compile-proof.json').write_text(json.dumps(report, sort_keys=True) + '\n')
     print('ANDROID_SNAPSHOT_BUILD ' + json.dumps(report, sort_keys=True), flush=True)
