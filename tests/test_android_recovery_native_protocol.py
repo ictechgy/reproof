@@ -18,7 +18,7 @@ package io.reproof.live
 fun denied(block: () -> Unit) {
     try { block(); error("invalid input admitted") } catch (_: IllegalArgumentException) {}
 }
-fun config(phase: String): AndroidRecoverySelection {
+private fun config(phase: String): AndroidRecoverySelection {
     val data = mapOf("schemaVersion" to 1, "kind" to "reproof-android-recovery-qualification", "phase" to phase,
         "attemptId" to "attempt_one", "sessionId" to "session_one", "deviceScopeDigest" to "a".repeat(64),
         "applicationId" to "android_app", "artifactDigest" to "b".repeat(64), "profileDigest" to "c".repeat(64),
@@ -26,7 +26,7 @@ fun config(phase: String): AndroidRecoverySelection {
     val bytes = recoveryCanonical(data).toByteArray(Charsets.US_ASCII)
     return AndroidRecoverySelection.parse(bytes, data, recoveryDigest(bytes))
 }
-fun grant(c: AndroidRecoverySelection, purpose: String, id: String, sequence: Int, deadline: Long = 100): AndroidRecoveryGrant {
+private fun grant(c: AndroidRecoverySelection, purpose: String, id: String, sequence: Int, deadline: Long = 100): AndroidRecoveryGrant {
     val data = mapOf("schemaVersion" to 1, "purpose" to purpose, "operationId" to id, "sequence" to sequence,
         "configurationDigest" to c.digest, "attemptId" to "attempt_one", "sessionId" to "session_one",
         "priorOwnershipGeneration" to 1, "recoveryOwnershipGeneration" to 2,
