@@ -202,6 +202,67 @@ class InstalledDistributionTests(unittest.TestCase):
         self.assertFalse(receipt['behaviorVerified'])
         self.assertIn('uikit-observation-v3', (prepared / 'snapshot/data/ReproofInstrumentation/Runtime/RLAutomaticRecorder.swift').read_text())
 
+    def test_installed_local_snapshot_proposal_without_checkout(self):
+        from tests.test_project_repair import source_fixture
+        from tests.test_local_unified_diff import patch
+        project, sources, artifacts = source_fixture()
+        project['applications'][0]['platform'] = 'android'
+        source = self.root / 'g9-original'; sources.write_new(source)
+        artifact = self.root / 'g9-original.apk'; artifact.write_bytes(artifacts.entries[0][1])
+        selected = self.root / 'g9-selection.json'
+        selected.write_text(json.dumps([path for path, _ in sources.entries]))
+        project_file = self.root / 'g9-project.json'; project_file.write_text(json.dumps(project))
+        before = dict(sources.entries)[project['editablePaths'][0]].decode()
+        diff = self.root / 'g9-proposal.diff'
+        diff.write_text(patch(project['editablePaths'][0], before, before.replace('if !ready', 'if ready')))
+        program = r'''import hashlib, json, pathlib, sys
+from unittest import mock
+from reproof.agents import ProjectUnifiedDiffAgent
+from reproof.execution.artifacts import BlobSet
+from reproof.project_repair import proposal_packet
+from reproof.repair_journal import RepairJournal
+from reproof.snapshot_repair_source import SnapshotRepairSource
+from reproof.source_snapshot import capture
+root = pathlib.Path(sys.argv[1]); project = json.loads((root/'g9-project.json').read_text())
+paths = json.loads((root/'g9-selection.json').read_text())
+with mock.patch('subprocess.Popen', side_effect=AssertionError('no execution')):
+    summary = capture(root/'g9-original', paths, root/'g9-snapshot')
+    ref = dict(schemaVersion=1, kind='reproof-local-source-snapshot',
+               **{key:summary[key] for key in ('digest','files','bytes')})
+    source = SnapshotRepairSource(project, root/'g9-snapshot', snapshot_reference=ref,
+        protected_paths=['tests/CheckoutTests.swift'], original_artifact=root/'g9-original.apk')
+    frozen = source.freeze('original')
+    agent = ProjectUnifiedDiffAgent(root/'g9-proposal.diff', base_source_digest=frozen.digest)
+    with_journal = RepairJournal(root/'g9-journal')
+    try:
+        job = with_journal.create(project_id=project['id'], owner_id='owner', issue_id='issue',
+            request_id='request', request_digest='a'*64,
+            reservation_bytes=source.snapshot_reservation_bytes+2*1024*1024)
+        with_journal.claim(job['id'])
+        cancellation = with_journal.cancellation(job['id'])
+        packet = proposal_packet(project, BlobSet(source.editable_entries(frozen)),
+            {'actions':[], 'assertions':[], 'waits':[]}, provider_id=agent.provider_id, external=False)
+        packet['sourceDigest'] = frozen.digest
+        edits = agent.propose_project(packet, cancellation=cancellation)
+        with with_journal.begin_snapshot_output(job['id'], 'candidate',
+                reservation_bytes=source.snapshot_reservation_bytes) as output:
+            candidate = source.apply(frozen, edits, output.path,
+                output_parent_identity=output.parent_identity, cancel=cancellation)
+            source.require_candidate(candidate)
+            output.write_sidecar('proposal', json.dumps({'verified':False,'candidateSnapshot':candidate.reference}).encode())
+            output.complete(candidate.reference)
+        with_journal.finish(job['id'], 'proposal-ready', result={'verified':False})
+        print(json.dumps({'changed':candidate.digest != frozen.digest,'files':candidate.reference['files'],
+                          'verified':False,'candidateKind':with_journal.get(job['id'])['outputs']['candidate']['kind']}))
+    finally:
+        with_journal.close()
+'''
+        result = _command([str(self.python), '-I', '-c', program, str(self.root)], cwd=self.work)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report, {'changed': True, 'files': len(sources.entries), 'verified': False,
+                                  'candidateKind': 'source-snapshot-v1'})
+
     def test_installed_android_snapshot_preparation_without_checkout(self):
         source = self.root / 'android-snapshot-input'; source.mkdir()
         files = {

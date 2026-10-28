@@ -198,7 +198,48 @@ def load_issue_configuration(path):
     return document
 
 
+def _validate_snapshot_repair_configuration(value):
+    """Versioned local declarations only; no source/artifact/patch reads at startup."""
+    from ..source_snapshot import SnapshotBudget, SnapshotError
+    from ..project_repair import _paths, RepairError
+    exact(value, ('schemaVersion', 'kind', 'sourceRoot', 'sourceSnapshot', 'snapshotBudget',
+                  'protectedPaths', 'originalArtifact', 'buildRecipeId', 'agent'))
+    check(type(value['schemaVersion']) is int and value['schemaVersion'] == 2
+          and value['kind'] == 'local-snapshot-proposal',
+          'issue_configuration', 'Unsupported snapshot proposal configuration', 400)
+    for path in (value['sourceRoot'], value['originalArtifact']):
+        check(type(path) is str and 1 <= len(path) <= 4096 and '\0' not in path
+              and Path(path).is_absolute(), 'issue_configuration', 'Explicit local paths are required', 400)
+    ref = value['sourceSnapshot']
+    exact(ref, ('schemaVersion', 'kind', 'digest', 'files', 'bytes'))
+    check(type(ref['schemaVersion']) is int and ref['schemaVersion'] == 1
+        and ref['kind'] == 'reproof-local-source-snapshot',
+        'issue_configuration', 'Unsupported source snapshot reference', 400)
+    contracts.validate_digest(ref['digest'])
+    limits = value['snapshotBudget']
+    exact(limits, ('maxFiles', 'maxBytes'))
+    try:
+        budget = SnapshotBudget(max_files=limits['maxFiles'], max_bytes=limits['maxBytes'])
+        _paths(value['protectedPaths'], allow_empty=True)
+    except (SnapshotError, RepairError):
+        raise contracts.ContractError('Invalid snapshot proposal bounds') from None
+    check(type(ref['files']) is int and 1 <= ref['files'] <= budget.max_files
+        and type(ref['bytes']) is int and 0 <= ref['bytes'] <= budget.max_bytes,
+        'issue_configuration', 'Snapshot reference exceeds selected bounds', 400)
+    contracts.validate_id(value['buildRecipeId'])
+    agent = value['agent']
+    exact(agent, ('kind', 'patchFile', 'baseSourceDigest'))
+    check(agent['kind'] == 'local-unified-diff',
+          'issue_configuration', 'Snapshot proposals require the local unified diff adapter', 400)
+    contracts.validate_digest(agent['baseSourceDigest'])
+    path = agent['patchFile']
+    check(type(path) is str and 1 <= len(path) <= 4096 and '\0' not in path
+          and Path(path).is_absolute(), 'issue_configuration', 'Explicit local patch path is required', 400)
+
+
 def _validate_repair_configuration(value, project_digest):
+    if type(value) is dict and ('schemaVersion' in value or 'kind' in value):
+        return _validate_snapshot_repair_configuration(value)
     from ..project_repair import RepairError, _paths, validate_transfer_policy
     from ..repair_diagnostics import validate_diagnostic_policy
     exact(value, ('sourceRoot', 'sourcePaths', 'protectedPaths', 'originalArtifactRoot',
@@ -357,9 +398,18 @@ def compose_issue_repairs(bundle, configuration, *, protected_repairs=None):
                   'repair_configuration', 'Repair project differs from the composed issue runtime', 409)
             project = runtime.registration.project
             try:
-                source = RepairSource(project, value['sourceRoot'], source_paths=value['sourcePaths'],
-                    protected_paths=value['protectedPaths'], original_artifact_root=value['originalArtifactRoot'],
-                    original_artifact_paths=value['originalArtifactPaths'], artifact_identity=value['artifactIdentity'])
+                if value.get('kind') == 'local-snapshot-proposal':
+                    from ..snapshot_repair_source import SnapshotRepairSource
+                    from ..source_snapshot import SnapshotBudget
+                    source = SnapshotRepairSource(project, value['sourceRoot'],
+                        snapshot_reference=value['sourceSnapshot'], protected_paths=value['protectedPaths'],
+                        original_artifact=value['originalArtifact'], budgets=SnapshotBudget(
+                            max_files=value['snapshotBudget']['maxFiles'],
+                            max_bytes=value['snapshotBudget']['maxBytes']))
+                else:
+                    source = RepairSource(project, value['sourceRoot'], source_paths=value['sourcePaths'],
+                        protected_paths=value['protectedPaths'], original_artifact_root=value['originalArtifactRoot'],
+                        original_artifact_paths=value['originalArtifactPaths'], artifact_identity=value['artifactIdentity'])
                 selected = value['agent']
                 agent = (ProjectPatchAgent(selected['patchFile']) if selected['kind'] == 'local-patch'
                     else ProjectUnifiedDiffAgent(selected['patchFile'], base_source_digest=selected['baseSourceDigest'])

@@ -1,6 +1,7 @@
 """Bounded repair jobs, terminal cancellation and conservative restart recovery."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 import fcntl
 import json
 import os
@@ -51,6 +52,146 @@ class RepairCancellation:
             with self.journal._changed:
                 self.journal._changed.wait(.05 if deadline is None else max(0, min(.05, deadline-time.monotonic())))
         return self.is_set()
+
+
+class _SnapshotOutput:
+    """Process-local pinned publication context; reference metadata is not proof."""
+    def __init__(self, journal, identifier, name, root_fd, parent_fd):
+        self.journal, self.identifier, self.name = journal, identifier, name
+        self.root_fd, self.parent_fd = root_fd, parent_fd
+        self.path = journal.root / identifier / name
+        info = os.fstat(parent_fd)
+        self.parent_identity = (info.st_dev, info.st_ino)
+        self.completed = False
+        self.closed = False
+        self.sidecar = None
+        self.candidate_fd = None
+        self.completing = False
+        self.sidecar_fds = []
+
+    def current(self):
+        _require(not self.closed and self.journal._db is not None)
+        root = open_directory(self.journal.root)
+        try:
+            live, pinned = os.fstat(root), os.fstat(self.root_fd)
+            _require((live.st_dev, live.st_ino) == (pinned.st_dev, pinned.st_ino)
+                     and pinned.st_nlink > 0, 'repair_output_changed')
+            info = os.stat(self.identifier, dir_fd=root, follow_symlinks=False)
+            parent = os.fstat(self.parent_fd)
+            _require(stat.S_ISDIR(info.st_mode) and parent.st_nlink > 0
+                     and (info.st_dev, info.st_ino) == self.parent_identity
+                     and (parent.st_dev, parent.st_ino) == self.parent_identity,
+                     'repair_output_changed')
+        finally:
+            os.close(root)
+
+    def _check_sidecar(self):
+        if self.sidecar is None:
+            return
+        directory, fd, stamp = self.sidecar
+        entry = os.stat('proposal', dir_fd=self.parent_fd, follow_symlinks=False)
+        live = os.fstat(directory)
+        _require(live.st_nlink > 0 and stat.S_ISDIR(entry.st_mode)
+                 and (entry.st_dev, entry.st_ino) == (live.st_dev, live.st_ino), 'repair_output_changed')
+        entry = os.stat('proposal.json', dir_fd=directory, follow_symlinks=False)
+        live = os.fstat(fd)
+        def identity(info):
+            return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_nlink)
+        _require(live.st_nlink == 1 and identity(live) == stamp and identity(entry) == stamp,
+                 'repair_output_changed')
+
+    def write_sidecar(self, name, raw):
+        """Write only the bounded proposal sidecar under the retained job pin."""
+        _require(name == 'proposal' and type(raw) is bytes and 0 < len(raw) <= 2 * 1024 ** 2,
+                 'repair_request')
+        with self.journal._lock:
+            self.current()
+            _require(not self.completed and not self.completing and self.sidecar is None, 'repair_terminal')
+            document = self.journal.get(self.identifier)
+            _require(document['status'] not in TERMINAL and not document['cancelRequested'], 'repair_terminal')
+            _require(name not in document['outputs']
+                     and document['usedBytes'] + len(raw) <= document['reservedBytes'], 'repair_disk_limit')
+            document['usedBytes'] += len(raw)
+            document['outputs'][name] = {'digest': BlobSet((('proposal.json', raw),)).digest, 'bytes': len(raw),
+                'status': 'reserved', 'paths': ['proposal.json'], 'cleanupBlocked': True}
+            self.journal._put(document)
+            os.mkdir(name, 0o700, dir_fd=self.parent_fd)
+            directory = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=self.parent_fd)
+            self.sidecar_fds.append(directory)
+            fd = os.open('proposal.json', os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600,
+                         dir_fd=directory)
+            self.sidecar_fds.append(fd)
+            view = memoryview(raw)
+            while view:
+                written = os.write(fd, view[:65536])
+                _require(written > 0)
+                view = view[written:]
+            os.fsync(fd); os.fsync(directory); os.fsync(self.parent_fd)
+            info = os.fstat(fd)
+            stamp = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_nlink)
+            self.sidecar = (directory, fd, stamp)
+            self.current()
+            self._check_sidecar()
+            document['outputs'][name]['status'] = 'complete'
+            self.journal._put(document)
+            return self.path.parent / name
+
+    def _check_candidate(self):
+        _require(self.candidate_fd is not None, 'repair_output_changed')
+        entry = os.stat(self.name, dir_fd=self.parent_fd, follow_symlinks=False)
+        live = os.fstat(self.candidate_fd)
+        _require(stat.S_ISDIR(entry.st_mode) and live.st_nlink > 0
+                 and (entry.st_dev, entry.st_ino) == (live.st_dev, live.st_ino), 'repair_output_changed')
+
+    def complete(self, reference, *, cancel=None):
+        from .source_snapshot import SnapshotBudget, inspect_snapshot
+        _require(cancel is None or callable(getattr(cancel, 'is_set', None)), 'repair_request')
+        _require(type(reference) is dict
+                 and set(reference) == {'schemaVersion', 'kind', 'digest', 'files', 'bytes'},
+                 'repair_snapshot_reference')
+        reference = dict(reference)
+        _require(type(reference['schemaVersion']) is int and reference['schemaVersion'] == 1
+                 and reference['kind'] == 'reproof-local-source-snapshot'
+                 and type(reference['digest']) is str and len(reference['digest']) == 64
+                 and all(c in '0123456789abcdef' for c in reference['digest'])
+                 and type(reference['files']) is int and 1 <= reference['files'] <= 32768
+                 and type(reference['bytes']) is int and 0 <= reference['bytes'] <= 256 * 1024 ** 2,
+                 'repair_snapshot_reference')
+        with self.journal._lock:
+            self.current()
+            document = self.journal.get(self.identifier)
+            _require(not self.completed and not self.completing and document['status'] not in TERMINAL
+                     and not document['cancelRequested'], 'repair_terminal')
+            output = document['outputs'][self.name]
+            _require(output['status'] == 'reserved' and reference['bytes'] <= output['bytes'],
+                     'repair_disk_limit')
+            self.candidate_fd = os.open(self.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                        dir_fd=self.parent_fd)
+            self.completing = True
+            self._check_candidate()
+            self._check_sidecar()
+            manifest = os.stat('manifest.json', dir_fd=self.candidate_fd, follow_symlinks=False)
+            _require(stat.S_ISREG(manifest.st_mode) and manifest.st_nlink == 1
+                     and reference['bytes'] + manifest.st_size <= output['bytes'], 'repair_disk_limit')
+            budget = SnapshotBudget(max_files=32768, max_bytes=min(256 * 1024 ** 2, output['bytes']))
+        # Cancellation must be able to take the journal lock during the scan.
+        journal_cancel = self.journal.cancellation(self.identifier)
+        class CombinedCancellation:
+            def is_set(self):
+                return journal_cancel.is_set() or (cancel is not None and cancel.is_set())
+        combined_cancel = CombinedCancellation()
+        inspect_snapshot(self.path, expected={key: reference[key] for key in ('digest', 'files', 'bytes')},
+                         budgets=budget, cancel=combined_cancel)
+        _require(not combined_cancel.is_set(), 'repair_cancelled')
+        with self.journal._lock:
+            self.current()
+            self._check_candidate()
+            self._check_sidecar()
+            document = self.journal.get(self.identifier)
+            _require(document['status'] not in TERMINAL and not document['cancelRequested'], 'repair_terminal')
+            document['outputs'][self.name].update(status='complete', reference=reference)
+            self.journal._put(document)
+            self.completed = True
 
 
 class RepairJournal:
@@ -306,6 +447,76 @@ class RepairJournal:
             self._put(document)
         return self.root / identifier / name
 
+    @contextmanager
+    def begin_snapshot_output(self, identifier, name, *, reservation_bytes):
+        """Reserve before mutation and pin the fresh output's parent through exit.
+
+        Caller must include content, manifest and its bounded publication overhead
+        in the reservation, and pass parent_identity to the snapshot writer.
+        All outputs of a snapshot job are retained, including uncertain residue.
+        """
+        try:
+            contracts.validate_id(name)
+        except contracts.ContractError:
+            raise RepairJournalError('repair_request') from None
+        _require(type(reservation_bytes) is int and 0 < reservation_bytes <= 512 * 1024 ** 2,
+                 'repair_disk_limit')
+        context = None
+        root_fd = parent_fd = None
+        registered = False
+        try:
+            with self._lock:
+                document = self.get(identifier)
+                _require(document['status'] not in TERMINAL and not document['cancelRequested'], 'repair_terminal')
+                _require(name not in document['outputs']
+                         and document['usedBytes'] + reservation_bytes <= document['reservedBytes'],
+                         'repair_disk_limit')
+                root_fd = os.dup(self._directory)
+                parent_fd = os.open(identifier, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                    dir_fd=root_fd)
+                context = _SnapshotOutput(self, identifier, name, root_fd, parent_fd)
+                context.current()
+                try:
+                    os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise RepairJournalError('repair_output_exists')
+                document['usedBytes'] += reservation_bytes
+                document['outputs'][name] = {'kind': 'source-snapshot-v1', 'status': 'reserved',
+                    'bytes': reservation_bytes, 'reference': None, 'cleanupBlocked': True}
+                document['snapshotOutputsRetained'] = True
+                self._put(document)
+                registered = True
+            yield context
+            with self._lock:
+                context.current()
+                context._check_sidecar()
+                context._check_candidate()
+                document = self.get(identifier)
+                _require(context.completed and not document['cancelRequested']
+                         and document['status'] not in TERMINAL, 'repair_terminal')
+        except BaseException:
+            if registered:
+                with self._lock:
+                    if self._db is not None:
+                        document = self.get(identifier)
+                        for output in document['outputs'].values():
+                            output.update(status='cleanup-blocked', cleanupBlocked=True)
+                        self._put(document)
+            raise
+        finally:
+            if context is not None:
+                context.closed = True
+                if context.candidate_fd is not None:
+                    os.close(context.candidate_fd)
+                for fd in reversed(context.sidecar_fds):
+                    os.close(fd)
+            if parent_fd is not None:
+                os.close(parent_fd)
+            if root_fd is not None:
+                os.close(root_fd)
+
     @staticmethod
     def _discard_output(parent, name, paths):
         """Remove only declared private files, with every directory pinned."""
@@ -351,6 +562,15 @@ class RepairJournal:
                     self.cancel(document['id'])
                     continue
                 document['outputsExpired'] = True
+                if document.get('snapshotOutputsRetained') or any(
+                        output.get('kind') == 'source-snapshot-v1' for output in document['outputs'].values()):
+                    # No process-lifetime ownership proof survives publication or
+                    # restart. Never run legacy deletion on this job or siblings.
+                    for output in document['outputs'].values():
+                        if output['status'] != 'expired':
+                            output.update(status='cleanup-blocked', cleanupBlocked=True)
+                    self._put(document)
+                    continue
                 self._put(document)
                 directory = os.open(document['id'], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                                     dir_fd=self._directory)
