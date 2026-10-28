@@ -8,6 +8,10 @@ on:
       - '.github/workflows/android-compile.yml'
       - 'scripts/check-android-fixture-junit.py'
       - 'tests/test_android_readiness_junit.py'
+      - 'tests/test_android_capture*.py'
+      - 'tests/test_android_native_frame_geometry.py'
+      - 'reproof/android_capture.py'
+      - 'reproof/live/android_live.py'
       - 'scripts/check-android-snapshot-build.py'
       - 'tests/test_android_snapshot_native_contract.py'
       - 'reproof/android_snapshot_observation.py'
@@ -27,6 +31,10 @@ on:
       - '.github/workflows/android-compile.yml'
       - 'scripts/check-android-fixture-junit.py'
       - 'tests/test_android_readiness_junit.py'
+      - 'tests/test_android_capture*.py'
+      - 'tests/test_android_native_frame_geometry.py'
+      - 'reproof/android_capture.py'
+      - 'reproof/live/android_live.py'
       - 'scripts/check-android-snapshot-build.py'
       - 'tests/test_android_snapshot_native_contract.py'
       - 'reproof/android_snapshot_observation.py'
@@ -107,6 +115,29 @@ jobs:
           exact(reports[0], expected)
           print('Two unsigned snapshot consumer builds verified; no device or behavior qualification')
           PYSNAPSHOT
+      - name: Execute pure Kotlin capture policy and geometry contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/reproof-android-capture-logs"
+          python3 scripts/release-check.py --goal ANDROID_CAPTURE_NATIVE --effects filesystem,process,native-compile \
+            | tee "$RUNNER_TEMP/reproof-android-capture-logs/capture-contracts.json"
+          python3 - <<'PYCAPTURE'
+          import json, os
+          from pathlib import Path
+          result = json.loads((Path(os.environ['RUNNER_TEMP']) / 'reproof-android-capture-logs/capture-contracts.json').read_text())
+          assert result['status'] == 'pass' and len(result['checks']) == 1
+          check = result['checks'][0]
+          assert check['status'] == 'pass' and type(check['testsRun']) is int and check['testsRun'] == 2
+          print('Two pure Kotlin capture contracts passed; no device execution')
+          PYCAPTURE
+      - name: Preserve pure Kotlin capture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-capture-contract-results
+          path: ${{ runner.temp }}/reproof-android-capture-logs/capture-contracts.json
+          if-no-files-found: error
       - name: Preserve snapshot build logs and compile-only proof
         if: always()
         uses: actions/upload-artifact@v4

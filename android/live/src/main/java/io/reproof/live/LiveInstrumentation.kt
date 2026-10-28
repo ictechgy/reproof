@@ -83,7 +83,7 @@ private fun evenFrameDimensions(width: Int, height: Int, maxWidth: Int): Pair<In
         maxWidth - maxWidth % 2
     } else if (width % 2 == 0) {
         width
-    } else if (width + 1 <= maxWidth) {
+    } else if (width.toLong() + 1L <= maxWidth.toLong()) {
         width + 1
     } else {
         width - 1
@@ -93,6 +93,7 @@ private fun evenFrameDimensions(width: Int, height: Int, maxWidth: Int): Pair<In
     val maxEvenHeight = Int.MAX_VALUE.toLong() - (Int.MAX_VALUE % 2)
     val outputHeight = (kotlin.math.round(idealHeight / 2.0) * 2.0)
         .toLong().coerceIn(2L, maxEvenHeight).toInt()
+    if (!CaptureLimits.outputAllowed(outputWidth, outputHeight)) return null
     return outputWidth to outputHeight
 }
 
@@ -616,10 +617,22 @@ class LiveInstrumentation : Instrumentation() {
         (!liveConfig.profile.general || generalTargetReady.get()) &&
             (liveConfig.profileDigest == null || targetAppVisible())
 
+    private fun captureDisplayAllowed(): Boolean {
+        // Preflight is advisory: the display can change before the screenshot.
+        // Always recheck the actual bitmap before scaling/encoding as well.
+        return try {
+            val manager = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager ?: return false
+            val display = manager.getDisplay(android.view.Display.DEFAULT_DISPLAY) ?: return false
+            val size = Point()
+            display.getRealSize(size)
+            CaptureLimits.rawAllowed(size.x, size.y)
+        } catch (_: Throwable) { false }
+    }
+
     private fun captureFrame(): Boolean {
         return synchronized(captureLock) {
         val liveConfig = config ?: return false
-        if (!targetFrameAllowed(liveConfig)) return false
+        if (!targetFrameAllowed(liveConfig) || !captureDisplayAllowed()) return false
         val captureStartMs = SystemClock.elapsedRealtime()
         val screenshot = try { automation?.takeScreenshot() } catch (_: Throwable) { null }
         val captureEndMs = SystemClock.elapsedRealtime()
@@ -635,15 +648,15 @@ class LiveInstrumentation : Instrumentation() {
         val originalHeight = original.height
         var bitmap = original
         try {
-            if (!targetFrameAllowed(liveConfig)) return false
+            if (!targetFrameAllowed(liveConfig) || !CaptureLimits.rawAllowed(originalWidth, originalHeight)) return false
             val dimensions = evenFrameDimensions(bitmap.width, bitmap.height, liveConfig.maxWidth) ?: return false
             if (dimensions.first != bitmap.width || dimensions.second != bitmap.height) {
                 val scaled = Bitmap.createScaledBitmap(bitmap, dimensions.first, dimensions.second, true)
                 if (scaled !== bitmap) bitmap.recycle()
                 bitmap = scaled
             }
-            val output = ByteArrayOutputStream()
-            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 60, output)) return false
+            val output = BoundedJpegOutputStream()
+            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 60, output) || output.failed) return false
             val jpeg = output.toByteArray()
             val width = bitmap.width
             val height = bitmap.height
@@ -659,6 +672,8 @@ class LiveInstrumentation : Instrumentation() {
             }
             frameId += 1
             return server?.publishFrame(frameId, geometryVersion, width, height, orientation, System.currentTimeMillis(), nativeTiming, jpeg) == true
+        } catch (_: IOException) {
+            return false
         } finally {
             bitmap.recycle()
         }
@@ -693,6 +708,7 @@ class LiveInstrumentation : Instrumentation() {
         put("targetPackage", liveConfig?.targetPackage ?: JSONObject.NULL)
         put("generalProfile", liveConfig?.profile?.general == true)
         put("launchConfigurationDigest", liveConfig?.approvedLaunch?.digest ?: JSONObject.NULL)
+        liveConfig?.capturePolicy?.let { put("capturePolicy", JSONObject(it.fields())) }
         appOwnedFixtureClient?.status()?.let { snapshot -> snapshot.keys().forEach { key -> put(key, snapshot.get(key)) } }
         if (liveConfig?.protocolVersion != null) {
             put("protocolVersion", NATIVE_PROTOCOL_VERSION)
@@ -706,6 +722,7 @@ class LiveInstrumentation : Instrumentation() {
         }
         put("capabilities", JSONObject().apply {
             if (liveConfig?.appOwnedFixture != null) put("appOwnedFixtureVersion", 1)
+            if (liveConfig?.capturePolicy != null) put("capturePolicyVersion", 1)
             put("actions", org.json.JSONArray(liveConfig?.profile?.actions?.toList() ?: emptyList<String>()))
             put("inputMode", "continuous-pointer")
             put("maxPointers", 5)
@@ -873,6 +890,7 @@ class LiveInstrumentation : Instrumentation() {
         val providerIncarnation: String?,
         val approvedLaunch: ApprovedLaunch?,
         val appOwnedFixture: AppOwnedFixture?,
+        val capturePolicy: CapturePolicy?,
     ) {
         companion object {
             fun read(context: Context): LiveConfig? {
@@ -886,7 +904,7 @@ class LiveInstrumentation : Instrumentation() {
                     // fields; SDK capture remains opt-in.
                     val required = setOf("token", "port", "targetPackage", "maxFps", "maxWidth")
                     val authorityFields = setOf("protocolVersion", "helperVersion", "helperIncarnation", "hostIncarnation", "providerIncarnation")
-                    val expected = required + setOf("recordSdk", "appProfile", "profileDigest", "approvedLaunch", "appOwnedFixture") + authorityFields
+                    val expected = required + setOf("recordSdk", "appProfile", "profileDigest", "approvedLaunch", "appOwnedFixture", "capturePolicy") + authorityFields
                     val keys = objectValue.keys().asSequence().toSet()
                     if (!keys.containsAll(required) || !keys.all { it in expected }) return null
                     val token = objectValue.getString("token")
@@ -923,16 +941,22 @@ class LiveInstrumentation : Instrumentation() {
                     val hostIncarnation = if (hasAuthority) objectValue.getString("hostIncarnation") else null
                     val providerIncarnation = if (hasAuthority) objectValue.getString("providerIncarnation") else null
                     if (appOwnedFixture != null && !hasAuthority) return null
+                    val capturePolicy = if (objectValue.has("capturePolicy")) {
+                        val selected = objectValue.opt("capturePolicy") as? JSONObject ?: return null
+                        CapturePolicy.parse(selected.keys().asSequence().associateWith { selected.get(it) },
+                            shared = hasAuthority, general = profile.general) ?: return null
+                    } else null
+                    if (capturePolicy != null && maxWidth != capturePolicy.maxWidth) return null
                     val idPattern = Regex("[a-z][a-z0-9_-]{0,63}")
                     if (token.isEmpty() || token.length > 512 || port !in 1..65535 ||
                         targetPackage != profile.packageName ||
                         (!hasProfile && targetPackage != "io.reproof.sample") ||
-                        !targetPackage.matches(Regex("[A-Za-z0-9_.]+")) || maxFps !in 1..60 || maxWidth !in 1..960 ||
+                        !targetPackage.matches(Regex("[A-Za-z0-9_.]+")) || maxFps !in 1..60 || (if (capturePolicy == null) maxWidth !in 1..960 else maxWidth != capturePolicy.maxWidth) ||
                         (hasAuthority && (protocolVersion != NATIVE_PROTOCOL_VERSION || helperVersion != HELPER_VERSION ||
                             helperIncarnation?.matches(idPattern) != true || hostIncarnation?.matches(idPattern) != true ||
                             providerIncarnation?.matches(idPattern) != true))) null
                     else LiveConfig(token, port, targetPackage, maxFps, maxWidth, recordSdk, profile, profileDigest,
-                        protocolVersion, helperVersion, helperIncarnation, hostIncarnation, providerIncarnation, approvedLaunch, appOwnedFixture)
+                        protocolVersion, helperVersion, helperIncarnation, hostIncarnation, providerIncarnation, approvedLaunch, appOwnedFixture, capturePolicy)
                 } catch (_: Throwable) { null }
             }
         }

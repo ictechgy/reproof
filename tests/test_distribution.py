@@ -140,6 +140,28 @@ class InstalledDistributionTests(unittest.TestCase):
         self.assertEqual(origin.returncode, 0)
         self.assertTrue(Path(origin.stdout.strip()).resolve().is_relative_to(self.venv.resolve()))
 
+    def test_installed_android_capture_policy_and_helper_are_complete(self):
+        program = """from reproof.android_capture import capture_policy, require_capture_receipt
+from reproof.resources import resource_root
+policy = capture_policy(1920)
+assert require_capture_receipt(policy, 1920) == policy
+assert capture_policy()['maxWidth'] == 960
+root = resource_root()
+helper = (root/'android/live/src/main/java/io/reproof/live/LiveInstrumentation.kt').read_text()
+limits = (root/'android/live/src/main/java/io/reproof/live/CapturePolicy.kt').read_text()
+assert 'capturePolicyVersion' in helper and 'BoundedJpegOutputStream()' in helper
+assert 'OUTPUT_PIXELS = 8_294_400L' in limits
+print('installed Android capture contract present')
+"""
+        result = _command([str(self.python), '-I', '-c', program], cwd=self.work)
+        self.assertEqual(result.returncode, 0, result.stderr[-1000:])
+        self.assertEqual(result.stdout.strip(), 'installed Android capture contract present')
+        rejected = _command([str(self.command), 'live-serve', '--demo',
+                             '--android-capture-max-width', '1920'], cwd=self.work)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('requires shared-v2', rejected.stderr)
+        self.assertEqual(list(self.work.iterdir()), [])
+
     def test_installed_ios_launch_contract_and_helper_are_complete(self):
         result = _command([str(self.python), '-I', '-c',
             'from reproof.ios_launch import ApprovedIosLaunch, validate_ios_launch; '

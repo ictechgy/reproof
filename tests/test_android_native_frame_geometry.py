@@ -17,7 +17,7 @@ class AndroidNativeFrameGeometryTests(unittest.TestCase):
         start = source.index("private fun evenFrameDimensions(")
         end = source.index("\n\nclass LiveInstrumentation", start)
         helper = source[start:end]
-        program = helper + r'''
+        program = 'package io.reproof.live\n\n' + helper + r'''
 private fun requireDimensions(width: Int, height: Int, maxWidth: Int): Pair<Int, Int> =
     evenFrameDimensions(width, height, maxWidth) ?: error("missing dimensions")
 
@@ -37,6 +37,19 @@ fun main() {
     check(requireDimensions(959, 1001, 959).first == 958)
     check(requireDimensions(1, 1, 2) == Pair(2, 2))
     check(evenFrameDimensions(1, 1, 1) == null)
+    check(evenFrameDimensions(1920, 4320, 1920) == Pair(1920, 4320))
+    check(evenFrameDimensions(1920, 4322, 1920) == null)
+    check(evenFrameDimensions(2, 4_000_000, 960) == null)
+    check(evenFrameDimensions(2, 8192, 960) == Pair(2, 8192))
+    check(evenFrameDimensions(1, Int.MAX_VALUE, 1920) == null)
+    check(evenFrameDimensions(Int.MAX_VALUE, Int.MAX_VALUE, Int.MAX_VALUE) == null)
+    check(evenFrameDimensions(0, 100, 960) == null)
+    check(evenFrameDimensions(100, -1, 960) == null)
+    for (maximum in listOf(480, 720, 960, 1280, 1440, 1920)) {
+        val value = requireDimensions(2160, 4320, maximum)
+        check(value.first <= maximum && value.first % 2 == 0 && value.second % 2 == 0)
+        check(value.first.toLong() * value.second <= 8_294_400L)
+    }
     println("android-native-frame-geometry-passed")
 }
 '''
@@ -51,11 +64,12 @@ fun main() {
             compiled = subprocess.run(
                 [java, "-cp", compiler, "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
                  "-jvm-target", "17", "-classpath", stdlib, "-d", str(root / "classes"),
-                 str(root / "Geometry.kt")], capture_output=True, text=True, timeout=60,
+                 str(root / "Geometry.kt"),
+                 str(ROOT / "android/live/src/main/java/io/reproof/live/CapturePolicy.kt")], capture_output=True, text=True, timeout=60,
                 env=_subprocess_environment(java_home))
             self.assertEqual(compiled.returncode, 0, compiled.stderr[-2000:])
             result = subprocess.run(
-                [java, "-cp", str(root / "classes") + os.pathsep + stdlib, "GeometryKt"],
+                [java, "-cp", str(root / "classes") + os.pathsep + stdlib, "io.reproof.live.GeometryKt"],
                 capture_output=True, text=True, timeout=20, env=_subprocess_environment(java_home))
             self.assertEqual(result.returncode, 0, result.stderr[-1500:])
             self.assertEqual(result.stdout.strip(), "android-native-frame-geometry-passed")

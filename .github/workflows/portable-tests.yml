@@ -57,6 +57,8 @@ jobs:
       - name: Measure synthetic G9 large-source and inert-APK proposal scale once
         if: matrix.python-version == '3.12'
         run: python scripts/release-check.py --goal G9_SNAPSHOT_SCALE --effects filesystem,process,loopback
+      - name: Run Android capture policy host contracts without native execution
+        run: python scripts/release-check.py --goal ANDROID_CAPTURE_CONTRACTS --effects filesystem,process
       - name: Run synthetic native-provider contract checks
         run: python scripts/release-check.py --goal NATIVE_CONTRACTS --effects filesystem,process
       - name: Run deployment preflight and loopback observation binding checks
