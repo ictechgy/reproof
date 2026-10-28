@@ -202,6 +202,59 @@ class InstalledDistributionTests(unittest.TestCase):
         self.assertFalse(receipt['behaviorVerified'])
         self.assertIn('uikit-observation-v3', (prepared / 'snapshot/data/ReproofInstrumentation/Runtime/RLAutomaticRecorder.swift').read_text())
 
+    def test_installed_android_snapshot_preparation_without_checkout(self):
+        source = self.root / 'android-snapshot-input'; source.mkdir()
+        files = {
+            'settings.gradle': "pluginManagement {}\ninclude ':app'\n",
+            'app/build.gradle': "plugins { id 'com.android.application' }\n",
+            'app/src/main/AndroidManifest.xml': '<manifest/>\n',
+            'app/src/main/java/example/MainActivity.kt': 'package com.example.inventory\nclass MainActivity\n',
+        }
+        for name, raw in files.items():
+            path = source / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(raw)
+        selection = self.root / 'android-snapshot-selection.json'
+        selection.write_text(json.dumps({'schemaVersion': 1, 'kind': 'reproof-source-selection', 'paths': sorted(files)}))
+        snapshot = self.root / 'android-original-snapshot'
+        result = _command([str(self.command), 'source-snapshot', 'capture', '--source', str(source),
+            '--selection', str(selection), '--output', str(snapshot)], cwd=self.work)
+        self.assertEqual(result.returncode, 0, result.stderr[-1000:])
+        reference = json.loads(result.stdout)
+        activity = 'app/src/main/java/example/MainActivity.kt'
+        document = {'schemaVersion': 3, 'kind': 'views-observation-v3',
+            'package': 'com.example.inventory', 'activity': '.MainActivity',
+            'activitySource': activity, 'build': {'task': ':app:assembleDebug',
+                'apk': 'app/build/outputs/apk/debug/app-debug-unsigned.apk', 'dsl': 'groovy'},
+            'tapTargets': ['save'], 'screenTargets': {'inventory_root': 'inventory'},
+            'sourceSnapshot': {'schemaVersion': 1, 'kind': 'reproof-local-source-snapshot',
+                **{key: reference[key] for key in ('digest', 'files', 'bytes')}}}
+        profile = self.root / 'android-snapshot-profile.json'; profile.write_text(json.dumps(document))
+        prepared = self.root / 'android-prepared-snapshot'
+        # The installed preparation pipeline and fixed templates are real. Only
+        # selected-file PSI analysis is doubled; this lane cannot run a compiler.
+        program = """
+import json,sys
+from pathlib import Path
+from unittest.mock import patch
+from reproof.android_observation import load_observation_profile
+from reproof.build_instrumentation import prepare_build_instrumentation
+profile=load_observation_profile(Path(sys.argv[2]))
+activity=profile.data['activitySource']
+def analyzer(files, name, taps):
+    assert list(files)==[activity]
+    return {'schemaVersion':1,'activityPath':activity,'files':{activity:'unused'},
+            'sites':[{'id':'s123abc','path':activity,'line':2,'target':'save','kind':'tap'}]}
+with patch('subprocess.Popen',side_effect=AssertionError('Native execution forbidden')):
+    result=prepare_build_instrumentation(Path(sys.argv[1]),profile,Path(sys.argv[3]),analyzer=analyzer)
+print(json.dumps({'status':result['status'],'behaviorVerified':result['behaviorVerified']}))
+"""
+        result = _command([str(self.python), '-I', '-c', program, str(snapshot), str(profile), str(prepared)], cwd=self.work)
+        self.assertEqual(result.returncode, 0, result.stdout[-1000:] + result.stderr[-1000:])
+        self.assertEqual(json.loads(result.stdout), {'status': 'prepared', 'behaviorVerified': False})
+        checked = _command([str(self.command), 'source-snapshot', 'verify', '--snapshot', str(prepared / 'snapshot')], cwd=self.work)
+        self.assertEqual(checked.returncode, 0, checked.stderr[-1000:])
+        embedded = prepared / 'snapshot/data/app/reproof-instrumentation/assets/reproof-observation.json'
+        self.assertEqual(json.loads(embedded.read_text())['kind'], 'views-observation-v3')
+
     def test_changed_installed_asset_is_reported_without_executing_it(self):
         locate = _command([str(self.python), '-I', '-c',
             'from reproof.resources import resource_root; print(resource_root())'], cwd=self.work)

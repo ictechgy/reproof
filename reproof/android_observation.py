@@ -49,6 +49,9 @@ def is_observation_profile(profile):
 
 
 def validate_observation_profile(document):
+    if type(document) is dict and document.get('kind') == 'views-observation-v3':
+        from .android_snapshot_observation import validate_snapshot_observation_profile
+        return validate_snapshot_observation_profile(document)
     required = {'schemaVersion', 'kind', 'package', 'activity', 'build',
                 'sourceInputs', 'tapTargets', 'screenTargets'}
     require(type(document) is dict and required <= set(document)
@@ -176,8 +179,17 @@ def render_runtime_config(profile, sites):
         f'    const val SITES_JSON = {literal(json.dumps(sites, separators=(",", ":")))}\n' + '}\n')
 
 
-def build_observation_app(source, output, *, profile, gradle, java_home, sdk_home, timeout=300):
+def build_observation_app(source, output, *, profile, gradle, java_home, sdk_home, timeout=300,
+                          snapshot_budgets=None, cancel=None):
     """Build trusted explicit Debug inputs; device execution is a separate operation."""
+    selected = profile.data if is_observation_profile(profile) else profile
+    if type(selected) is dict and selected.get('kind') == 'views-observation-v3':
+        from .android_snapshot_observation import build_snapshot_observation_app
+        return build_snapshot_observation_app(source, output, profile=profile, gradle=gradle,
+            java_home=java_home, sdk_home=sdk_home, timeout=timeout,
+            budgets=snapshot_budgets, cancel=cancel)
+    require(snapshot_budgets is None and cancel is None,
+            'Snapshot options require an explicit v3 observation profile')
     from .android_artifact import stage_apk
     from .instrumentation import MARKER, validate_instrumented_source
     from .repair import build_android, snapshot_source
@@ -245,16 +257,31 @@ def cli_main(argv):
     parser.add_argument('--gradle')
     parser.add_argument('--java-home')
     parser.add_argument('--sdk-home')
+    parser.add_argument('--snapshot-max-files', type=int, help='Explicit v3 file budget (maximum 32768)')
+    parser.add_argument('--snapshot-max-bytes', type=int, help='Explicit v3 byte budget (maximum 268435456)')
     args = parser.parse_args(argv)
+    from .source_snapshot import SnapshotBudget, SnapshotError
     try:
+        budgets = None
+        if args.snapshot_max_files is not None or args.snapshot_max_bytes is not None:
+            budgets = SnapshotBudget(
+                max_files=args.snapshot_max_files if args.snapshot_max_files is not None else 900,
+                max_bytes=args.snapshot_max_bytes if args.snapshot_max_bytes is not None else 60 * 1024 * 1024)
         profile = load_observation_profile(args.observation_profile)
+        require(budgets is None or profile.data['kind'] == 'views-observation-v3',
+                'Snapshot budgets require an explicit v3 observation profile')
+        options = {'snapshot_budgets': budgets} if budgets is not None else {}
         if args.command == 'android-instrument':
-            print_summary(prepare_build_instrumentation(args.source, profile, args.output))
+            print_summary(prepare_build_instrumentation(args.source, profile, args.output, **options))
         else:
-            built = build_observation_app(args.source, args.output, profile=profile, **toolchain(args))
+            built = build_observation_app(args.source, args.output, profile=profile, **toolchain(args), **options)
             print_summary({'status': 'built', 'app': built['app'], 'receipt': args.output / 'receipt.json',
                            'automaticObservations': built['receipt']['automaticObservations']})
         return 0
+    except SnapshotError as exc:
+        print_summary({'status': 'failed', 'error': exc.code,
+                       'cleanupIncomplete': exc.code == 'snapshot_cleanup_incomplete'})
+        return 1
     except (ContractError, CommandError, ResourceError, OSError):
         print_summary({'status': 'failed', 'error': 'Configured Views preparation or build failed'})
         return 1

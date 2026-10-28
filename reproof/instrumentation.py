@@ -92,6 +92,8 @@ def merge_debug_manifest(text):
 
 
 def instrument_project(source, app_profile, output, *, analyzer=None):
+    require(app_profile.data.get('kind') != 'views-observation-v3',
+            'Use the v3 snapshot route for Views instrumentation')
     require('sourceInputs' not in app_profile.data, 'Explicit public inputs require build instrumentation mode')
     input_path, output_path = Path(source), Path(output)
     require(input_path.is_dir() and not input_path.is_symlink(), 'Invalid instrumentation source directory')
@@ -179,6 +181,8 @@ def instrument_project(source, app_profile, output, *, analyzer=None):
 
 
 def validate_instrumented_source(source, app_profile):
+    require(app_profile.data.get('kind') != 'views-observation-v3',
+            'Use the v3 snapshot route for Views preparation validation')
     source = Path(source)
     receipt = read_json(source / MARKER)
     require(isinstance(receipt, dict), 'Invalid instrumentation source receipt')

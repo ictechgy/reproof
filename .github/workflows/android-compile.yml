@@ -8,6 +8,17 @@ on:
       - '.github/workflows/android-compile.yml'
       - 'scripts/check-android-fixture-junit.py'
       - 'tests/test_android_readiness_junit.py'
+      - 'scripts/check-android-snapshot-build.py'
+      - 'tests/test_android_snapshot_native_contract.py'
+      - 'reproof/android_snapshot_observation.py'
+      - 'reproof/android_observation.py'
+      - 'reproof/source_snapshot*.py'
+      - 'reproof/build_instrumentation.py'
+      - 'reproof/build_instrumentation_templates/**'
+      - 'reproof/observation_templates/android/**'
+      - 'reproof/groovy_integration.py'
+      - 'reproof/kotlin_instrumenter.py'
+      - 'tools/kotlin-instrumenter/**'
   push:
     branches: [main]
     paths:
@@ -16,6 +27,17 @@ on:
       - '.github/workflows/android-compile.yml'
       - 'scripts/check-android-fixture-junit.py'
       - 'tests/test_android_readiness_junit.py'
+      - 'scripts/check-android-snapshot-build.py'
+      - 'tests/test_android_snapshot_native_contract.py'
+      - 'reproof/android_snapshot_observation.py'
+      - 'reproof/android_observation.py'
+      - 'reproof/source_snapshot*.py'
+      - 'reproof/build_instrumentation.py'
+      - 'reproof/build_instrumentation_templates/**'
+      - 'reproof/observation_templates/android/**'
+      - 'reproof/groovy_integration.py'
+      - 'reproof/kotlin_instrumenter.py'
+      - 'tools/kotlin-instrumenter/**'
 
 permissions:
   contents: read
@@ -23,7 +45,7 @@ permissions:
 jobs:
   compile-live-helper:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,6 +65,62 @@ jobs:
         run: ./gradlew --no-daemon --no-build-cache --console=plain :sdk:compileDebugKotlin :sdk:testDebugUnitTest :sample:compileBuggyDebugKotlin :sample:compileFixedDebugKotlin :live:compileDebugKotlin
       - name: Require non-skipped fixture JVM state-machine evidence
         run: python3 scripts/check-android-fixture-junit.py android/sdk/build/test-results/testDebugUnitTest
+      - name: Compile public KTS and Groovy snapshot apps; verify unsigned offline consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t gradle_candidates < <(find "$HOME/.gradle/wrapper/dists/gradle-8.14.5-bin" -type f -path '*/gradle-8.14.5/bin/gradle')
+          test "${#gradle_candidates[@]}" -eq 1
+          test -x "${gradle_candidates[0]}"
+          mkdir -p "$RUNNER_TEMP/reproof-android-snapshot-logs"
+          python3 scripts/check-android-snapshot-build.py \
+            --output "$RUNNER_TEMP/reproof-android-snapshot-build" \
+            --gradle "${gradle_candidates[0]}" --java-home "$JAVA_HOME" --sdk-home "$ANDROID_HOME" 2>&1 \
+            | tee "$RUNNER_TEMP/reproof-android-snapshot-logs/compile.log"
+          python3 - <<'PYSNAPSHOT'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          cases = [{'dsl': dsl, 'buildTask': ':app:assembleDebug' if dsl == 'kotlin' else ':app:assembleDemoDebug',
+                    'compiledApps': 1, 'schemaVersion': 3,
+                    'signed': False, 'deviceExecution': False, 'behaviorVerified': False,
+                    'onlineWarmBuild': True, 'offlineConsumerBuild': True, 'asmVerified': True,
+                    'embeddedProfileVerified': True, 'keystoreCreated': False,
+                    'groovyDispatchReceivers': 3 if dsl == 'groovy' else 0}
+                   for dsl in ('kotlin', 'groovy')]
+          expected = {'status': 'pass', 'cases': cases}
+          proof = json.loads((root / 'reproof-android-snapshot-build/compile-proof.json').read_text())
+          lines = (root / 'reproof-android-snapshot-logs/compile.log').read_text().splitlines()
+          reports = [json.loads(line.removeprefix('ANDROID_SNAPSHOT_BUILD '))
+                     for line in lines if line.startswith('ANDROID_SNAPSHOT_BUILD ')]
+          assert len(reports) == 1
+          def exact(actual, wanted):
+              assert type(actual) is type(wanted)
+              if type(wanted) is dict:
+                  assert set(actual) == set(wanted)
+                  for key in wanted: exact(actual[key], wanted[key])
+              elif type(wanted) is list:
+                  assert len(actual) == len(wanted)
+                  for left, right in zip(actual, wanted): exact(left, right)
+              else: assert actual == wanted
+          exact(proof, expected)
+          exact(reports[0], expected)
+          print('Two unsigned snapshot consumer builds verified; no device or behavior qualification')
+          PYSNAPSHOT
+      - name: Preserve snapshot build logs and compile-only proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-snapshot-compile-results
+          path: |
+            ${{ runner.temp }}/reproof-android-snapshot-logs/*.log
+            ${{ runner.temp }}/reproof-android-snapshot-build/compile-proof.json
+            ${{ runner.temp }}/reproof-android-snapshot-build/psi-*.log
+            ${{ runner.temp }}/reproof-android-snapshot-build/kotlin/*.log
+            ${{ runner.temp }}/reproof-android-snapshot-build/groovy/*.log
+            ${{ runner.temp }}/reproof-android-snapshot-build/kotlin/build/*.json
+            ${{ runner.temp }}/reproof-android-snapshot-build/groovy/build/*.json
+          if-no-files-found: error
       - name: Preserve SDK JVM test reports (not device qualification)
         if: always()
         uses: actions/upload-artifact@v4

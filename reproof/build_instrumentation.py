@@ -38,8 +38,13 @@ def activity_class(profile):
     return profile.data['package'] + activity if activity.startswith('.') else activity
 
 
-def prepare_build_instrumentation(source, app_profile, output, *, analyzer=None):
+def prepare_build_instrumentation(source, app_profile, output, *, analyzer=None, snapshot_budgets=None):
     from .android_observation import is_observation_profile, validate_observation_profile
+    if app_profile.data.get('kind') == 'views-observation-v3':
+        from .android_snapshot_observation import prepare_snapshot_observation
+        return prepare_snapshot_observation(source, app_profile, output,
+            analyzer=analyzer, budgets=snapshot_budgets)
+    require(snapshot_budgets is None, 'Snapshot budgets require an explicit v3 observation profile')
     observations = is_observation_profile(app_profile)
     source, output = Path(source), Path(output)
     require(source.is_dir() and not source.is_symlink(), 'Invalid instrumentation source directory')
