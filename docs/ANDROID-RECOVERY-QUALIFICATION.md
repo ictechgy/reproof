@@ -7,47 +7,90 @@ output can release ordinary Live quarantine. Actual dedicated disposable-AVD
 qualification and independent review are required before a separate production
 integration decision. No device execution is part of this source implementation.
 
-## Runtime entry is blocked
+## Explicit qualification launcher, not production activation
 
-The private harness now requires an `IsolatedAdbContext`. Its production birth
-entry fails before filesystem, process or network effects: there is no supported
-way to import a PID, socket, JSON claim or another process's server ownership.
-Portable tests construct synthetic owners explicitly. They do not make this
-source a runnable Mac trial, and no lost-ACK runtime runner is enabled.
+The private recovery transport requires an `IsolatedAdbContext`. Direct
+construction, imported PIDs/sockets, JSON declarations and
+`IsolatedAdbContext.birth()` cannot create one. The separate, explicitly
+effectful `launch_qualification_birth` entry is the only source-level issuer:
+it must create and retain its own new foreground ADB server and disposable AVD.
+It is not called by the normal CLI, server, device inventory or recovery API.
+A `BirthPlan` describes the selected public tools, image and two APKs before
+execution. Constructing or inspecting a plan does not start a process.
 
-The finite client path reuses the existing Darwin ADB gateway and process
-sandbox: only the selected transport and fixed shell operations or helper port
-8766 are permitted. No install, sync, abb, forwarding, default server selection,
-or unsandboxed fallback is accepted. Both short calls and instrumentation use
-explicit private HOME and ANDROID_USER_HOME values, not the user's environment.
-Gateway shutdown drains its workers but always preserves the private socket
-namespace and reports incomplete cleanup. This is a second runtime blocker:
-the current implementation cannot prove that the first pathname observation
-after bind still denotes the socket it created. It does not delete a possibly
-replaced entry or call recursive cleanup. Passing relay-restriction tests is
-therefore not successful end-to-end qualification or clean shutdown evidence.
+**Do not invoke that launcher without separate runtime authorization.** Its
+future effects include creating a private AVD/userdata and homes, opening owned
+local sockets, booting an emulator and ADB server, possible temporary ADB
+authentication/emulator-console keys, and first-installing exactly the selected
+public sample and helper APKs. It accepts no existing AVD, user seed/snapshot,
+imported credentials, arbitrary shell command or optional extra APK. First-time
+provisioning is a separate birth phase: recovery still cannot install, reinstall,
+clear app data or reset the device. Owned processes can be collected, but private
+AVD data and key residue are explicitly retained; there is no recursive deletion
+of executed output directories or claim of secret erasure.
 
-This restriction is deliberate. An explicit ADB host/port is insufficient:
-the official client's version-mismatch branch can kill and restart a daemon.
-The gateway rejects daemon management and checks protocol version 41; the
-client sandbox denies process creation and network access outside its gateway.
-These are source-level boundaries, not a claim that the current Mac sandbox or
-ADB binary has been qualified. See the official
-[ADB client implementation](https://android.googlesource.com/platform/packages/modules/adb/+/refs/heads/android15-qpr2-s8-release/client/adb_client.cpp).
+The initial resource policy requests 2 GiB guest RAM and a 2 GiB data partition.
+Before creating output it requires free space of at least 8 GiB plus twice the
+selected image bytes. This is a conservative admission floor, not a filesystem
+quota or a promise that the emulator cannot consume additional space. Tool and
+image selections are bounded closed file lists. Use of the owner expires after
+a finite selected lifetime; process collection is explicit, not an automatic
+background cleanup guarantee.
 
-A future birth implementation needs exact binary/source correspondence,
-negative sandbox and discovery preflight, a retained newly owned server epoch,
-and explicit registration of only the newly owned disposable emulator. Disabling
-USB, mDNS and emulator scanning must be verified for that binary; `--one-device`
-is not a substitute for emulator-discovery isolation. No new server sandbox,
-security-setting change or broad discovery fallback is implemented here.
+### Pinned ADB and discovery boundary
 
-Reported Mac metadata includes installed platforms and build-tools 34/35/36,
-JDK 17 and API 36 emulator images. Exact minor versions, signed installable
-artifacts and an actual build remain unqualified. A future trial needs separate
-permission for the disposable AVD, public fixture installation, temporary ADB
-authentication/signing keys and any required downloads; no automatic SDK install
-or use of an existing AVD is authorized by this source work.
+The supported Darwin ADB pin is Google's versioned **35.0.2 (12147458)** release:
+
+- [Official archive](https://dl.google.com/android/repository/platform-tools_r35.0.2-darwin.zip),
+  13,335,867 bytes, SHA-256
+  `1820078db90bf21628d257ff052528af1c61bb48f754b3555648f5652fa35d78`.
+- Its `platform-tools/adb` entry is 14,046,464 bytes, SHA-256
+  `9e78ca23f20ce357d156704d0eb706f90056d15310524881a1aec532be3acec3`.
+- The publisher's [35.0.2 tag](https://android.googlesource.com/platform/packages/modules/adb/+/refs/tags/platform-tools-35.0.2)
+  associates that release/build with source commit
+  `ce9ea51f30f69f7560db692f7cb4d5d5502c3653`.
+
+These hashes were computed from the official HTTPS distribution bytes; they are
+not claimed to be a vendor signature or a reproducible-build attestation. The
+source implementation reads and validates an already selected binary; it does
+not automatically download or install SDK tools. The matching tag's
+`client/main.cpp` contains the `ADB_USB=0`, `ADB_MDNS=0` and `ADB_EMU=0` startup
+branches. The fixed environment omits `ADBHOST` and all ambient ADB selections.
+Foreground `server nodaemon` uses only the owned endpoint. Explicit registration
+is limited to the newly owned emulator's port; no general discovery/connect or
+default-port fallback is allowed. A registration message has no success reply
+and alone is not identity or boot evidence.
+
+An explicit ADB host/port alone is insufficient: the client's version-mismatch
+branch can kill/restart a daemon. The finite gateway rejects daemon management,
+checks protocol version 41 and limits the selected transport. Private client
+sandboxing denies child creation and network access outside that gateway.
+The launcher's additional per-process policies are restrictions, not changes to
+system-wide security settings. Their actual Darwin behavior, discovery-negative
+checks and the eventual lost-ACK recovery trial still require separately
+approved runtime qualification. Source checks and synthetic mocks do not prove
+those runtime properties; normal recovery remains disabled.
+
+### Socket cleanup operating assumptions
+
+Each gateway uses a fresh owned 0700 namespace outside the sandbox-writable
+client work directory, with retained parent/root descriptors. Creation has one
+trusted writer. This does not promise isolation from an actively malicious
+same-UID process. The listener retains the created socket while workers drain;
+cleanup checks the bound namespace and exact socket, unlinks only that socket,
+and removes only the empty owned directory. Foreign entries, replacements or
+unconfirmed workers are preserved and reported as `cleanupIncomplete`.
+A bounded namespace scan cannot allocate from an arbitrarily large directory.
+
+Reported Mac metadata includes platforms/build-tools 34/35/36, JDK 17 and API36
+images. The first launcher contract accepts only a pinned offline AOSP API36
+arm64 `default` image, not Google Play or `google_apis` images. The reported
+installed Google images therefore do not establish this prerequisite; acquiring
+an additional image is not authorized or performed by this change. Exact
+minor/tool hashes, signed fixture artifacts and actual launcher behavior remain
+to be checked for an authorized trial. Nothing in these source
+changes authorizes touching an existing AVD, generating keys, installing APKs or
+changing the user's computer.
 
 ## Scope and trust boundary
 

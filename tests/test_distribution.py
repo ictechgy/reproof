@@ -144,6 +144,8 @@ class InstalledDistributionTests(unittest.TestCase):
         program = """from reproof.live.android_recovery_qualification import QualificationHarness
 from reproof.live.android_recovery_authority import QualificationJournal, inspect_qualification_journal
 from reproof.live.android_recovery_context import IsolatedAdbContext
+from reproof.live.android_recovery_birth import BirthPlan, OwnedBirth, launch_qualification_birth
+from reproof.live.android_recovery_tool_pin import ADB_RELEASE, ADB_DARWIN_SHA256
 from reproof.core import ContractError
 from reproof.resources import resource_root
 from reproof.live.model import Lab
@@ -151,6 +153,13 @@ source = (resource_root()/'android/live/src/main/java/io/reproof/live/AndroidRec
 assert 'AndroidRecoveryProtocol' in source and 'AndroidRecoveryExitDelivery' in source
 assert not hasattr(Lab, 'recover_qualification_device')
 assert not hasattr(QualificationHarness, 'resume')
+assert ADB_RELEASE == '35.0.2' and len(ADB_DARWIN_SHA256) == 64
+try:
+    OwnedBirth()
+except ContractError:
+    pass
+else:
+    raise AssertionError('imported ownership must be rejected')
 try:
     IsolatedAdbContext.birth()
 except ContractError:

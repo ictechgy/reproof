@@ -24,7 +24,7 @@ class PrivateContextContractTests(unittest.TestCase):
             for make in (lambda:context.IsolatedAdbContext(),
                          lambda:context.IsolatedAdbContext.birth(),
                          lambda:context.IsolatedAdbContext.birth(pid=123,socket_path='/tmp/external',qualified=True)):
-                with self.assertRaisesRegex(ContractError,'unqualified'):make()
+                with self.assertRaisesRegex(ContractError,'unsupported'):make()
             popen.assert_not_called();sock.assert_not_called();mkdir.assert_not_called()
         self.assertEqual(context._OWNED_BIRTHS,{})
 
@@ -137,8 +137,8 @@ class PrivateContextContractTests(unittest.TestCase):
         self.assertIsNone(next(iter(candidate._handles.values()))._process)
 
     def test_first_observed_foreign_node_never_becomes_cleanup_authority(self):
-        # Model bind->replacement->first-stat without opening a socket. Even if
-        # the recorded stamp was already foreign, cleanup cannot unlink it.
+        # A foreign regular node is never eligible for socket cleanup. This
+        # does not model hostile same-UID replacement during trusted creation.
         with tempfile.TemporaryDirectory() as temporary:
             parent=Path(temporary).resolve();root=parent/'gateway';root.mkdir()
             foreign=root/'client.sock';foreign.write_bytes(b'foreign replacement')
@@ -146,6 +146,7 @@ class PrivateContextContractTests(unittest.TestCase):
             gateway._close_result=None;gateway._stop=threading.Event();gateway._thread=None
             gateway._lock=threading.RLock();gateway._sockets=set();gateway._workers=set()
             gateway._listener=Mock();gateway._socket_stamp=context._stamp(foreign.stat())
+            gateway._namespace=root;gateway._bind_attempted=True
             gateway._parent_fd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY)
             gateway._root_fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY)
             with patch.object(context.os,'unlink',side_effect=AssertionError('must preserve')), \
@@ -155,6 +156,78 @@ class PrivateContextContractTests(unittest.TestCase):
             self.assertEqual(foreign.read_bytes(),b'foreign replacement')
             self.assertTrue(gateway.workers_collected)
             self.assertTrue(gateway.cleanup_incomplete)
+
+    def test_empty_prebind_namespace_cleanup_and_uncertain_bind_preservation(self):
+        for attempted in (False, True):
+            with self.subTest(attempted=attempted), tempfile.TemporaryDirectory() as temporary:
+                parent=Path(temporary).resolve();root=parent/'gateway';root.mkdir(mode=0o700)
+                gateway=object.__new__(context._PrivateGateway)
+                gateway._namespace=root;gateway._bind_attempted=attempted;gateway._socket_stamp=None
+                gateway._parent_fd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY)
+                gateway._root_fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY)
+                gateway._close_result=None;gateway._stop=threading.Event();gateway._thread=None
+                gateway._lock=threading.RLock();gateway._sockets=set();gateway._workers=set();gateway._listener=None
+                if attempted:
+                    with self.assertRaisesRegex(ContractError,'cleanup incomplete'):gateway._close(time.monotonic()+1)
+                    self.assertTrue(root.exists())
+                else:
+                    gateway._close(time.monotonic()+1);gateway._close(time.monotonic()+1)
+                    self.assertFalse(root.exists())
+                self.assertIsNone(gateway._root_fd);self.assertIsNone(gateway._parent_fd)
+
+    def test_live_worker_prevents_namespace_cleanup(self):
+        gateway=object.__new__(context._PrivateGateway)
+        worker=Mock();worker.is_alive.return_value=True
+        gateway._close_result=None;gateway._stop=threading.Event();gateway._thread=None
+        gateway._lock=threading.RLock();gateway._sockets=set();gateway._workers={worker}
+        gateway._listener=None;gateway._root_fd=None;gateway._parent_fd=None
+        gateway._remove_owned_namespace=Mock(side_effect=AssertionError('must not remove'))
+        with self.assertRaisesRegex(ContractError,'cleanup incomplete'):gateway._close(time.monotonic())
+        gateway._remove_owned_namespace.assert_not_called()
+        self.assertFalse(gateway.workers_collected)
+
+    def test_gateway_ancestry_rejects_client_writable_work_before_creation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();work=root/'work';work.mkdir(mode=0o700)
+            for location,allowed in ((work,False),(work/'nested',False),(root/'gateway',True)):
+                if location != work:location.mkdir(mode=0o700)
+                gateway=object.__new__(context._PrivateGateway)
+                gateway._context=SimpleNamespace(work=work)
+                gateway._parent_fd=os.open(location,os.O_RDONLY|os.O_DIRECTORY)
+                try:
+                    if allowed:gateway._require_outside_work()
+                    else:
+                        with self.assertRaisesRegex(ContractError,'client-writable'):gateway._require_outside_work()
+                finally:os.close(gateway._parent_fd)
+
+    def test_ancestry_dup_failure_closes_opened_work_descriptor(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve()
+            gateway=object.__new__(context._PrivateGateway)
+            gateway._context=SimpleNamespace(work=root);gateway._parent_fd=42
+            opened=[]
+            original=context._directory
+            def capture(path):
+                fd=original(path);opened.append(fd);return fd
+            with patch.object(context,'_directory',side_effect=capture), \
+                 patch.object(context.os,'dup',side_effect=OSError('synthetic descriptor exhaustion')):
+                with self.assertRaises(OSError):gateway._require_outside_work()
+            self.assertEqual(len(opened),1)
+            with self.assertRaises(OSError):os.fstat(opened[0])
+
+    def test_namespace_entry_scan_stops_after_two_foreign_entries(self):
+        gateway=object.__new__(context._PrivateGateway);gateway._root_fd=42
+        calls=[]
+        class Entries:
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def __next__(self):
+                calls.append(True)
+                if len(calls)>2:raise AssertionError('unbounded')
+                return SimpleNamespace(name=str(len(calls)))
+        with patch.object(context.os,'scandir',return_value=Entries()):
+            with self.assertRaisesRegex(ContractError,'foreign entries'):gateway._namespace_entries()
+        self.assertEqual(len(calls),2)
 
     def test_configuration_writer_has_no_caller_supplied_command_or_path(self):
         candidate=object.__new__(context.IsolatedAdbContext)
@@ -174,8 +247,9 @@ class PrivateGatewayTests(unittest.TestCase):
         self.root=Path(self.temp.name).resolve();self.root.chmod(0o700)
         self.server=OwnedAdbServer(self.root,serial='emulator-5554',concurrent=True)
         self.gateway_root=self.root/'g';self.gateway_root.mkdir(mode=0o700)
+        self.work=self.root/'work';self.work.mkdir(mode=0o700)
         self.fake=SimpleNamespace(endpoint=AdbEndpoint(self.server.path),serial='emulator-5554',
-            gateway_root=self.gateway_root,_require_live=Mock())
+            gateway_root=self.gateway_root,work=self.work,_require_live=Mock())
         self.peer=patch('reproof.adb_endpoint._peer_uid',return_value=os.getuid())
         self.private_peer=patch.object(context,'_peer_uid',return_value=os.getuid())
         self.peer.start();self.private_peer.start();self.gateways=[]
@@ -190,13 +264,24 @@ class PrivateGatewayTests(unittest.TestCase):
         value=context._PrivateGateway(self.fake,services or context._services('getprop ro.kernel.qemu'))
         value.__enter__();self.gateways.append(value);return value
 
-    def test_unproven_socket_origin_is_preserved_even_without_visible_mutation(self):
+    def test_untouched_namespace_cleanup_and_partial_creation(self):
         gateway=self.gateway();root=gateway.socket_path.parent
         self.assertTrue(root.exists())
-        for _ in range(2):
-            with self.assertRaisesRegex(ContractError,'cleanup incomplete'):gateway.close()
-        self.assertTrue(root.exists());self.assertTrue((root/'client.sock').exists())
-        self.assertTrue(gateway.cleanup_incomplete);self.assertTrue(gateway.workers_collected)
+        for _ in range(2):gateway.close()
+        self.assertFalse(root.exists());self.assertTrue(self.gateway_root.exists())
+        self.assertFalse(gateway.cleanup_incomplete);self.assertTrue(gateway.workers_collected)
+        self.assertIsNone(gateway._root_fd);self.assertIsNone(gateway._parent_fd)
+        # A failure before bind cleans only the freshly owned empty directory.
+        value=context._PrivateGateway(self.fake,context._services('getprop ro.kernel.qemu'))
+        with patch.object(context.socket,'socket',side_effect=OSError('synthetic creation failure')):
+            with self.assertRaises(OSError):value.__enter__()
+        self.assertFalse(value._namespace.exists())
+        self.assertFalse(value.cleanup_incomplete)
+        # A failure after the socket stamp was recorded can also clean safely.
+        value=context._PrivateGateway(self.fake,context._services('getprop ro.kernel.qemu'))
+        with patch.object(context.threading.Thread,'start',side_effect=RuntimeError('synthetic start failure')):
+            with self.assertRaises(RuntimeError):value.__enter__()
+        self.assertFalse(value._namespace.exists());self.assertFalse(value.cleanup_incomplete)
 
     def test_foreign_child_preserves_all_private_namespace_and_reports_incomplete(self):
         gateway=self.gateway();root=gateway.socket_path.parent

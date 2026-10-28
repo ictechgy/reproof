@@ -1,8 +1,8 @@
-"""UNQUALIFIED private ADB dispatch boundary; server birth is deliberately blocked.
+"""UNQUALIFIED private ADB dispatch boundary with retained launcher ownership.
 
-No production code issues entries in _OWNED_BIRTHS. An arbitrary server PID,
-socket, Popen object or JSON declaration cannot create a usable context. A future
-reviewed birth implementation needs exact binary/discovery and owned-AVD proof.
+Only the separate effectful qualification launcher can issue a context. An
+arbitrary PID, socket, Popen object or JSON declaration cannot create one.
+Ordinary recovery remains disabled; real Darwin isolation is not yet qualified.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from reproof.repair_android_signing import _ProcessOwner, _Collector, _process_e
 from .android_recovery_authority import _directory
 
 _HELPER = 'io.reproof.live'
-_OWNED_BIRTHS = {}  # Intentionally no production registration/restore API.
+_OWNED_BIRTHS = {}  # Private launcher registry; no import or restart enrollment.
 _MAX_OUTPUT = 65536
 
 
@@ -72,7 +72,12 @@ def _services(command):
 
 
 class _PrivateGateway(AdbGateway):
-    """Existing smart-socket relay with finite service and conservative cleanup."""
+    """Finite relay in a dedicated namespace outside client-writable work.
+
+    Creation assumes one trusted writer and no hostile same-UID mutation. This
+    is not isolation from arbitrary same-UID processes. Cleanup still rejects
+    observed replacement/foreign entries and never recursively removes content.
+    """
     def __init__(self, context, services):
         context._require_live()
         _require(type(services) is frozenset and services and len(services) <= 2
@@ -83,6 +88,7 @@ class _PrivateGateway(AdbGateway):
         self._parent_fd = self._root_fd = None
         self._namespace = None
         self._socket_stamp = None
+        self._bind_attempted = False
         self.cleanup_incomplete = False
         self._close_result = None
 
@@ -90,16 +96,25 @@ class _PrivateGateway(AdbGateway):
         self._context._require_live()
         try:
             self._parent_fd = _directory(self._context.gateway_root)
+            info = os.fstat(self._parent_fd)
+            _require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700)
+            self._require_outside_work()
             name = 'g-' + uuid.uuid4().hex[:16]
             os.mkdir(name, 0o700, dir_fd=self._parent_fd)
             self._namespace = self._context.gateway_root / name
             self._root_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=self._parent_fd)
+            self._require_namespace()
+            _require(not self._namespace_entries())
             self.socket_path = self._namespace / 'client.sock'
             _require(len(os.fsencode(self.socket_path)) < 104, 'Private ADB socket path too long')
             self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self._bind_attempted = True
             self._listener.bind(str(self.socket_path))
             os.chmod('client.sock', 0o600, dir_fd=self._root_fd, follow_symlinks=False)
             self._socket_stamp = _stamp(os.stat('client.sock', dir_fd=self._root_fd, follow_symlinks=False))
+            self._require_namespace()
+            _require(set(self._namespace_entries()) == {'client.sock'})
+            _require(stat.S_ISSOCK(os.stat('client.sock', dir_fd=self._root_fd, follow_symlinks=False).st_mode))
             self._listener.listen(8)
             self._listener.settimeout(.05)
             self._thread = threading.Thread(target=self._accept, name='repro-private-adb-gateway', daemon=True)
@@ -110,6 +125,70 @@ class _PrivateGateway(AdbGateway):
             try:self.close()
             except (OSError, RuntimeError, ContractError):pass
             raise
+
+    def _namespace_entries(self):
+        # Only empty / exactly-one-socket matters; never enumerate foreign trees.
+        with os.scandir(self._root_fd) as entries:
+            first = next(entries, None)
+            second = next(entries, None)
+            _require(second is None, 'Private gateway contains foreign entries')
+            return [] if first is None else [first.name]
+
+    def _require_outside_work(self):
+        # Compare actual ancestry, not lexical paths (including macOS aliases).
+        work = _directory(self._context.work)
+        current = None
+        try:
+            current = os.dup(self._parent_fd)
+            identity = _inode(os.fstat(work))
+            for _ in range(128):
+                here = _inode(os.fstat(current))
+                _require(here != identity, 'Private gateway is inside client-writable work')
+                parent = os.open('..', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
+                try:
+                    above = _inode(os.fstat(parent))
+                except BaseException:
+                    os.close(parent)
+                    raise
+                os.close(current)
+                current = parent
+                if here == above:
+                    return
+            raise ContractError('Private gateway ancestry exceeded bound')
+        finally:
+            if current is not None:os.close(current)
+            os.close(work)
+
+    def _require_namespace(self):
+        _require(self._namespace is not None and self._root_fd is not None)
+        parent = _directory(self._namespace.parent)
+        try:
+            _require(_inode(os.fstat(parent)) == _inode(os.fstat(self._parent_fd)))
+            opened = os.fstat(self._root_fd)
+            bound = os.stat(self._namespace.name, dir_fd=self._parent_fd, follow_symlinks=False)
+            _require(_inode(opened) == _inode(bound) and stat.S_ISDIR(bound.st_mode)
+                and bound.st_uid == os.getuid() and stat.S_IMODE(bound.st_mode) == 0o700)
+        finally:
+            os.close(parent)
+
+    def _remove_owned_namespace(self):
+        if self._namespace is None:
+            return
+        self._require_namespace()
+        entries = self._namespace_entries()
+        if self._socket_stamp is None:
+            _require(not self._bind_attempted and not entries)
+        else:
+            _require(entries == ['client.sock'] and self._listener is not None
+                and self._listener.fileno() >= 0)
+            node = os.stat('client.sock', dir_fd=self._root_fd, follow_symlinks=False)
+            _require(stat.S_ISSOCK(node.st_mode) and node.st_uid == os.getuid()
+                and stat.S_IMODE(node.st_mode) == 0o600 and _stamp(node) == self._socket_stamp)
+            # Keep listener/vnode and directory descriptors alive until unlink.
+            os.unlink('client.sock', dir_fd=self._root_fd)
+        self._require_namespace()
+        _require(not self._namespace_entries())
+        os.rmdir(self._namespace.name, dir_fd=self._parent_fd)
 
     def _connect(self):
         self._context._require_live()
@@ -176,18 +255,20 @@ class _PrivateGateway(AdbGateway):
             except OSError:pass
         for worker in workers:worker.join(max(0, deadline-time.monotonic()))
         clean = clean and all(not worker.is_alive() for worker in workers)
-        # A bound socket pins its vnode, but bind-to-first-lstat is not atomic:
-        # another pathname could already have replaced ours before that stat.
-        # Until a reviewed origin proof exists, never unlink ANY namespace node.
-        # Collected workers are not equivalent to complete filesystem cleanup.
         self.workers_collected = clean
-        self.cleanup_incomplete = True
-        self._close_result = False
-        if self._listener is not None:self._listener.close()
-        for field in ('_root_fd', '_parent_fd'):
-            fd = getattr(self, field)
-            if fd is not None:os.close(fd);setattr(self, field, None)
-        raise ContractError('Private ADB cleanup incomplete; namespace origin is unqualified')
+        try:
+            _require(clean, 'Private ADB workers not collected')
+            self._remove_owned_namespace()
+        except (OSError, RuntimeError, ValueError):
+            clean = False
+        finally:
+            self.cleanup_incomplete = not clean
+            self._close_result = clean
+            if self._listener is not None:self._listener.close()
+            for field in ('_root_fd', '_parent_fd'):
+                fd = getattr(self, field)
+                if fd is not None:os.close(fd);setattr(self, field, None)
+        _require(clean, 'Private ADB cleanup incomplete')
 
 
 class _PrivateClient(ScopedAdbClient):
@@ -266,22 +347,25 @@ class _OwnedInstrumentation:
 
 
 class IsolatedAdbContext:
-    """No public construction/import path exists while birth is unqualified."""
+    """Only the explicit retained qualification launcher can mint this context."""
     def __new__(cls, *args, **kwargs):
-        raise ContractError('Private ADB birth is unqualified; no runtime context is available')
+        raise ContractError('Direct ADB context construction is unsupported; use the qualification launcher')
 
     @classmethod
     def birth(cls, *args, **kwargs):
         # Deliberately before path creation, tool execution, sockets or discovery.
-        raise ContractError('Private ADB birth is unqualified; binary/discovery/owned-AVD proof is required')
+        raise ContractError('Direct ADB context birth is unsupported; use the qualification launcher')
 
     def _require_live(self):
         _require(sys.platform == 'darwin', 'Private ADB requires the reviewed Darwin sandbox')
         birth = _OWNED_BIRTHS.get(id(self))
-        _require(birth is not None and birth is self._birth and birth.context is self
+        _require(birth is not None and birth is self._birth and birth._context is self
             and self._pid == os.getpid() and not self._closed and not getattr(self,'_failed',False)
             and time.monotonic() < self.deadline and not self.cancellation.is_set(),
             'Live owned ADB birth required')
+        from .android_recovery_birth import OwnedBirth
+        _require(type(birth) is OwnedBirth, 'Live qualification launcher owner required')
+        birth.require_live()
         _require(type(birth.server) is subprocess.Popen and birth.server is self._server
             and birth.server.poll() is None and birth.server.pid == birth.server_pid,
             'Owned ADB server epoch ended')
