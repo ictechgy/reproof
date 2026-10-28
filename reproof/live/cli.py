@@ -31,6 +31,8 @@ def main(argv=None):
     parser.add_argument('--android-helper',type=Path,help='Persistent Live helper APK for continuous Android input')
     parser.add_argument('--android-app',type=Path,help='Selected Android APK to install for Live')
     parser.add_argument('--android-launch-config',type=Path,help='Explicit local approved QA launch extras; Android runtime profiles only')
+    parser.add_argument('--android-capture-max-width',type=int,choices=(480,720,960,1280,1440,1920),default=960,
+                        help='Android frame width cap; nondefault requires shared-v2 and a general runtime profile')
     parser.add_argument('--android-profile',type=Path,help='Registered general Android runtime application profile JSON')
     parser.add_argument('--app-profile',type=Path,help='Explicit Android application and replay contract JSON')
     parser.add_argument('--iphone',help='Public ID from live-device-doctor for a paired physical iPhone')
@@ -57,6 +59,9 @@ def main(argv=None):
     parser.add_argument('--media-validator',type=Path,
                         help='Owned native media validator executable for package import/export')
     args=parser.parse_args(argv)
+    if args.android_capture_max_width!=960 and (not args.android or not args.android_helper or not args.android_app
+            or not args.android_profile or args.authority_mode!='shared-v2'):
+        parser.error('--android-capture-max-width requires shared-v2, Android helper/app and a general runtime profile')
     # Reject pure option errors before loading state, creating providers or output.
     if not 0<=args.port<=65535:parser.error('Port must be 0–65535')
     if not 1<=args.demo_count<=8:parser.error('Demo device count must be 1–8')
@@ -71,6 +76,7 @@ def main(argv=None):
     if args.protected_recovery_config and (args.android or args.simulator or args.iphone or args.demo
             or args.workers_stdin or args.repair_agent or args.authority_mode!='shared-v2'
             or args.android_helper or args.android_app or args.android_profile or args.android_launch_config or args.app_profile
+            or args.android_capture_max_width!=960
             or args.ios_app or args.ios_profile or args.ios_launch_config or args.iphone_app or args.iphone_products or args.app_logs):
         parser.error('Protected recovery uses only devices from its registered configuration')
     if (args.video_helper or args.media_validator) and not args.issue_config:
@@ -229,7 +235,7 @@ def main(argv=None):
             from .android_live import android_live_device
             devices.append(android_live_device(android_serial,args.android_helper,args.android_app,
                                                 record_sdk=bool(args.repair_agent or args.app_logs),app_profile=app_profile,
-                                                runtime_profile=android_profile,launch_config=android_launch,
+                                                runtime_profile=android_profile,launch_config=android_launch,capture_max_width=args.android_capture_max_width,
                                                 authority_mode=args.authority_mode))
         else:devices.append(android_device(android_serial,authority_mode=args.authority_mode))
     if args.iphone:

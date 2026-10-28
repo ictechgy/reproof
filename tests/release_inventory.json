@@ -1787,6 +1787,59 @@
           "gate": "software"
         }
       ]
+    },
+    "ANDROID_CAPTURE_CONTRACTS": {
+      "available": true,
+      "checks": [
+        {
+          "id": "android-capture-contracts",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_android_capture",
+            "tests.test_android_capture_native.NativeCapturePolicySourceTests",
+            "tests.test_android_capture_distribution",
+            "tests.test_android_startup_wait",
+            "tests.test_android_startup_model",
+            "tests.test_android_launch",
+            "tests.test_live_android_profile",
+            "tests.test_live_worker.WorkerProtocolUnitTests"
+          ],
+          "environment": "public-synthetic-capture-contracts-no-device",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "ANDROID_CAPTURE_NATIVE": {
+      "available": true,
+      "checks": [
+        {
+          "id": "android-capture-native",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_android_capture_native.NativeCapturePolicyExecutableTests",
+            "tests.test_android_native_frame_geometry"
+          ],
+          "environment": "public-synthetic-capture-contracts-no-device",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }

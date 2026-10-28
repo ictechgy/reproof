@@ -105,10 +105,15 @@ def decode_native_frame(data):
 
 class AndroidLiveProvider:
     def __init__(self,serial,helper_apk,sample_apk,*,fixture='counter',record_sdk=False,app_profile=None,
-                 runtime_profile=None,launch_config=None,_device=None):
+                 runtime_profile=None,launch_config=None,capture_max_width=960,_device=None):
         check(not (app_profile is not None and runtime_profile is not None),
               'invalid_argument','Select one Android profile schema',400)
+        from ..android_capture import capture_policy
+        self.capture_policy=capture_policy(capture_max_width)
+        self.capture_max_width=capture_max_width
         self.general_profile=runtime_profile is not None
+        check(capture_max_width==960 or self.general_profile,
+              'invalid_argument','Nondefault Android capture width requires a general runtime profile',400)
         self.launch_config=None
         self.launch_configuration_verified=False
         check(launch_config is None or self.general_profile,
@@ -298,6 +303,8 @@ class AndroidLiveProvider:
                 helperProtocolVersion=NATIVE_PROTOCOL_VERSION,helperVersion=HELPER_VERSION)
         return result
     def start(self,session,lab,permit=None):
+        check(getattr(self,'capture_max_width',960)==960 or (self.device_authority is not None and permit is not None),
+              'authority_required','Nondefault Android capture width requires shared authority',400)
         self.sid=session['id'];self.lab=lab
         self._fixture_session=session
         context=session.get('_androidPreparation')
@@ -329,8 +336,11 @@ class AndroidLiveProvider:
         if self.device_authority is None:self.lease=self.device.lease()
         self.lease.__enter__();self.lease_held=True
         self._install(self.helper_apk,HELPER,permit)
-        config={'token':self.token,'port':8766,'targetPackage':self.target_package,'maxFps':15,'maxWidth':960,
+        config={'token':self.token,'port':8766,'targetPackage':self.target_package,'maxFps':15,'maxWidth':self.capture_max_width,
             'recordSdk':self.record_sdk}
+        if self.capture_max_width!=960:
+            from ..android_capture import capture_policy
+            config['capturePolicy']=capture_policy(self.capture_max_width)
         if self.device_authority is not None:
             config.update(protocolVersion=NATIVE_PROTOCOL_VERSION,helperVersion=HELPER_VERSION,
                           helperIncarnation=permit.helper_incarnation,
@@ -429,6 +439,12 @@ class AndroidLiveProvider:
         buffered=getattr(self,'native_frame_buffered',False)
         frame_path=f'/frames/after/{self.last_native_frame}' if buffered else '/frame'
         metadata,data=decode_native_frame(self.transport.call(frame_path,binary=True))
+        if getattr(self,'capture_max_width',960)!=960:
+            from ..android_capture import PIXEL_LIMIT
+            width,height=metadata.get('width'),metadata.get('height')
+            check(type(width) is int and type(height) is int and 0<width<=self.capture_max_width
+                  and height>0 and width*height<=PIXEL_LIMIT,
+                  'invalid_frame','Android frame exceeds the selected capture policy',400)
         if getattr(self,'native_frame_timing_declared',False):
             check(metadata.get('nativeFrameId')==metadata['id'],
                   'invalid_frame','Android native frame identity differs')
@@ -535,6 +551,12 @@ class AndroidLiveProvider:
         profile=getattr(self,'app_profile',sample_app_profile())
         explicit=getattr(self,'explicit_profile',True)
         check(isinstance(value,dict),'native_profile_mismatch','Android helper returned invalid profile metadata',400)
+        width=getattr(self,'capture_max_width',960)
+        if width!=960 or 'capturePolicy' in value:
+            from ..android_capture import require_capture_receipt
+            try:require_capture_receipt(value.get('capturePolicy'),width)
+            except ContractError:
+                raise LiveError('native_protocol_mismatch','Android capture policy acknowledgement differs',400) from None
         expected_profile=profile.digest if explicit else None
         check(value.get('profileDigest')==expected_profile,'native_profile_mismatch',
               'Android helper profile digest differs from the requested profile',400)
@@ -543,6 +565,9 @@ class AndroidLiveProvider:
         capabilities=value.get('capabilities',{})
         check(isinstance(capabilities,dict),'native_protocol_mismatch',
               'Android helper capabilities are unavailable',400)
+        if width!=960:
+            check(type(capabilities.get('capturePolicyVersion')) is int and capabilities['capturePolicyVersion']==1,
+                  'native_protocol_mismatch','Android capture policy capability is unavailable',400)
         version=capabilities.get('nativeFrameBufferVersion')
         check(version is None or (type(version) is int and version==1),
               'native_protocol_mismatch','Android helper frame buffer version is unsupported',400)
@@ -1210,9 +1235,13 @@ class AndroidLiveProvider:
 
 
 def android_live_device(serial,helper_apk,sample_apk,*,fixture='counter',record_sdk=False,app_profile=None,
-                        runtime_profile=None,launch_config=None,
+                        runtime_profile=None,launch_config=None,capture_max_width=960,
                         authority_mode='shared-v2'):
     check(authority_mode in {'shared-v2','legacy-offline-v1'},'invalid_argument','Invalid authority compatibility mode',400)
+    from ..android_capture import capture_policy
+    selected_capture=capture_policy(capture_max_width)
+    check(capture_max_width==960 or (authority_mode=='shared-v2' and runtime_profile is not None),'invalid_argument',
+          'Nondefault Android capture width requires shared-v2 and a general runtime profile',400)
     check(not (app_profile is not None and runtime_profile is not None),
           'invalid_argument','Select one Android profile schema',400)
     if app_profile is None and runtime_profile is None:
@@ -1239,6 +1268,7 @@ def android_live_device(serial,helper_apk,sample_apk,*,fixture='counter',record_
     capabilities={'actions':actions,'inputMode':'continuous-pointer','maxPointers':5,'multitouch':True,'media':'jpeg-stream',
             'resetContract':reset_contract,'timing':'best-effort','applicationIdentity':identity,
             'pointerTimeoutSeconds':10,'verification':'device-validation-pending','fixture':fixture,'sdkCapture':record_sdk}
+    if capture_max_width!=960:capabilities['capturePolicy']=selected_capture
     capabilities['automaticAppLogs']=(profile.data['capabilities']['logAdapter'] is not None
                                       if general else record_sdk and profile.data.get('appLogs')==1)
     if launch_config is not None:
@@ -1256,7 +1286,7 @@ def android_live_device(serial,helper_apk,sample_apk,*,fixture='counter',record_
         'capabilities':capabilities,
         'factory':lambda:AndroidLiveProvider(serial,helper_apk,sample_apk,fixture=fixture,record_sdk=record_sdk,
             app_profile=profile if explicit and not general else None,
-            runtime_profile=profile if general else None,launch_config=launch_config)}
+            runtime_profile=profile if general else None,launch_config=launch_config,capture_max_width=capture_max_width)}
     descriptor['capabilities']['authorityMode']=authority_mode
     if authority_mode=='shared-v2':descriptor['_authority']={'deviceKind':'android','physicalId':serial}
     return descriptor

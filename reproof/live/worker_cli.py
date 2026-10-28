@@ -138,6 +138,10 @@ def configured_local_devices(path):
         product_key='helper' if item['platform']=='android' else 'products'
         expected={'platform','deviceId','profile','application',product_key}
         if item['platform']=='android' and 'launchConfig' in item:expected.add('launchConfig')
+        if item['platform']=='android' and 'captureMaxWidth' in item:expected.add('captureMaxWidth')
+        if 'captureMaxWidth' in item:
+            from ..android_capture import capture_policy
+            capture_policy(item['captureMaxWidth'])
         check(set(item)==expected,
               'invalid_config','Invalid configured device fields',400)
         check(all(type(item[key]) is str and 0<len(item[key])<=1024
@@ -162,7 +166,7 @@ def configured_local_devices(path):
             launch=(load_android_launch(selected('launchConfig'),profile) if 'launchConfig' in item else None)
             result.append(android_live_device(
                 item['deviceId'],selected('helper'),selected('application'),
-                runtime_profile=profile,launch_config=launch,authority_mode='shared-v2'))
+                runtime_profile=profile,launch_config=launch,capture_max_width=item.get('captureMaxWidth',960),authority_mode='shared-v2'))
         else:
             from ..ios_profile import load_ios_profile
             from .iphone import iphone_device
@@ -195,6 +199,8 @@ def main(argv=None):
                         help='Trusted local device/product configuration with one runtime profile per device')
     parser.add_argument('--android',action='append',default=[],help='ADB serial or auto for a single connected device')
     parser.add_argument('--android-helper',type=Path);parser.add_argument('--android-app',type=Path)
+    parser.add_argument('--android-capture-max-width',type=int,choices=(480,720,960,1280,1440,1920),default=960,
+                        help='Android frame width cap; nondefault requires shared-v2 and a general runtime profile')
     parser.add_argument('--android-profile',type=Path,
                         help='Trusted version-2 Android runtime application profile')
     parser.add_argument('--simulator',action='append',default=[]);parser.add_argument('--ios-products',type=Path)
@@ -210,10 +216,13 @@ def main(argv=None):
     parser.add_argument('--bundle',default='io.reproof.sample.ios');parser.add_argument('--demo',action='store_true')
     parser.add_argument('--authority-mode',choices=['shared-v2','legacy-offline-v1'],default='shared-v2')
     args=parser.parse_args(argv)
+    if args.android_capture_max_width!=960 and (not args.android or not args.android_helper or not args.android_app
+            or not args.android_profile or args.authority_mode!='shared-v2'):
+        parser.error('--android-capture-max-width requires shared-v2, Android helper/app and a general runtime profile')
     if args.devices_config and (args.android or args.iphone or args.simulator or args.demo
             or args.android_profile or args.ios_profile or args.android_helper
             or args.android_app or args.ios_products or args.iphone_app or args.ios_app or args.ios_launch_config
-            or args.authority_mode!='shared-v2'):
+            or args.authority_mode!='shared-v2' or args.android_capture_max_width!=960):
         parser.error('--devices-config requires shared-v2 and supplies all device and product selections')
     if args.ios_app and (not args.simulator or not args.ios_profile or args.iphone or args.android):
         parser.error('--ios-app requires only general Simulator devices and --ios-profile')
@@ -292,7 +301,7 @@ def main(argv=None):
                 check(args.android_helper is not None and args.android_app is not None,'missing_build','Supply both Android APK paths',400)
                 from .android_live import android_live_device
                 devices.append(android_live_device(actual.serial,args.android_helper,args.android_app,
-                                                    runtime_profile=android_profile,
+                                                    runtime_profile=android_profile,capture_max_width=args.android_capture_max_width,
                                                     authority_mode=args.authority_mode))
             else:
                 from .android import android_device

@@ -14,6 +14,7 @@
     "android/live/src/main/AndroidManifest.xml",
     "android/live/src/main/java/io/reproof/live/AppOwnedFixture.kt",
     "android/live/src/main/java/io/reproof/live/ApprovedLaunch.kt",
+    "android/live/src/main/java/io/reproof/live/CapturePolicy.kt",
     "android/live/src/main/java/io/reproof/live/LiveInstrumentation.kt",
     "android/native-common/src/main/java/io/reproof/fixture/FixtureIdentity.kt",
     "android/native-common/src/main/java/io/reproof/fixture/FixtureWire.kt",
