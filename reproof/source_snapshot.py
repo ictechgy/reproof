@@ -1,7 +1,8 @@
 """Local disk-backed source captures, not provenance or execution capabilities.
 
 Only explicitly selected inert regular files are copied. Existing BlobSet,
-execution, instrumentation and AI-transfer contracts are deliberately unchanged.
+execution, legacy instrumentation and AI-transfer contracts remain unchanged.
+Explicit opt-in consumers may bind these local bytes through their own contracts.
 """
 from __future__ import annotations
 
@@ -250,7 +251,7 @@ class _Output:
     """
     FILE_PIN_LIMIT = 32
 
-    def __init__(self, path, *, source_root=None):
+    def __init__(self, path, *, source_root=None, parent_identity=None):
         self.path = Path(path).absolute()
         _require(self.path.name not in ('', '.', '..'), 'snapshot_output_invalid')
         self.parent = open_directory(self.path.parent)
@@ -266,6 +267,11 @@ class _Output:
         self.writer_active = False
         created_root = False
         try:
+            if parent_identity is not None:
+                _require(type(parent_identity) is tuple and len(parent_identity) == 2
+                         and all(type(value) is int and value >= 0 for value in parent_identity)
+                         and _identity(os.fstat(self.parent)) == parent_identity,
+                         'snapshot_output_parent_changed')
             if source_root is not None:
                 _require_separate(source_root, self.parent)
             os.mkdir(self.path.name, mode=0o700, dir_fd=self.parent)
@@ -504,7 +510,7 @@ def _fail(error):
     raise SnapshotError('snapshot_io_rejected') from None
 
 
-def capture(source, paths, output, *, budgets=None, cancel=None):
+def capture(source, paths, output, *, budgets=None, cancel=None, output_parent_identity=None):
     budget = _budget(budgets)
     names = _paths(paths, budget)
     _overlap(source, output)
@@ -512,7 +518,7 @@ def capture(source, paths, output, *, budgets=None, cancel=None):
     try:
         _cancel(cancel)
         root = _Root(source)
-        destination = _Output(output, source_root=root)
+        destination = _Output(output, source_root=root, parent_identity=output_parent_identity)
         files, remaining = [], budget.max_bytes
         for name in names:
             _cancel(cancel)
@@ -648,7 +654,7 @@ def _validate_output(destination, document, budget, cancel, *, snapshot):
     destination.validate_pins()
 
 
-def _consume(snapshot, output, budget, cancel):
+def _consume(snapshot, output, budget, cancel, output_parent_identity=None):
     root = destination = None
     try:
         _cancel(cancel)
@@ -658,7 +664,7 @@ def _consume(snapshot, output, budget, cancel):
         _tree(root.fd, names, cancel)
         if output is not None:
             _overlap(snapshot, output)
-            destination = _Output(output, source_root=root)
+            destination = _Output(output, source_root=root, parent_identity=output_parent_identity)
         remaining = budget.max_bytes
         for item in document['files']:
             _cancel(cancel)
@@ -693,5 +699,208 @@ def verify(snapshot, *, budgets=None, cancel=None):
     return _consume(snapshot, None, _budget(budgets), cancel)
 
 
-def materialize(snapshot, output, *, budgets=None, cancel=None):
-    return _consume(snapshot, output, _budget(budgets), cancel)
+def materialize(snapshot, output, *, budgets=None, cancel=None, output_parent_identity=None):
+    return _consume(snapshot, output, _budget(budgets), cancel, output_parent_identity)
+
+
+MAX_CONSUMER_FILES = 128
+MAX_CHANGE_FILES = 16
+MAX_CONSUMER_BYTES = 16 * 1024 * 1024
+
+
+def _expected_document(document, expected):
+    _require(type(expected) is dict and set(expected) == {'digest', 'files', 'bytes'}
+             and type(expected['digest']) is str and len(expected['digest']) == 64
+             and all(c in '0123456789abcdef' for c in expected['digest'])
+             and type(expected['files']) is int and 1 <= expected['files'] <= MAX_FILES
+             and type(expected['bytes']) is int and 0 <= expected['bytes'] <= MAX_BYTES,
+             'snapshot_reference_invalid')
+    expected = {key: expected[key] for key in ('digest', 'files', 'bytes')}
+    summary = _summary(document)
+    _require(all(expected[key] == summary[key] for key in ('digest', 'files', 'bytes')),
+             'snapshot_reference_mismatch')
+
+
+def _finish_input(root, document, manifest_stamp, cancel):
+    _tree(root.fd, [item['path'] for item in document['files']], cancel)
+    _require(_stamp(os.stat('manifest.json', dir_fd=root.fd, follow_symlinks=False)) == manifest_stamp,
+             'snapshot_manifest_changed')
+    root.current()
+    _cancel(cancel)
+
+
+def _consumer_limits(max_files, max_bytes):
+    _require(type(max_files) is int and 1 <= max_files <= MAX_CONSUMER_FILES
+             and type(max_bytes) is int and 1 <= max_bytes <= MAX_CONSUMER_BYTES,
+             'snapshot_consumer_limit')
+
+
+def _read_consumer(snapshot, paths, *, expected, budgets, cancel, max_bytes, visitor=None):
+    import io
+    budget = _budget(budgets)
+    root = None
+    try:
+        _cancel(cancel)
+        root = _Root(snapshot)
+        document, manifest_stamp = _load(root, budget)
+        if expected is not None:
+            _expected_document(document, expected)
+        _tree(root.fd, [item['path'] for item in document['files']], cancel)
+        selected = set(paths or ())
+        declared = {item['path']: item for item in document['files']}
+        _require(selected <= declared.keys(), 'snapshot_consumer_selection_invalid')
+        if visitor is None:
+            _require(sum(declared[name]['size'] for name in selected) <= max_bytes,
+                     'snapshot_consumer_limit')
+        result, remaining = {}, budget.max_bytes
+        for item in document['files']:
+            _cancel(cancel)
+            if item['path'] in selected:
+                with io.BytesIO() as sink:
+                    _stream(root.fd, 'data/' + item['path'], budget, remaining,
+                            sink=sink, expected=item, cancel=cancel)
+                    if visitor is None:
+                        result[item['path']] = sink.getvalue()
+                    else:
+                        visitor(item['path'], sink.getvalue())
+            else:
+                _stream(root.fd, 'data/' + item['path'], budget, remaining,
+                        expected=item, cancel=cancel)
+            remaining -= item['size']
+        _finish_input(root, document, manifest_stamp, cancel)
+        return document if paths is None or visitor is not None else result
+    except BaseException as error:
+        _fail(error)
+    finally:
+        if root is not None:
+            root.close()
+
+
+def inspect_snapshot(snapshot, *, expected=None, budgets=None, cancel=None):
+    """Verify actual contents and return bounded manifest metadata, not authority."""
+    return _read_consumer(snapshot, None, expected=expected, budgets=budgets,
+                          cancel=cancel, max_bytes=MAX_CONSUMER_BYTES)
+
+
+def read_snapshot_files(snapshot, paths, *, expected, budgets=None, cancel=None,
+                        max_files=64, max_bytes=MAX_CONSUMER_BYTES):
+    """Read limited metadata files while verifying all actual snapshot contents."""
+    _consumer_limits(max_files, max_bytes)
+    _require(type(paths) in (list, tuple) and 1 <= len(paths) <= max_files,
+             'snapshot_consumer_limit')
+    names = tuple(paths[:max_files + 1])
+    _require(1 <= len(names) <= max_files, 'snapshot_consumer_limit')
+    names = _paths(names, _budget(budgets))
+    _require(expected is not None, 'snapshot_reference_invalid')
+    return _read_consumer(snapshot, names, expected=expected, budgets=budgets,
+                          cancel=cancel, max_bytes=max_bytes)
+
+
+def scan_snapshot_files(snapshot, paths, visitor, *, expected, budgets=None, cancel=None):
+    """Visit selected files one at a time with a trusted, non-retaining callback."""
+    _require(callable(visitor) and expected is not None, 'snapshot_consumer_invalid')
+    names = _paths(paths, _budget(budgets))
+    return _read_consumer(snapshot, names, expected=expected, budgets=budgets,
+                          cancel=cancel, max_bytes=MAX_CONSUMER_BYTES, visitor=visitor)
+
+
+def snapshot_manifest_reference(document, *, budgets=None):
+    """Validate metadata only; this does not verify actual bytes or provenance."""
+    budget = _budget(budgets)
+    _require(type(document) is dict and len(document) == 4
+             and set(document) == {'schemaVersion', 'kind', 'files', 'digest'}
+             and type(document['schemaVersion']) is int and document['schemaVersion'] == 1
+             and document['kind'] == _KIND and type(document['files']) is list
+             and 1 <= len(document['files']) <= budget.max_files, 'snapshot_manifest_invalid')
+    selected = document['files'][:budget.max_files + 1]
+    _require(1 <= len(selected) <= budget.max_files, 'snapshot_manifest_invalid')
+    files = []
+    for item in selected:
+        _require(type(item) is dict and len(item) == 3 and set(item) == {'path', 'size', 'sha256'}
+                 and type(item['size']) is int and 0 <= item['size'] <= budget.max_file_bytes
+                 and type(item['sha256']) is str and len(item['sha256']) == 64
+                 and all(c in '0123456789abcdef' for c in item['sha256']),
+                 'snapshot_manifest_invalid')
+        files.append({'path': item['path'], 'size': item['size'], 'sha256': item['sha256']})
+    names = [item['path'] for item in files]
+    _require(tuple(names) == _paths(names, budget)
+             and sum(item['size'] for item in files) <= budget.max_bytes,
+             'snapshot_manifest_invalid')
+    canonical = _manifest(files, budget)
+    _require(document['digest'] == canonical['digest'], 'snapshot_manifest_invalid')
+    summary = _summary(canonical)
+    return {key: summary[key] for key in ('digest', 'files', 'bytes')}
+
+
+def derive_snapshot(snapshot, output, changes, *, expected, budgets=None, cancel=None,
+                    output_parent_identity=None):
+    """Derive fresh content from bounded explicit bytes, never historical provenance.
+
+    Callers using output_parent_identity must keep that parent descriptor alive.
+    """
+    from itertools import islice
+    budget = _budget(budgets)
+    _require(type(changes) is dict and 1 <= len(changes) <= MAX_CHANGE_FILES,
+             'snapshot_changes_invalid')
+    try:
+        changes = dict(islice(changes.items(), MAX_CHANGE_FILES + 1))
+    except RuntimeError:
+        raise SnapshotError('snapshot_changes_invalid') from None
+    _require(1 <= len(changes) <= MAX_CHANGE_FILES
+             and all(type(raw) is bytes and len(raw) <= budget.max_file_bytes for raw in changes.values())
+             and sum(map(len, changes.values())) <= MAX_CONSUMER_BYTES,
+             'snapshot_changes_invalid')
+    _paths(tuple(changes), budget)
+    _require(expected is not None, 'snapshot_reference_invalid')
+    _overlap(snapshot, output)
+    root = destination = None
+    try:
+        _cancel(cancel)
+        root = _Root(snapshot)
+        document, manifest_stamp = _load(root, budget)
+        _expected_document(document, expected)
+        original = {item['path']: item for item in document['files']}
+        _tree(root.fd, list(original), cancel)
+        names = _paths(tuple(set(original) | set(changes)), budget)
+        _require(sum(len(changes[name]) if name in changes else original[name]['size']
+                     for name in names) <= budget.max_bytes, 'snapshot_bytes_limit')
+        prospective = [{'path': name, 'size': len(changes[name]),
+                        'sha256': hashlib.sha256(changes[name]).hexdigest()}
+                       if name in changes else original[name] for name in names]
+        derived = _manifest(prospective, budget)
+        destination = _Output(output, source_root=root, parent_identity=output_parent_identity)
+        remaining = budget.max_bytes
+        for name in names:
+            _cancel(cancel)
+            if name in changes:
+                if name in original:
+                    _stream(root.fd, 'data/' + name, budget, remaining,
+                            expected=original[name], cancel=cancel)
+                    remaining -= original[name]['size']
+                with destination.create('data/' + name) as sink:
+                    raw = memoryview(changes[name])
+                    for start in range(0, len(raw), CHUNK_BYTES):
+                        _cancel(cancel)
+                        sink.write(raw[start:start + CHUNK_BYTES])
+            else:
+                with destination.create('data/' + name) as sink:
+                    _stream(root.fd, 'data/' + name, budget, remaining,
+                            sink=sink, expected=original[name], cancel=cancel)
+                remaining -= original[name]['size']
+        _finish_input(root, document, manifest_stamp, cancel)
+        with destination.create('manifest.json') as sink:
+            for raw in _chunks(derived):
+                _cancel(cancel)
+                sink.write(raw)
+        _validate_output(destination, derived, budget, cancel, snapshot=True)
+        _cancel(cancel)
+        return _summary(derived)
+    except BaseException as error:
+        if destination is not None and not destination.rollback():
+            raise SnapshotError('snapshot_cleanup_incomplete') from error
+        _fail(error)
+    finally:
+        if destination is not None:
+            destination.close()
+        if root is not None:
+            root.close()

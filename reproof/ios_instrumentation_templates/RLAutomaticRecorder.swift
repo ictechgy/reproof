@@ -385,7 +385,7 @@ public final class RLAutomaticRecorder: NSObject {
               let configObject = try? JSONSerialization.jsonObject(with: configProfileData),
               let configProfile = configObject as? [String: Any],
               let configuredApplicationID = configProfile["applicationId"] as? String else { return false }
-        let observationOnly = configProfile["kind"] as? String == "uikit-observation-v2"
+        let observationOnly = ["uikit-observation-v2", "uikit-observation-v3"].contains(configProfile["kind"] as? String ?? "")
         guard environment["REPRO_MODE"] == (observationOnly ? "observe" : "record") else { return false }
         guard let rawDigest = environment["REPRO_AUTO_PROFILE_DIGEST"],
               isDigest(rawDigest),
@@ -429,7 +429,7 @@ public final class RLAutomaticRecorder: NSObject {
         guard let data = RLAutoConfig.profileJSON.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data),
               let document = object as? [String: Any] else { return nil }
-        if document["kind"] as? String == "uikit-observation-v2" {
+        if ["uikit-observation-v2", "uikit-observation-v3"].contains(document["kind"] as? String ?? "") {
             return loadObservationProfile(document)
         }
         guard
@@ -473,8 +473,16 @@ public final class RLAutomaticRecorder: NSObject {
     }
 
     private func loadObservationProfile(_ document: [String: Any]) -> Profile? {
+        let snapshotBacked = document["kind"] as? String == "uikit-observation-v3"
         func matches(_ value: String, _ pattern: String) -> Bool {
-            value.range(of: pattern, options: .regularExpression) != nil
+            let range = value.range(of: pattern, options: .regularExpression)
+            return snapshotBacked ? range == (value.startIndex..<value.endIndex) : range != nil
+        }
+        func boundedInteger(_ value: Any?, minimum: Int, maximum: Int) -> Bool {
+            guard let number = value as? NSNumber,
+                  CFGetTypeID(number) != CFBooleanGetTypeID(), !CFNumberIsFloatType(number),
+                  number.stringValue == String(number.int64Value) else { return false }
+            return number.int64Value >= Int64(minimum) && number.int64Value <= Int64(maximum)
         }
         func identifier(_ value: String) -> Bool {
             matches(value, "^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
@@ -496,8 +504,27 @@ public final class RLAutomaticRecorder: NSObject {
                     && !devices.contains(part.components(separatedBy: ".")[0].lowercased())
                 }
         }
+        // The reference binds the host-selected snapshot. This runtime cannot
+        // inspect its source manifest and makes no claim of source membership.
+        let inputs: [String]
+        if snapshotBacked {
+            guard boundedInteger(document["schemaVersion"], minimum: 3, maximum: 3),
+                  let snapshot = document["sourceSnapshot"] as? [String: Any],
+                  Set(snapshot.keys) == Set(["schemaVersion", "kind", "digest", "files", "bytes"]),
+                  boundedInteger(snapshot["schemaVersion"], minimum: 1, maximum: 1),
+                  snapshot["kind"] as? String == "reproof-local-source-snapshot",
+                  let digest = snapshot["digest"] as? String, matches(digest, "^[0-9a-f]{64}$"),
+                  boundedInteger(snapshot["files"], minimum: 1, maximum: 32768),
+                  boundedInteger(snapshot["bytes"], minimum: 0, maximum: 268435456) else { return nil }
+            inputs = []
+        } else {
+            guard let selected = document["sourceInputs"] as? [String], !selected.isEmpty, selected.count <= 900,
+                  selected.allSatisfy(inputPath),
+                  Set(selected.map { $0.folding(options: [.caseInsensitive], locale: Locale(identifier: "en_US_POSIX")) }).count == selected.count else { return nil }
+            inputs = selected
+        }
         let requiredKeys = Set(["schemaVersion", "kind", "applicationId", "project", "target",
-                                "build", "sourceInputs", "tapTargets", "screenTargets"])
+                                "build", snapshotBacked ? "sourceSnapshot" : "sourceInputs", "tapTargets", "screenTargets"])
         let allowedExtensions = Set([".metal", ".glsl", ".tiff", ".nib", ".a", ".js", ".css",
                                      ".woff", ".woff2", ".aar", ".jar", ".so", ".html", ".map"])
         if document.keys.contains("inputExtensions") {
@@ -509,7 +536,7 @@ public final class RLAutomaticRecorder: NSObject {
         guard requiredKeys.isSubset(of: Set(document.keys)),
               Set(document.keys).isSubset(of: requiredKeys.union(["workspace", "inputExtensions"])),
               let version = document["schemaVersion"] as? NSNumber,
-              CFGetTypeID(version) != CFBooleanGetTypeID(), version.doubleValue == 2,
+              CFGetTypeID(version) != CFBooleanGetTypeID(), version.doubleValue == (snapshotBacked ? 3 : 2),
               let applicationID = document["applicationId"] as? String, applicationID.count <= 180,
               matches(applicationID, "^[A-Za-z][A-Za-z0-9-]*(\\.[A-Za-z][A-Za-z0-9-]*)+$"),
               !["io.reproof.live", "io.reproof.driver"].contains(applicationID),
@@ -521,10 +548,7 @@ public final class RLAutomaticRecorder: NSObject {
               let product = build["product"], buildName(product),
               let configuration = build["debugConfiguration"], buildName(configuration),
               let info = build["infoPlist"], inputPath(info), info.hasSuffix(".plist"),
-              let inputs = document["sourceInputs"] as? [String], !inputs.isEmpty, inputs.count <= 900,
-              inputs.allSatisfy(inputPath),
-              Set(inputs.map { $0.folding(options: [.caseInsensitive], locale: Locale(identifier: "en_US_POSIX")) }).count == inputs.count,
-              inputs.contains(project + "/project.pbxproj"), inputs.contains(info),
+              snapshotBacked || (inputs.contains(project + "/project.pbxproj") && inputs.contains(info)),
               let taps = document["tapTargets"] as? [String], !taps.isEmpty, taps.count <= 128,
               taps.allSatisfy(identifier), Set(taps).count == taps.count,
               let screens = document["screenTargets"] as? [String: String], !screens.isEmpty, screens.count <= 64,
@@ -534,8 +558,8 @@ public final class RLAutomaticRecorder: NSObject {
         if let rawWorkspace = document["workspace"] {
             guard let workspace = rawWorkspace as? String,
                   workspace.hasSuffix(".xcworkspace"), inputPath(workspace),
-                  inputs.contains(workspace + "/contents.xcworkspacedata"),
-                  inputs.contains(workspace + "/xcshareddata/xcschemes/" + scheme + ".xcscheme") else { return nil }
+                  snapshotBacked || (inputs.contains(workspace + "/contents.xcworkspacedata") &&
+                  inputs.contains(workspace + "/xcshareddata/xcschemes/" + scheme + ".xcscheme")) else { return nil }
         }
         return Profile(observationOnly: true, applicationID: applicationID, project: project, target: target,
                        cases: [], textTargets: [], numericTargets: [], tapTargets: Set(taps), backTarget: "",

@@ -315,6 +315,11 @@ class ConfiguredIosObservationTests(unittest.TestCase):
             pending['result'] = {'ok': True}; pending['event'].set()
         provider.commands.put_nowait = dispatch
         provider._wait_for_app_log_marker = Mock()
+        # Existing target isolation handshake remains mandatory even in this
+        # protocol double; this test does not launch a Simulator or helper.
+        self.assertEqual(provider.bridge('ready', {'capabilities': {
+            'targetBoundaryVersion': 1, 'actions': runtime.data['capabilities']['actions']}}), {'ok': True})
+        provider._wait_for_app_log_marker.reset_mock()
         self.assertEqual(provider._execute('launch', {'applicationId': 'ios_app'}, None), {'ok': True})
         provider._wait_for_app_log_marker.assert_called_once()
 

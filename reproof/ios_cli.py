@@ -17,6 +17,7 @@ from .ios_repair import repair_ios_job
 from .agents import ClaudeAgent,PatchFileAgent
 from .replay import write_report
 
+from .source_snapshot import SnapshotBudget, SnapshotError
 from .resources import resource_root
 
 ROOT=resource_root()
@@ -45,6 +46,11 @@ def main(argv):
     app_build.add_argument('--profile',type=Path,help='Profile for an original unprepared app')
     app_build.add_argument('--configuration',help='Exact configured Xcode configuration name')
     app_build.add_argument('--sdk',choices=['simulator','device'],default='simulator')
+    for command in (instrument, app_build):
+        command.add_argument('--snapshot-max-files', type=int,
+                             help='Explicit v3 snapshot file budget (hard maximum 32768)')
+        command.add_argument('--snapshot-max-bytes', type=int,
+                             help='Explicit v3 snapshot byte budget (hard maximum 268435456)')
     build=sub.add_parser('ios-build');build.add_argument('--source',type=Path,default=ROOT/'ios');build.add_argument('--output',type=Path,required=True)
     build.add_argument('--configuration',choices=['Debug','Release'],default='Debug')
     record=sub.add_parser('ios-record');record.add_argument('--build',type=Path,required=True);record.add_argument('--output',type=Path,required=True)
@@ -61,16 +67,26 @@ def main(argv):
     for command in (replay,repair):command.add_argument('--repeats',type=int,default=3)
     args=parser.parse_args(argv)
     try:
+        snapshot_budgets = None
+        if args.command in {'ios-instrument', 'ios-app-build'} and (
+                args.snapshot_max_files is not None or args.snapshot_max_bytes is not None):
+            snapshot_budgets = SnapshotBudget(
+                max_files=args.snapshot_max_files if args.snapshot_max_files is not None else 900,
+                max_bytes=args.snapshot_max_bytes if args.snapshot_max_bytes is not None else 60 * 1024 * 1024)
         if args.command=='ios-instrument':
             from .ios_instrumentation import prepare_ios_instrumentation
             from .ios_observation import load_observation_profile
             profile=load_observation_profile(args.profile) if args.profile else None
-            summary(prepare_ios_instrumentation(args.source,args.output,profile=profile));return 0
+            require(snapshot_budgets is None or profile is not None and profile.data.get('kind') == 'uikit-observation-v3',
+                    'Snapshot budgets require an explicit v3 observation profile')
+            options={'snapshot_budgets':snapshot_budgets} if snapshot_budgets is not None else {}
+            summary(prepare_ios_instrumentation(args.source,args.output,profile=profile,**options));return 0
         if args.command=='ios-app-build':
             from .ios_observation import build_observation_app,load_observation_profile
             result=build_observation_app(args.source,args.output,
                 profile=load_observation_profile(args.profile) if args.profile else None,
-                configuration=args.configuration,sdk=args.sdk)
+                configuration=args.configuration,sdk=args.sdk,
+                **({'snapshot_budgets':snapshot_budgets} if snapshot_budgets is not None else {}))
             summary({'status':'built','app':result['app'],'receipt':args.output/'receipt.json',
                      'signed':False,'behaviorVerified':False});return 0
         if args.command=='ios-doctor':
@@ -153,6 +169,9 @@ def main(argv):
                 write_json(args.output/'job.json',result);write_report(args.output/'report.html',result)
             summary({'status':result['status'],'executionEnvironment':environment,'report':args.output/'report.html'})
             return 0 if result['status'] in {'verified','reproduced'} else 130 if result['status']=='cancelled' else 2
+    except SnapshotError as exc:
+        summary({'status':'blocked','errorType':'SnapshotError','message':exc.code,
+                 'cleanupIncomplete':exc.cleanup_incomplete});return 2
     except (ContractError,CommandError,OSError,ValueError) as exc:
         summary({'status':'blocked','errorType':type(exc).__name__,'message':str(exc) if isinstance(exc,(ContractError,CommandError)) else 'iOS local IO or data parsing failed'})
         return 2

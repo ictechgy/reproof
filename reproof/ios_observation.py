@@ -98,7 +98,7 @@ def validate_observation_document(document):
 
 
 def is_observation_profile(profile):
-    return profile is not None and profile.data.get('kind') == KIND
+    return profile is not None and profile.data.get('kind') in {KIND, 'uikit-observation-v3'}
 
 
 def _freeze(source, names):
@@ -129,6 +129,8 @@ def _hashes(entries):
 
 
 def source_snapshot(source, profile, *, prepared=False):
+    require(profile is not None and profile.data.get('kind') == KIND,
+            'Use the snapshot route with an explicit v3 observation profile')
     names = list(profile.data['sourceInputs']) + (list(GENERATED) if prepared else [])
     return _freeze(source, names)
 
@@ -156,6 +158,8 @@ def _project(raw):
 
 
 def prepare_observation(source, output, profile, *, sanitation_policy=None):
+    require(profile is not None and profile.data.get('kind') == KIND,
+            'Use the snapshot route with an explicit v3 observation profile')
     from .ios_instrumentation import _configure_project, _sanitation_config, _sanitation_policy
     sanitation_policy = _sanitation_policy(sanitation_policy)
     source, output = Path(source).absolute(), Path(output).absolute()
@@ -217,6 +221,8 @@ def prepare_observation(source, output, profile, *, sanitation_policy=None):
 
 
 def validate_observation_preparation(source, profile):
+    require(profile is not None and profile.data.get('kind') == KIND,
+            'Use the snapshot route with an explicit v3 observation profile')
     source = Path(source)
     receipt = read_json(source / MARKER)
     current = _hashes(source_snapshot(source, profile, prepared=True).entries)
@@ -243,15 +249,25 @@ def load_observation_profile(path):
     path = Path(path).absolute()
     _input_name(path.name)
     require(path.suffix == '.json', 'Select a public UIKit profile JSON file')
-    try: value = json.loads(dict(_freeze(path.parent, [path.name]).entries)[path.name], object_pairs_hook=_unique_object)
-    except (ValueError, UnicodeError): raise ContractError('Invalid UIKit profile JSON') from None
+    try:
+        raw = dict(_freeze(path.parent, [path.name]).entries)[path.name]
+        require(len(raw) <= 256 * 1024, 'UIKit profile size limit exceeded')
+        value = json.loads(raw, object_pairs_hook=_unique_object)
+    except (ValueError, UnicodeError, RecursionError):
+        raise ContractError('Invalid UIKit profile JSON') from None
     selected = validate_ios_auto_profile(value)
     require(is_observation_profile(selected), 'Select a configured UIKit observation profile')
     return selected
 
 
-def build_observation_app(source, output, *, profile=None, configuration=None, sdk='simulator'):
+def build_observation_app(source, output, *, profile=None, configuration=None, sdk='simulator', snapshot_budgets=None):
     """Explicit local build of trusted public inputs; no device or signing access."""
+    document = profile.data if hasattr(profile, 'data') else profile
+    if type(document) is dict and document.get('kind') == 'uikit-observation-v3':
+        from .ios_snapshot_observation import build_snapshot_observation_app
+        return build_snapshot_observation_app(source, output, profile=profile,
+            configuration=configuration, sdk=sdk, budgets=snapshot_budgets)
+    require(snapshot_budgets is None, 'Snapshot budgets require an explicit v3 observation profile')
     from .ios_build import xcode_environment
     from .ios_instrumentation import (IosAutoProfile, profile_from_source, profile_from_app,
                                       validate_ios_auto_profile)
@@ -265,6 +281,8 @@ def build_observation_app(source, output, *, profile=None, configuration=None, s
         profile = validate_ios_auto_profile(profile.data if isinstance(profile, IosAutoProfile) else profile)
     else: profile = embedded
     require(is_observation_profile(profile), 'Select a configured UIKit observation profile')
+    require(profile is not None and profile.data.get('kind') == KIND,
+            'Use the snapshot route with an explicit v3 observation profile')
     require(embedded is None or embedded.digest == profile.digest, 'UIKit build profile changed')
     preparation = validate_observation_preparation(source, profile) if embedded else None
     frozen = source_snapshot(source, profile, prepared=embedded is not None)

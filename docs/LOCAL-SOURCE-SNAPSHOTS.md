@@ -5,10 +5,11 @@ new local directory, verifies them, and materializes them into another new local
 directory. It does **not** execute a build, inspect a repository automatically,
 run Git, extract an archive, contact a server, upload source, or invoke AI.
 
-This is a usable large-source staging primitive, **not large-repository support
-in existing instrumentation or G9 repair**. Those consumers still use their
-existing 900/1,024-file and 60/64 MiB contracts. Large application artifacts are
-also outside this source-only feature. No existing execution/transfer, artifact,
+This is a large-source staging primitive. Existing v2 instrumentation and G9
+repair retain their 900/1,024-file and 60/64 MiB contracts. The separate opt-in
+[UIKit observation v3 consumer](IOS-SNAPSHOT-OBSERVATIONS.md) uses snapshots for
+local preparation and unsigned builds. Large application artifacts remain
+outside this source-only feature. No existing execution/transfer, artifact,
 editable-path, external-AI consent, or prepared-replay policy is changed.
 
 ## Explicit local selection
@@ -140,8 +141,15 @@ synthetic 22,000- and 32,768-file trees with 4 KiB files, both exceeding 64 MiB,
 and measure peak Python allocations. This is not measurement of a company repo,
 OS cache/RSS, native build performance, or application reproducibility.
 
-Later integration must explicitly migrate observation profiles away from embedded
-large path lists, connect immutable build inputs to the existing small edit
+Further integration must migrate the remaining observation consumers away from
+embedded large path lists, connect immutable build inputs to the existing small edit
 surface, add bounded disk-backed host/guest transfers with paged manifests, and
 separately address large app-artifact budgets. Those capabilities are not enabled
 by creating or importing one of these local snapshots.
+
+## Explicit local consumer
+
+The opt-in [UIKit observation v3 path](IOS-SNAPSHOT-OBSERVATIONS.md) consumes
+snapshots for local instrumentation and unsigned Simulator compilation. Its
+separate profile/receipt checks do not turn a snapshot into G9 authorization or
+provenance. Existing v2 source limits and execution transfer limits are unchanged.
