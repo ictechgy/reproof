@@ -46,6 +46,17 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix='rq-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
+        self.official_layout = dict(birth._AOSP_R2_FILE_SIZES)
+        # Lifecycle tests exercise real small files, not a multi-GiB image.
+        # The separate official-layout test retains every published size.
+        properties = b'AndroidVersion.ApiLevel=36\nSystemImage.Abi=arm64-v8a\nSystemImage.TagId=default\nPkg.Revision=2\n'
+        self.synthetic_layout = {name: len(properties) if name == 'source.properties' else len(b'synthetic')
+                                 for name in self.official_layout}
+        for name, value in (('_AOSP_R2_FILE_SIZES', self.synthetic_layout),
+                            ('_AOSP_R2_EXPANDED_BYTES', sum(self.synthetic_layout.values()))):
+            selected_patch = patch.object(birth, name, value)
+            selected_patch.start()
+            self.addCleanup(selected_patch.stop)
         self._owners_before = set(birth._OWNERS)
         self.addCleanup(self.remove_owners)
 
@@ -70,9 +81,9 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         emulator = self.file('emulator/emulator')
         qemu = self.file('emulator/qemu/qemu-system-aarch64')
         for item in (emulator, qemu):Path(item.path).chmod(0o700)
-        image = [self.file('image/'+name) for name in ('kernel-ranchu', 'ramdisk.img', 'system.img', 'userdata.img')]
+        image = [self.file('image/'+name) for name in self.synthetic_layout if name != 'source.properties']
         image.append(self.file('image/source.properties',
-            b'AndroidVersion.ApiLevel=36\nSystemImage.Abi=arm64-v8a\nSystemImage.TagId=default\n'))
+            b'AndroidVersion.ApiLevel=36\nSystemImage.Abi=arm64-v8a\nSystemImage.TagId=default\nPkg.Revision=2\n'))
         return birth.BirthPlan(str(self.root/'owned'), adb, aapt,
             birth.PinnedFile('/usr/bin/sandbox-exec', 'c'*64, 1),
             birth.PinnedTree(str(self.root/'emulator'), (emulator, qemu), (emulator.path, qemu.path)),
@@ -87,6 +98,51 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         self.assertIn('private-adb-auth-keys-may-be-generated', selected.effects)
         self.assertIn('initial-install-io.reproof.sample', selected.effects)
         self.assertFalse(Path(plan.output).exists())
+
+    def test_official_r2_declared_layout_and_bytes_without_seed_image(self):
+        plan = self.plan()
+        official = replace(plan.image, files=tuple(replace(item, size=self.official_layout[
+            str(Path(item.path).relative_to(plan.image.root))]) for item in plan.image.files))
+        with patch.object(birth, '_AOSP_R2_FILE_SIZES', self.official_layout), \
+             patch.object(birth, '_AOSP_R2_EXPANDED_BYTES', 2_039_419_809), \
+             patch.object(birth.subprocess, 'Popen') as process:
+            selected = replace(plan, image=official)
+            self.assertEqual(len(selected.image.files), 20)
+            self.assertEqual(sum(item.size for item in selected.image.files), 2_039_419_809)
+            self.assertIn('data/empty_data_disk', self.official_layout)
+            self.assertNotIn('userdata.img', self.official_layout)
+            changed = replace(official.files[0], size=official.files[0].size+1)
+            with self.assertRaises(ContractError):
+                replace(plan, image=replace(official, files=(changed,)+official.files[1:]))
+            with self.assertRaises(ContractError):
+                replace(plan, image=replace(official, files=official.files[:-1]))
+        process.assert_not_called()
+
+    def test_r2_rejects_all_imported_userdata_and_unlisted_paths(self):
+        plan = self.plan()
+        for name in ('userdata.img', 'userdata-qemu.img', 'snapshots.img',
+                     'snapshots/default_boot/snapshot.pb', 'config.ini', 'adbkey', 'extra.txt'):
+            with self.subTest(name=name):
+                seed = self.file('image/'+name)
+                with self.assertRaises(ContractError):
+                    replace(plan, image=replace(plan.image, files=plan.image.files+(seed,)))
+
+    def test_wrong_or_duplicate_revision_rejected_before_output_or_process(self):
+        plan = self.plan()
+        properties = Path(plan.image.root)/'source.properties'
+        original = properties.read_bytes()
+        for raw in (original.replace(b'Pkg.Revision=2', b'Pkg.Revision=1'),
+                    original+b'Pkg.Revision=2\n', original+b'Pkg.Revision=3\n'):
+            properties.write_bytes(raw)
+            with patch.object(birth.sys, 'platform', 'darwin'), \
+                 patch.object(birth, 'require_pinned_adb'), \
+                 patch.object(birth.PinnedFile, 'verify'), \
+                 patch.object(birth.PinnedTree, 'verify'), \
+                 patch.object(birth.subprocess, 'Popen') as process:
+                with self.assertRaises(ContractError):
+                    birth.launch_qualification_birth(plan, cancellation=threading.Event())
+                process.assert_not_called()
+            self.assertFalse(Path(plan.output).exists())
 
     def test_no_arbitrary_process_socket_or_approval_import(self):
         for make in (lambda:birth.OwnedBirth(), lambda:birth.OwnedBirth({'pid':1}),
@@ -172,6 +228,8 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         self.assertIn('-port', argv);self.assertNotIn('-ports', argv)
         self.assertEqual(argv[argv.index('-port')+1], '5554')
         self.assertNotIn('-wipe-data', argv);self.assertIn('-no-snapshot', argv)
+        config = (Path(plan.output)/'avd'/(owner.avd_name+'.avd')/'config.ini').read_text()
+        self.assertIn('disk.dataPartition.size=6144M', config)
         self.assertEqual(_Child.calls[0][0][-2:], ('server','nodaemon'))
         result = owner.collect()
         self.assertTrue(result['processesCollected']);self.assertTrue(result['privateDataRetained'])

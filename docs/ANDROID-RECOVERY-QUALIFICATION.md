@@ -29,7 +29,9 @@ clear app data or reset the device. Owned processes can be collected, but privat
 AVD data and key residue are explicitly retained; there is no recursive deletion
 of executed output directories or claim of secret erasure.
 
-The initial resource policy requests 2 GiB guest RAM and a 2 GiB data partition.
+The initial resource policy requests 2 GiB guest RAM and a 6 GiB data partition.
+The emulator may impose its own minimum or allocate additional overlays; this
+request is not a data-size hard cap.
 Before creating output it requires free space of at least 8 GiB plus twice the
 selected image bytes. This is a conservative admission floor, not a filesystem
 quota or a promise that the emulator cannot consume additional space. Tool and
@@ -84,7 +86,17 @@ A bounded namespace scan cannot allocate from an arbitrarily large directory.
 
 Reported Mac metadata includes platforms/build-tools 34/35/36, JDK 17 and API36
 images. The first launcher contract accepts only a pinned offline AOSP API36
-arm64 `default` image, not Google Play or `google_apis` images. The reported
+arm64 `default` revision-2 image, not Google Play or `google_apis` images.
+The supported official archive is
+[`arm64-v8a-36_r02.zip`](https://dl.google.com/android/repository/sys-img/android/arm64-v8a-36_r02.zip):
+810,736,863 compressed bytes; the official repository metadata lists SHA-1
+`62ad6714df790f89c8a8ad32552ffe20bb16fe87`. Its central directory declares
+20 regular files totaling 2,039,419,809 expanded bytes. The launcher checks that
+exact relative-path/size layout plus API/ABI/tag/revision properties and each
+operator-selected file digest. Central-directory inspection alone is not full
+archive integrity verification. The archive has `data/empty_data_disk`, not
+`userdata.img`; fresh userdata is created by the newly owned emulator. Existing
+userdata, snapshots, arbitrary seeds, or SDK-manager-added files are not accepted. The reported
 installed Google images therefore do not establish this prerequisite; acquiring
 an additional image is not authorized or performed by this change. Exact
 minor/tool hashes, signed fixture artifacts and actual launcher behavior remain
@@ -304,7 +316,9 @@ from reproof.live.android_recovery_trial import run_one_lost_ack
 # plan: reviewed BirthPlan for fixed public tools/image/APKs and a fresh output.
 # profile: validated runtime profile bound to that selected public sample APK.
 # The caller owns cancellation and must preserve TrialIncomplete.report/owners.
-result = run_one_lost_ack(plan, profile, cancellation=threading.Event())
+# probe: pinned trusted build of the bundled public C sandbox probe.
+result = run_one_lost_ack(plan, profile, sandbox_probe=probe,
+                          cancellation=threading.Event())
 ```
 
 The future permission bundle must explicitly cover the exact selected emulator,
@@ -316,3 +330,57 @@ created/downloaded, those are separate preparation effects, not implicit trial
 steps. No such runtime/build/signing/download permission is granted by these
 source changes. Darwin sandbox/discovery-negative checks and actual one-shot
 execution remain pending; passing synthetic host tests does not satisfy them.
+
+
+### Bounded preparation proposal (not runtime authorization)
+
+For a separately approved single trial, proposed preparation limits are 1 GiB
+of total downloaded archives and 2.5 GiB of expanded AOSP image files. Before
+extraction, inspect the bounded central directory, reject links/unsafe paths,
+and enforce both declared totals and actual streaming output limits. Do not
+start an unlimited SDK installation to discover its size. The official ADB
+archive was read and hashed in the cloud only; downloading or executing it on
+the Mac is a separate future effect.
+
+Start with at least 16 GiB free disk. Monitor the newly owned runtime output
+against an 8 GiB planning budget and stop only its owned processes if that
+budget is exceeded or free space drops below 8 GiB. Runtime monitoring can
+observe transient overshoot; it is not an OS quota or a hard allocation bound.
+No disk image, system quota change, or existing AVD cleanup is required.
+Retain private output and uncertain cleanup evidence rather than deleting
+executed trees. One trial has a 15-minute owner deadline; preparation/download
+and any public probe/APK signing steps require their own bounded approved plan.
+
+The Android compile workflow separately produces two **unsigned** public APKs
+(sample buggy variant and helper), with source commit, package, size and SHA-256
+manifest. It verifies unsigned output and absence of generated key stores in
+its fresh build homes. These are not installable signed runtime qualification
+artifacts: signing with a new temporary key, ADB authentication material,
+emulator-console authentication material and all Mac execution remain separate
+future approval items. No company source or credentials are inputs.
+
+
+### Process-policy preflight before a trial
+
+`run_one_lost_ack` requires `sandbox_probe`, a pinned trusted build of the
+bundled public `scripts/android-recovery-sandbox-probe.c`. Compiling that tiny
+probe is a separate, future approved preparation action. The trial directly
+calls `run_sandbox_preflight`; it does not accept an imported pass receipt or
+caller boolean. Failure occurs before any ADB server, AVD, or authority session
+is created and retains the preflight's owned cleanup handles/evidence.
+
+The preflight opens only fresh owned sentinel endpoints and files. For server,
+emulator and client policy generators it compares an unrestricted probe control
+with a restricted probe. Allowed owned file/network access must succeed, while
+outside owned sentinel file/network access and unlisted executable launch must
+fail. Only the probe's exact read/execute admission is added to the generated
+policy; network/write restrictions are unchanged. These are parameterized
+**derivative probe policies**, not execution of the real ADB/emulator binaries
+and not proof that ADB discovery is disabled. The latter still depends on the
+fixed binary/env constraints and the separately approved actual trial.
+
+Probe processes have bounded deadlines/output and are collected through owned
+handles. Its private namespace is retained, not recursively deleted. A failed
+or uncertain collection is not a pass. Cloud synthetic tests validate the
+control flow only; actual Darwin enforcement and the real recovery trial have
+not been run by this source change. No system-wide security setting is changed.

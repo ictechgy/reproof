@@ -134,6 +134,7 @@
     "reproof/ios_instrumentation_templates/RLSanitationRuntime.swift",
     "reproof/ios_instrumentation_templates/ReproRuntimeIdentity.swift",
     "reproof/observation_templates/android/io/reproof/autotrace/ReproAuto.kt",
+    "scripts/android-recovery-sandbox-probe.c",
     "scripts/capture-text-probe.swift",
     "tools/kotlin-instrumenter/build.sh",
     "tools/kotlin-instrumenter/src/main/java/io/reproof/instrumenter/KotlinInstrumenter.java"

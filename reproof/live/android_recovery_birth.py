@@ -30,6 +30,32 @@ from .android_recovery_authority import _directory
 from .android_recovery_tool_pin import ADB_DARWIN_SHA256, require_pinned_adb
 
 _MAX_APK = 32 * 1024 * 1024
+# Official android-36/default/arm64-v8a revision 2 archive layout. These
+# declared sizes constrain input selection; per-file SHA-256 verification still
+# checks actual selected bytes. This is not publisher provenance attestation.
+_AOSP_R2_EXPANDED_BYTES = 2_039_419_809
+_AOSP_R2_FILE_SIZES = {
+    'NOTICE.txt': 5324268,
+    'VerifiedBootParams.textproto': 356,
+    'advancedFeatures.ini': 733,
+    'build.prop': 5286,
+    'data/empty_data_disk': 107,
+    'data/local.prop': 46,
+    'data/misc/GoldfishSkinConfig': 783,
+    'data/misc/emulator/config/radioconfig.xml': 1433,
+    'data/misc/emulator/version.txt': 112,
+    'data/misc/modem_simulator/etc/modem_simulator/files/numeric_operator.xml': 297,
+    'data/misc/modem_simulator/iccprofile_for_carrierapitests.xml': 16537,
+    'data/misc/modem_simulator/iccprofile_for_sim0.xml': 14647,
+    'data/misc/modem_simulator/iccprofile_for_sim_tel_alaska.xml': 14474,
+    'encryptionkey.img': 18874368,
+    'kernel-ranchu': 14489771,
+    'kernel_cmdline.txt': 16,
+    'ramdisk.img': 2090397,
+    'source.properties': 322,
+    'system.img': 1898971136,
+    'vendor.img': 99614720,
+}
 _OWNERS = {}
 _MINT = object()
 
@@ -172,9 +198,13 @@ class BirthPlan:
         _require(type(self.emulator) is PinnedTree and type(self.image) is PinnedTree
                  and str(Path(self.emulator.root) / 'emulator') in self.emulator.executables)
         _require(not self.image.executables)
-        image_names = {str(Path(item.path).relative_to(self.image.root)) for item in self.image.files}
-        _require({'kernel-ranchu', 'ramdisk.img', 'system.img', 'userdata.img', 'source.properties'} <= image_names
-                 and not any(name in image_names for name in ('userdata-qemu.img', 'snapshots.img', 'adbkey')))
+        image_sizes = {str(Path(item.path).relative_to(self.image.root)): item.size
+                       for item in self.image.files}
+        # r2 contains data/empty_data_disk, not a prebuilt userdata.img. Only
+        # this closed SDK image layout may seed a newly created private AVD.
+        _require(image_sizes == _AOSP_R2_FILE_SIZES
+                 and sum(image_sizes.values()) == _AOSP_R2_EXPANDED_BYTES,
+                 'Only the fixed AOSP API36 arm64 revision 2 image layout is supported')
         _require(type(self.sample_apk) is PinnedFile and type(self.helper_apk) is PinnedFile
                  and max(self.sample_apk.size, self.helper_apk.size) <= _MAX_APK)
         _require(type(self.console_port) is int and 5554 <= self.console_port <= 5682
@@ -641,7 +671,8 @@ def _prepare_directories(owner):
     owner._fds.append(parent)
     _outside_inputs(parent, owner.plan)  # Inode ancestry before any mkdir/write.
     available = os.fstatvfs(parent)
-    # Reserve two image copies plus bounded userdata/cache/headroom. No deletion.
+    # Admission headroom, not a disk quota: emulator-generated userdata/cache
+    # may grow. Runtime monitoring and owned-process stop are separate controls.
     floor = 8*1024**3 + 2*sum(item.size for item in owner.plan.image.files)
     _require(available.f_bavail*available.f_frsize >= floor, 'Insufficient private birth disk space')
     os.mkdir(root.name, 0o700, dir_fd=parent)
@@ -658,7 +689,7 @@ def _prepare_directories(owner):
         selected = os.open(owner.avd_name+'.avd', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=avd)
         try:
             config = ('avd.ini.encoding=UTF-8\nabi.type=arm64-v8a\nhw.cpu.arch=arm64\n'
-                      'disk.dataPartition.size=2048M\nhw.ramSize=2048\nhw.lcd.width=720\nhw.lcd.height=1280\n'
+                      'disk.dataPartition.size=6144M\nhw.ramSize=2048\nhw.lcd.width=720\nhw.lcd.height=1280\n'
                       'hw.lcd.density=320\nhw.gpu.enabled=yes\nhw.gpu.mode=swiftshader_indirect\n'
                       'PlayStore.enabled=false\ntag.id=default\ntarget=android-36\n'
                       'image.sysdir.1='+owner.plan.image.root+'\n')
@@ -709,9 +740,16 @@ def launch_qualification_birth(plan, *, cancellation):
     with os.fdopen(open_regular(properties.parent, properties.name), 'rb') as stream:
         raw = stream.read(65537)
     _require(len(raw) <= 65536)
-    lines = {line.strip() for line in raw.splitlines()}
-    _require({b'AndroidVersion.ApiLevel=36', b'SystemImage.Abi=arm64-v8a',
-              b'SystemImage.TagId=default'} <= lines, 'Only the selected offline AOSP API36 arm64 image is supported')
+    expected = {b'AndroidVersion.ApiLevel': b'36', b'SystemImage.Abi': b'arm64-v8a',
+                b'SystemImage.TagId': b'default', b'Pkg.Revision': b'2'}
+    selected_properties = {}
+    for line in raw.splitlines():
+        key, separator, value = line.strip().partition(b'=')
+        if separator and key in expected:
+            _require(key not in selected_properties, 'Duplicate selected image property')
+            selected_properties[key] = value
+    _require(selected_properties == expected,
+             'Only the selected offline AOSP API36 arm64 revision 2 image is supported')
     owner = OwnedBirth(_MINT)
     owner.plan, owner.root, owner.cancellation = plan, root, cancellation
     owner.deadline = deadline

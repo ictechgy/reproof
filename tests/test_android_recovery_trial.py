@@ -134,6 +134,14 @@ class PrivateTrialTests(unittest.TestCase):
         # Reuse the public inert manifest builder, not its test cases or effects.
         builder = object.__new__(birth_fixtures.AndroidRecoveryBirthTests)
         builder.root = self.root
+        image = birth_fixtures.birth
+        properties = b'AndroidVersion.ApiLevel=36\nSystemImage.Abi=arm64-v8a\nSystemImage.TagId=default\nPkg.Revision=2\n'
+        builder.synthetic_layout = {name: len(properties) if name == 'source.properties' else len(b'synthetic')
+                                    for name in image._AOSP_R2_FILE_SIZES}
+        for name, value in (('_AOSP_R2_FILE_SIZES', builder.synthetic_layout),
+                            ('_AOSP_R2_EXPANDED_BYTES', sum(builder.synthetic_layout.values()))):
+            selected = patch.object(image, name, value)
+            selected.start(); self.addCleanup(selected.stop)
         self.plan = builder.plan()
         profile, _ = fixture();data = profile.data
         data['package'] = 'io.reproof.sample'
@@ -151,6 +159,7 @@ class PrivateTrialTests(unittest.TestCase):
         def tracked(*args, **kwargs):
             obj = create(*args, **kwargs);self.harnesses.append(obj);return obj
         self.patches = [
+            patch.object(trial, 'run_sandbox_preflight', return_value={'passed': True, 'syntheticBoundary': True}),
             patch.object(trial, 'launch_qualification_birth', return_value=self.owner),
             patch.object(qualification, 'HostAuthority', side_effect=lambda path:HostAuthority(path, lease_directory=self.root/'leases')),
             patch('reproof.live.android_recovery_context.IsolatedAdbContext', _Context),
@@ -159,6 +168,16 @@ class PrivateTrialTests(unittest.TestCase):
             patch.object(qualification.QualificationHarness, 'create', side_effect=tracked)]
         for item in self.patches:item.start()
         self.addCleanup(self.cleanup_harnesses)
+
+    def test_preflight_failure_prevents_birth_and_authority_creation(self):
+        with patch.object(trial, 'run_sandbox_preflight', side_effect=ContractError('sandbox denied')), \
+                patch.object(trial, 'launch_qualification_birth') as launch, \
+                patch.object(qualification.QualificationHarness, 'create') as create:
+            with self.assertRaisesRegex(ContractError, 'sandbox denied'):
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt,
+                                       cancellation=threading.Event())
+        launch.assert_not_called()
+        create.assert_not_called()
 
     def cleanup_harnesses(self):
         for item in reversed(self.patches):item.stop()
@@ -172,7 +191,7 @@ class PrivateTrialTests(unittest.TestCase):
 
     def test_real_lab_input_unknown_and_private_recovery_composition(self):
         with patch.object(qualification.Lab, 'fail', side_effect=AssertionError('No fabricated failure')):
-            report = trial.run_one_lost_ack(self.plan, self.profile, cancellation=threading.Event())
+            report = trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt, cancellation=threading.Event())
         self.assertTrue(report['trialPassed'])
         self.assertEqual(report['deliberatelyOmittedResponses'], 1)
         self.assertEqual(report['originalInputOutcome'], 'unknown')
@@ -189,7 +208,7 @@ class PrivateTrialTests(unittest.TestCase):
     def test_native_recovery_failure_uses_only_abort_and_preserves_unknown(self):
         with patch.object(FakeProbe, 'start', side_effect=ContractError('synthetic probe failure')):
             with self.assertRaises(trial.TrialIncomplete) as caught:
-                trial.run_one_lost_ack(self.plan, self.profile, cancellation=threading.Event())
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt, cancellation=threading.Event())
         self.assertFalse(caught.exception.report['trialPassed'])
         self.owner.abort.assert_called_once();self.owner.collect.assert_not_called()
         harness = self.harnesses[0]
@@ -203,9 +222,9 @@ class PrivateTrialTests(unittest.TestCase):
     def test_bad_profile_or_cancel_has_no_birth_effect(self):
         data = self.profile.data;data['artifact']['sha256'] = 'f'*64
         with patch.object(trial, 'launch_qualification_birth') as launch:
-            with self.assertRaises(ContractError):trial.run_one_lost_ack(self.plan, data, cancellation=threading.Event())
+            with self.assertRaises(ContractError):trial.run_one_lost_ack(self.plan, data, sandbox_probe=self.plan.aapt, cancellation=threading.Event())
             cancel = threading.Event();cancel.set()
-            with self.assertRaises(ContractError):trial.run_one_lost_ack(self.plan, self.profile, cancellation=cancel)
+            with self.assertRaises(ContractError):trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt, cancellation=cancel)
         launch.assert_not_called()
 
     def test_cancellation_after_real_ack_keeps_unknown_and_aborts(self):
@@ -218,7 +237,7 @@ class PrivateTrialTests(unittest.TestCase):
             return value
         with patch.object(_Context, 'call_helper', cancelled):
             with self.assertRaises(trial.TrialIncomplete) as caught:
-                trial.run_one_lost_ack(self.plan, self.profile, cancellation=cancel)
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt, cancellation=cancel)
         self.assertEqual(caught.exception.report['deliberatelyOmittedResponses'], 1)
         self.assertEqual(caught.exception.report['originalInputOutcome'], 'unknown')
         self.owner.abort.assert_called_once()
@@ -233,7 +252,7 @@ class PrivateTrialTests(unittest.TestCase):
             return value
         with patch.object(_Context, 'call_helper', rejected):
             with self.assertRaises(trial.TrialIncomplete) as caught:
-                trial.run_one_lost_ack(self.plan, self.profile, cancellation=threading.Event())
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt, cancellation=threading.Event())
         self.assertEqual(caught.exception.report['deliberatelyOmittedResponses'], 0)
         self.assertFalse(caught.exception.report['trialPassed'])
         self.assertNotEqual(self.harnesses[0]._journal.state, 'released')
@@ -248,7 +267,7 @@ class PrivateTrialTests(unittest.TestCase):
             return value
         with patch.object(_Context, 'call_helper', rejected):
             with self.assertRaises(trial.TrialIncomplete) as caught:
-                trial.run_one_lost_ack(self.plan, self.profile, cancellation=threading.Event())
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt, cancellation=threading.Event())
         self.assertEqual(caught.exception.report['deliberatelyOmittedResponses'], 0)
         session = self.harnesses[0]._session
         self.assertEqual(next(iter(session['receipts'].values()))[1]['status'], 'rejected')
@@ -259,7 +278,7 @@ class PrivateTrialTests(unittest.TestCase):
         self.owner.abort.side_effect = ContractError('synthetic uncollected child')
         with patch.object(trial, 'launch_qualification_birth', side_effect=trial.BirthIncomplete(self.owner)):
             with self.assertRaises(trial.TrialIncomplete) as caught:
-                trial.run_one_lost_ack(self.plan, self.profile, cancellation=threading.Event())
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt, cancellation=threading.Event())
         self.assertIs(caught.exception.owner, self.owner)
         self.assertIsNone(caught.exception.harness)
         self.assertTrue(caught.exception.report['cleanupIncomplete'])
@@ -268,7 +287,7 @@ class PrivateTrialTests(unittest.TestCase):
     def test_poller_failure_does_not_prevent_owned_abort(self):
         with patch.object(trial, '_stop_pollers', return_value=False):
             with self.assertRaises(trial.TrialIncomplete) as caught:
-                trial.run_one_lost_ack(self.plan, self.profile, cancellation=threading.Event())
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt, cancellation=threading.Event())
         self.assertTrue(caught.exception.report['privateAuthorityReleased'])
         self.assertFalse(caught.exception.report['trialPassed'])
         self.assertTrue(caught.exception.report['cleanupIncomplete'])
@@ -309,7 +328,7 @@ class PrivateTrialTests(unittest.TestCase):
             return result
         with patch.object(FakeProbe, 'start', cancelled):
             with self.assertRaises(trial.TrialIncomplete) as caught:
-                trial.run_one_lost_ack(self.plan, self.profile, cancellation=cancel)
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt, cancellation=cancel)
         harness = self.harnesses[0]
         self.assertIs(harness.cancel, cancel)
         self.assertEqual(harness._journal.state, 'blocked')
@@ -330,7 +349,7 @@ class PrivateTrialTests(unittest.TestCase):
         self.owner.require_live.side_effect = live
         with patch.object(_Context, 'call_helper', expires):
             with self.assertRaises(trial.TrialIncomplete) as caught:
-                trial.run_one_lost_ack(self.plan, self.profile, cancellation=threading.Event())
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt, cancellation=threading.Event())
         self.assertEqual(caught.exception.report['originalInputOutcome'], 'unknown')
         self.assertEqual(caught.exception.report['deliberatelyOmittedResponses'], 1)
         self.assertNotEqual(self.harnesses[0]._journal.state, 'released')
@@ -343,7 +362,7 @@ class PrivateTrialTests(unittest.TestCase):
             raise ContractError('synthetic partial native startup')
         with patch.object(_InputProducer, 'start_authorized', partial):
             with self.assertRaises(trial.TrialIncomplete) as caught:
-                trial.run_one_lost_ack(self.plan, self.profile, cancellation=threading.Event())
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt, cancellation=threading.Event())
         self.assertIs(caught.exception.harness, self.harnesses[0])
         self.assertEqual(caught.exception.report['phase'], 'session')
         self.assertFalse(caught.exception.report['trialPassed'])

@@ -40,6 +40,7 @@ class RecoveryDistributionTests(unittest.TestCase):
             self.assertNotIn('android_recovery_qualification',(ROOT/'reproof/live'/name).read_text())
             self.assertNotIn('android_recovery_birth', (ROOT/'reproof/live'/name).read_text())
             self.assertNotIn('android_recovery_trial', (ROOT/'reproof/live'/name).read_text())
+            self.assertNotIn('android_recovery_preflight', (ROOT/'reproof/live'/name).read_text())
         self.assertIn('--goal ANDROID_RECOVERY_QUALIFICATION_CONTRACTS',
             (ROOT/'.github/workflows/portable-tests.yml').read_text())
 
@@ -55,3 +56,12 @@ class RecoveryDistributionTests(unittest.TestCase):
         self.assertIn('tests.test_android_recovery_birth', goal['command'])
         self.assertIn('tests.test_android_recovery_trial', goal['command'])
         self.assertIn('tests.test_android_recovery_tool_pin', goal['command'])
+
+    def test_public_probe_is_compiled_but_not_executed_in_existing_macos_job(self):
+        workflow=(ROOT/'.github/workflows/ios-sdk-compile.yml').read_text()
+        step=workflow.split('      - name: Compile public recovery sandbox probe without executing it\n',1)[1].split('      - name:',1)[0]
+        self.assertIn('/usr/bin/clang -Wall -Wextra -Werror scripts/android-recovery-sandbox-probe.c',step)
+        self.assertIn('RECOVERY_SANDBOX_PROBE_COMPILED_NOT_EXECUTED',step)
+        self.assertNotIn('sandbox-exec',step)
+        self.assertNotIn('run_sandbox_preflight',step)
+        self.assertNotIn('\n          "$RUNNER_TEMP/reproof-sandbox-probe"',step)

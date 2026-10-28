@@ -18,6 +18,7 @@ from reproof.core import ContractError
 from reproof.android_profile import AndroidRuntimeProfile, validate_android_runtime_profile
 from .android_recovery_birth import BirthPlan, BirthIncomplete, launch_qualification_birth
 from .android_recovery_qualification import QualificationHarness
+from .android_recovery_preflight import run_sandbox_preflight
 from .configuration import issue_bounded_project_grant
 from .model import LiveError
 
@@ -165,7 +166,7 @@ def _stop_pollers(harness):
     return clean
 
 
-def run_one_lost_ack(plan, runtime_profile, *, cancellation):
+def run_one_lost_ack(plan, runtime_profile, *, sandbox_probe, cancellation):
     """Birth, one real tap with deliberately omitted ACK, recovery, collection.
 
     Source/synthetic validation does not authorize invoking this function. It
@@ -182,6 +183,9 @@ def run_one_lost_ack(plan, runtime_profile, *, cancellation):
              and 'tap' in data['capabilities']['actions'] and 'launch' in data['capabilities']['actions']
              and data['capabilities']['logAdapter'] is None,
              'Only the selected public sample profile is supported')
+    # This is a direct effectful check, not an imported success flag. Failure
+    # retains its own preflight owner and occurs before any ADB/AVD birth.
+    preflight = run_sandbox_preflight(plan, sandbox_probe, cancellation=cancellation)
     owner = harness = fault = None
     report = {'schemaVersion': 1, 'kind': 'reproof-private-ack-omission-trial',
               'trialPassed': False, 'normalRecoveryEnabled': False,
@@ -189,7 +193,7 @@ def run_one_lost_ack(plan, runtime_profile, *, cancellation):
               'privateDataRetained': True, 'diagnosticStateRetained': True,
               'cleanupScope': 'local-processes-and-pollers-only',
               'authorityDisposition': 'no-returned-harness', 'phase': 'birth',
-              'profileDigest': profile.digest, 'appArtifactDigest': plan.sample_apk.sha256,
+              'sandboxPreflight': preflight, 'profileDigest': profile.digest, 'appArtifactDigest': plan.sample_apk.sha256,
               'helperArtifactDigest': plan.helper_apk.sha256, 'adbDigest': plan.adb.sha256}
     try:
         owner = launch_qualification_birth(plan, cancellation=cancellation)
