@@ -145,6 +145,7 @@ class InstalledDistributionTests(unittest.TestCase):
 from reproof.live.android_recovery_authority import QualificationJournal, inspect_qualification_journal
 from reproof.live.android_recovery_context import IsolatedAdbContext
 from reproof.live.android_recovery_birth import BirthPlan, OwnedBirth, launch_qualification_birth
+from reproof.live.android_recovery_trial import run_one_lost_ack, TrialIncomplete
 from reproof.live.android_recovery_tool_pin import ADB_RELEASE, ADB_DARWIN_SHA256
 from reproof.core import ContractError
 from reproof.resources import resource_root
@@ -154,6 +155,7 @@ assert 'AndroidRecoveryProtocol' in source and 'AndroidRecoveryExitDelivery' in 
 assert not hasattr(Lab, 'recover_qualification_device')
 assert not hasattr(QualificationHarness, 'resume')
 assert ADB_RELEASE == '35.0.2' and len(ADB_DARWIN_SHA256) == 64
+assert callable(run_one_lost_ack) and issubclass(TrialIncomplete, ContractError)
 try:
     OwnedBirth()
 except ContractError:

@@ -299,17 +299,110 @@ class OwnedBirth:
             if client is not None:
                 clean = client.close(deadline_monotonic=deadline) and clean
             self._context._closed = True
-            from .android_recovery_context import _OWNED_BIRTHS
-            _OWNED_BIRTHS.pop(id(self._context), None)
         for child in reversed(self._children):
             clean = child.collect(deadline) and clean
         for listener in self._listeners:
             listener.close()
         if clean:
-            for fd in self._fds:
-                os.close(fd)
-            self._fds.clear()
+            clean = self._close_retained_fds()
+        if clean and self._context is not None:
+            from .android_recovery_context import _OWNED_BIRTHS
+            _OWNED_BIRTHS.pop(id(self._context), None)
         return {'processesCollected': clean, 'privateDataRetained': True,
+                'runtimeQualified': False, 'normalRecoveryEnabled': False}
+
+
+    def _close_retained_fds(self):
+        # Shared by normal collection and emergency abort. A close that raised
+        # may already have consumed its FD; never retry the numeric value.
+        first_error = None
+        for fd in tuple(self._fds):
+            self._fds.remove(fd)
+            try:
+                os.close(fd)
+            except OSError as error:
+                self._abort_fd_uncertain = True
+                if first_error is None:
+                    first_error = error
+        if first_error is not None:
+            raise first_error
+        return not getattr(self, '_abort_fd_uncertain', False)
+
+
+    def abort(self):
+        """Collect only retained local processes; never certify device recovery.
+
+        This emergency owner teardown intentionally works after cancellation,
+        expiry, or a failed context. No ADB command, native receipt, authority
+        release, journal rewrite, or deletion of private AVD data occurs here.
+        A reaped process is never signalled through its former numeric PID.
+        """
+        _require(_OWNERS.get(id(self)) is self and self._pid == os.getpid())
+        from .android_recovery_context import IsolatedAdbContext, _OwnedInstrumentation, _OWNED_BIRTHS
+        context = self._context
+        if context is not None:
+            _require(type(context) is IsolatedAdbContext and context._birth is self
+                     and _OWNED_BIRTHS.get(id(context)) is self and context._pid == self._pid,
+                     'Retained private context owner required')
+            for key, handle in context._handles.items():
+                _require(type(handle) is _OwnedInstrumentation and key == id(handle)
+                         and handle._context is context
+                         and (handle._process is None or type(handle._process) is subprocess.Popen),
+                         'Retained local instrumentation owner required')
+        self._closed = True
+        if context is not None:
+            context._closed = True
+        deadline = time.monotonic() + 15
+        clean = not getattr(self, '_abort_fd_uncertain', False)
+        # Do not stop collecting other owned children after one cleanup failure.
+        if context is not None:
+            for handle in tuple(context._handles.values()):
+                collected = False
+                try:
+                    process = handle._process
+                    collected = process is None or _ProcessOwner._terminate(process, deadline_monotonic=deadline)
+                    for collector in handle._collectors:
+                        if collector.thread.ident is not None:
+                            collector.thread.join(max(0, deadline-time.monotonic()))
+                        collected = not collector.thread.is_alive() and collected
+                    if process is not None and collected:
+                        # Partial collector construction can leave unowned pipes.
+                        for stream in (process.stdout, process.stderr):
+                            if stream is not None:
+                                stream.close()
+                    if collected:
+                        context._handles.pop(id(handle))
+                except (OSError, RuntimeError, ValueError):
+                    collected = False
+                clean = collected and clean
+            client = getattr(context, '_client', None)
+            if client is not None:
+                try:
+                    clean = client.close(deadline_monotonic=deadline) and clean
+                except (OSError, RuntimeError, ValueError):
+                    clean = False
+        try:
+            clean = self._operations.close(deadline_monotonic=deadline) and clean
+        except (OSError, RuntimeError, ValueError):
+            clean = False
+        for child in reversed(self._children):
+            try:
+                clean = child.collect(deadline) and clean
+            except (OSError, RuntimeError, ValueError):
+                clean = False
+        for listener in self._listeners:
+            try:
+                listener.close()
+            except OSError:
+                clean = False
+        if clean:
+            try:
+                clean = self._close_retained_fds()
+            except OSError:
+                clean = False
+        return {'abortOnly': True, 'processesCollected': clean,
+                'cleanupIncomplete': not clean, 'privateDataRetained': True,
+                'recoverySucceeded': False, 'authorityReleased': False,
                 'runtimeQualified': False, 'normalRecoveryEnabled': False}
 
 

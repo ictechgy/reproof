@@ -380,3 +380,126 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
             with self.assertRaises(ContractError):birth._provision(owner, 'io.reproof.sample', plan.sample_apk)
             self.assertEqual(len(starts), 2)
         self.assertTrue(owner.collect()['processesCollected'])
+
+    def _abort_context(self, owner, *, process=True):
+        from reproof.live import android_recovery_context as contexts
+        context=object.__new__(contexts.IsolatedAdbContext)
+        context._birth=owner;context._pid=owner._pid;context._closed=False;context._failed=True
+        context._client=SimpleNamespace(close=Mock(return_value=True))
+        handle=contexts._OwnedInstrumentation(context, (), object())
+        if process:
+            child=object.__new__(birth.subprocess.Popen)
+            child._child_created=False;child.pid=3456;child.poll=lambda:None
+            child.stdout=Mock();child.stderr=Mock()
+            handle._process=child
+        context._handles={id(handle):handle}
+        contexts._OWNED_BIRTHS[id(context)]=owner
+        self.addCleanup(contexts._OWNED_BIRTHS.pop, id(context), None)
+        owner._context=context
+        return context,handle
+
+    def test_abort_after_expiry_and_cancellation_collects_local_clients_only(self):
+        owner,_=self._launch();context,handle=self._abort_context(owner)
+        owner.deadline=0;owner.cancellation.set()
+        with patch.object(birth._ProcessOwner, '_terminate', return_value=True) as terminate, \
+             patch.object(birth, '_fixed_query') as query, patch.object(birth, '_server_query') as server:
+            result=owner.abort()
+        terminate.assert_called_once_with(handle._process, deadline_monotonic=unittest.mock.ANY)
+        self.assertTrue(result['abortOnly']);self.assertTrue(result['processesCollected'])
+        self.assertFalse(result['recoverySucceeded']);self.assertFalse(result['authorityReleased'])
+        self.assertTrue(result['privateDataRetained']);self.assertFalse(context._handles)
+        self.assertTrue(context._closed);self.assertEqual(owner._fds, [])
+        query.assert_not_called();server.assert_not_called()
+        self.assertTrue(all(child.collected for child in owner._children))
+
+    def test_abort_partial_bootstrap_and_unlaunched_instrumentation(self):
+        owner,_=self._launch(fail=True)
+        self.assertTrue(owner.abort()['processesCollected'])
+        # Separate owner uses the same fixture files but a fresh output directory.
+        Path(owner.plan.output).rename(self.root/'retained-old')
+        owner,_=self._launch();context,handle=self._abort_context(owner, process=False)
+        del context._client
+        with patch.object(birth._ProcessOwner, '_terminate') as terminate:
+            result=owner.abort()
+        terminate.assert_not_called();self.assertTrue(result['processesCollected'])
+        self.assertFalse(context._handles)
+
+    def test_abort_failure_still_collects_other_children_and_keeps_handles_for_retry(self):
+        owner,_=self._launch();context,handle=self._abort_context(owner)
+        context._client.close.side_effect=ContractError('synthetic gateway residue')
+        with patch.object(birth._ProcessOwner, '_terminate', return_value=False):
+            result=owner.abort()
+        self.assertTrue(result['cleanupIncomplete']);self.assertFalse(result['processesCollected'])
+        self.assertIs(context._handles[id(handle)],handle);self.assertTrue(owner._fds)
+        self.assertTrue(all(child.collected for child in owner._children))
+        context._client.close.side_effect=None;context._client.close.return_value=True
+        with patch.object(birth._ProcessOwner, '_terminate', return_value=True):
+            self.assertTrue(owner.abort()['processesCollected'])
+
+    def test_abort_never_signals_reaped_pid_or_accepts_imported_handle(self):
+        owner,_=self._launch();context,handle=self._abort_context(owner)
+        handle._process.poll=lambda:0
+        with patch.object(birth._ProcessOwner, '_group_empty', return_value=False), \
+             patch.object(birth.os, 'killpg') as signal:
+            self.assertFalse(owner.abort()['processesCollected'])
+        signal.assert_not_called()
+        context._handles={123:SimpleNamespace(pid=3456)}
+        with patch.object(birth._ProcessOwner, '_terminate') as terminate, self.assertRaises(ContractError):
+            owner.abort()
+        terminate.assert_not_called()
+        context._handles={}
+        owner._pid=-1
+        with self.assertRaises(ContractError):owner.abort()
+
+    def test_abort_ambiguous_fd_close_is_never_retried_after_reuse(self):
+        owner,_=self._launch(fail=True)
+        selected=min(owner._fds);actual_close=birth.os.close
+        def close(fd):
+            actual_close(fd)
+            if fd == selected:raise InterruptedError('synthetic uncertain close')
+        with patch.object(birth.os, 'close', close):
+            first=owner.abort()
+        self.assertTrue(first['cleanupIncomplete']);self.assertFalse(owner._fds)
+        foreign=birth.os.open(self.root/'foreign', birth.os.O_WRONLY|birth.os.O_CREAT, 0o600)
+        try:
+            self.assertEqual(foreign, selected)
+            second=owner.abort()
+            self.assertTrue(second['cleanupIncomplete'])
+            birth.os.write(foreign, b'still-owned-by-caller')
+        finally:actual_close(foreign)
+
+    def test_successful_abort_is_idempotent(self):
+        owner,_=self._launch(fail=True)
+        self.assertEqual(owner.abort(), owner.abort())
+
+    def test_normal_collect_close_exception_then_abort_never_reuses_fd(self):
+        owner,_=self._launch();context,handle=self._abort_context(owner, process=False)
+        context._handles.clear()
+        selected=min(owner._fds);actual_close=birth.os.close
+        def close(fd):
+            actual_close(fd)
+            if fd == selected:raise InterruptedError('synthetic close consumed descriptor')
+        with patch.object(birth.os, 'close', close), self.assertRaises(InterruptedError):
+            owner.collect()
+        self.assertFalse(owner._fds)
+        foreign=birth.os.open(self.root/'foreign-after-collect', birth.os.O_WRONLY|birth.os.O_CREAT, 0o600)
+        try:
+            self.assertEqual(foreign, selected)
+            result=owner.abort()
+            self.assertTrue(result['cleanupIncomplete']);self.assertFalse(result['processesCollected'])
+            birth.os.write(foreign, b'not-a-birth-owned-descriptor')
+            self.assertFalse(owner.collect()['processesCollected'])
+        finally:actual_close(foreign)
+
+    def test_normal_collect_child_failure_retains_context_for_abort(self):
+        from reproof.live.android_recovery_context import _OWNED_BIRTHS
+        owner,_=self._launch();context,handle=self._abort_context(owner, process=False)
+        context._handles.clear()
+        last=owner._children[-1]
+        last.collect=Mock(side_effect=[ContractError('synthetic child collection failure'),True])
+        with self.assertRaises(ContractError):owner.collect()
+        self.assertIs(_OWNED_BIRTHS[id(context)], owner)
+        self.assertTrue(context._closed);self.assertTrue(owner._fds)
+        self.assertTrue(owner.abort()['processesCollected'])
+        self.assertTrue(owner._children[0].collected)
+        self.assertEqual(last.collect.call_count,2)

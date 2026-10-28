@@ -245,3 +245,74 @@ sessions, normal recovery API, advertised capabilities and ordinary persisted
 availability are unchanged. Even the private Lab remains quarantined after the
 private authority release; its output is evidence for review, not an importable
 production unlock. Restart is diagnostic-only at every journal phase.
+
+## One-shot deliberate ACK-delivery omission trial
+
+The separate `reproof.live.android_recovery_trial.run_one_lost_ack` function is
+an effectful **qualification-only test driver**, not a normal recovery command.
+It is not imported by the ordinary CLI, server, worker, provider or Lab API.
+It accepts a reviewed `BirthPlan`, the matching public sample runtime profile,
+and a cancellation `threading.Event`. The plan must select at most 900 seconds;
+its existing RAM/data/disk-admission bounds still apply. It creates only its own
+new environment and first provisions the two selected public APKs. It uses the
+existing bounded project grant issuer with real host clocks, not test clocks or
+fabricated native receipts.
+
+After startup and a fresh frame, the driver sends one center tap. A private
+wrapper around the actual qualification bridge checks that the terminal ACK
+matches the exact operation ID, complete authority mapping, expected shape,
+`ok:true` and timing. It then deliberately omits delivery of that single response
+by raising an input transport error. Pending, malformed, rejected or mismatched
+ACKs are not counted as the intended omission. The ordinary `Lab.input` error
+path must produce an `unknown` receipt and quarantine; the driver never calls
+`Lab.fail` or writes a substitute input receipt. The wrapper is removed before
+recovery. The observer's knowledge of the ACK **never upgrades the original
+unknown input outcome**.
+
+This tests *intentional omission of an observed response in the actual transport
+path*. It does not prove naturally occurring packet loss, an application defect,
+reproducibility or general recovery qualification. A passing report requires:
+
+1. Exactly one matched terminal response was deliberately withheld.
+2. The original receipt remains unknown, `knownStart` remains false, and the
+   private Lab remains quarantined throughout and after reconciliation.
+3. Existing authenticated old-producer retirement/exit, fresh probe frame,
+   probe retirement/exit, and durable private authority release all complete.
+4. Local pollers join and all retained client/server/emulator processes collect.
+
+`TrialIncomplete` retains its bounded report and live owner/harness references
+when any step fails. Cancellation is shared with the birth context and recovery
+issuer. Local pollers are stopped/joined before abort collection. `OwnedBirth.abort`
+can collect only its retained local process handles after cancellation, expiry
+or failure; it sends no recovery/helper command, releases no authority, changes
+no device availability and never claims recovery success. Reaped numeric PIDs
+are not signalled; uncertain descriptor closes are never retried by bare FD
+number. Uncollected resources and private data remain explicit residues. There
+is no automatic recursive deletion or secret-erasure claim. Report cleanup fields
+cover only local processes and pollers; `authorityDisposition`,
+`liveDiagnosticOwnerRetained` and `diagnosticStateRetained` separately disclose
+unconfirmed authority release/open diagnostic ownership and retained state. Local abort
+success must not be interpreted as complete resource or authority disposal.
+
+Invocation, **only after a separately approved runtime plan**, is deliberately
+small; input selection/build/signing is not hidden in this call:
+
+```python
+import threading
+from reproof.live.android_recovery_trial import run_one_lost_ack
+
+# plan: reviewed BirthPlan for fixed public tools/image/APKs and a fresh output.
+# profile: validated runtime profile bound to that selected public sample APK.
+# The caller owns cancellation and must preserve TrialIncomplete.report/owners.
+result = run_one_lost_ack(plan, profile, cancellation=threading.Event())
+```
+
+The future permission bundle must explicitly cover the exact selected emulator,
+AOSP image, aapt/sandbox binaries, pinned ADB, public sample/helper source and
+signed APK hashes, the fresh private output/ports, temporary ADB/console auth
+material, boot, first installation, one tap, deliberate ACK omission, recovery,
+and owned-process termination. If signing keys or the AOSP image must first be
+created/downloaded, those are separate preparation effects, not implicit trial
+steps. No such runtime/build/signing/download permission is granted by these
+source changes. Darwin sandbox/discovery-negative checks and actual one-shot
+execution remain pending; passing synthetic host tests does not satisfy them.

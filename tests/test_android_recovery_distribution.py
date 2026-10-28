@@ -39,6 +39,7 @@ class RecoveryDistributionTests(unittest.TestCase):
         for name in ('cli.py','server.py','worker_cli.py','model.py','android_live.py'):
             self.assertNotIn('android_recovery_qualification',(ROOT/'reproof/live'/name).read_text())
             self.assertNotIn('android_recovery_birth', (ROOT/'reproof/live'/name).read_text())
+            self.assertNotIn('android_recovery_trial', (ROOT/'reproof/live'/name).read_text())
         self.assertIn('--goal ANDROID_RECOVERY_QUALIFICATION_CONTRACTS',
             (ROOT/'.github/workflows/portable-tests.yml').read_text())
 
@@ -52,4 +53,5 @@ class RecoveryDistributionTests(unittest.TestCase):
         self.assertIn('tests.test_android_recovery_context.PrivateContextContractTests', goal['command'])
         self.assertIn('tests.test_android_recovery_environment', goal['command'])
         self.assertIn('tests.test_android_recovery_birth', goal['command'])
+        self.assertIn('tests.test_android_recovery_trial', goal['command'])
         self.assertIn('tests.test_android_recovery_tool_pin', goal['command'])
