@@ -60,7 +60,7 @@ class AndroidSnapshotNativeContractTests(unittest.TestCase):
         source = SCRIPT.read_text()
         self.assertIn("'onlineWarmBuild': True, 'offlineConsumerBuild': True", source)
         self.assertIn("task, '--dry-run'", source)
-        self.assertIn("not any('sign' in task.lower() for task in planned)", source)
+        self.assertIn("require_unsigned_task_plan(planned, dsl)", source)
         self.assertIn('_unsigned_apk(warm / apk_relative)', source)
         self.assertIn("receipt['signed'] is False", source)
         self.assertIn("receipt['bytecodeInstrumentation']", source)
@@ -68,6 +68,30 @@ class AndroidSnapshotNativeContractTests(unittest.TestCase):
         self.assertIn('build_snapshot_observation_app(snapshot', source)
         self.assertNotIn('build_android(', source)
         self.assertNotIn('adb ', source)
+
+    def test_task_plan_allows_only_exact_selected_variant_metadata(self):
+        harness = runpy.run_path(str(SCRIPT))
+        check = harness['require_unsigned_task_plan']
+        for dsl, variant in (('kotlin', 'Debug'), ('groovy', 'DemoDebug')):
+            metadata = ':app:write' + variant + 'SigningConfigVersions'
+            selected, _ = harness['build_selection'](dsl)
+            valid = [':app:preBuild', metadata, ':app:package' + variant, selected]
+            check(valid, dsl)
+            for forbidden in (
+                ':app:validateSigning' + variant, ':app:sign' + variant,
+                ':app:signingConfigWriter' + variant, ':app:createKeystore',
+                ':app:generateKey', ':app:keyGeneration', ':other:write' + variant + 'SigningConfigVersions',
+                metadata + 'Extra', metadata.lower(),
+                ':app:writeReleaseSigningConfigVersions',
+                ':app:write' + ('Debug' if variant == 'DemoDebug' else 'DemoDebug') + 'SigningConfigVersions',
+            ):
+                with self.subTest(dsl=dsl, forbidden=forbidden), self.assertRaises(RuntimeError):
+                    check(valid + [forbidden], dsl)
+            for incomplete in ([], [selected], [metadata], [':app:preBuild']):
+                with self.subTest(dsl=dsl, incomplete=incomplete), self.assertRaises(RuntimeError):
+                    check(incomplete, dsl)
+        with self.assertRaises(RuntimeError):
+            check([':app:writeDebugSigningConfigVersions', ':app:assembleDebug'], 'unknown')
 
     def test_ci_preserves_existing_jvm_gates_and_validates_both_typed_reports(self):
         workflow = (ROOT / '.github/workflows/android-compile.yml').read_text()

@@ -161,6 +161,21 @@ def run(command, cwd, environment, log):
         raise RuntimeError('Synthetic compile command failed; retained log available')
 
 
+def require_unsigned_task_plan(planned, dsl):
+    # AGP 8.13.2 SigningConfigVersionsWriterTask only writes four boolean
+    # signature-version flags as JSON; it does not validate/create a keystore.
+    # This exemption is exact and fixture-specific, never a general suffix rule.
+    metadata = {'kotlin': ':app:writeDebugSigningConfigVersions',
+                'groovy': ':app:writeDemoDebugSigningConfigVersions'}.get(dsl)
+    if metadata is None or not planned or metadata not in planned:
+        raise RuntimeError('Missing expected unsigned fixture task plan')
+    selected, _ = build_selection(dsl)
+    if selected not in planned or any(
+            task != metadata and any(token in task.lower() for token in ('sign', 'key'))
+            for task in planned):
+        raise RuntimeError('Unexpected signing or key task in unsigned fixture plan')
+
+
 def no_keys(root):
     # Only inspect the dedicated public-fixture workspace, never user key stores.
     for path in root.rglob('*'):
@@ -213,7 +228,7 @@ def main():
              task, '--dry-run'], warm, environment, case / 'online-task-plan.log')
         planned = [line.split()[0] for line in (case / 'online-task-plan.log').read_text().splitlines()
                    if line.startswith(':')]
-        assert planned and not any('sign' in task.lower() for task in planned)
+        require_unsigned_task_plan(planned, dsl)
         run([str(args.gradle), '--no-daemon', '--no-build-cache', '--console=plain', task],
             warm, environment, case / 'online-warm.log')
         assert _unsigned_apk(warm / apk_relative) == _apk_identity(warm / apk_relative)
