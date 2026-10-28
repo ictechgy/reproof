@@ -280,7 +280,16 @@ class ProjectRepair:
                  validation_recipe_ids, transfer_policy=None, executor=None, diagnostic_policy=None):
         from .qualification import QualificationEngine, ScenarioRegistry
         from .repair_journal import RepairJournal
-        _require(type(source) is RepairSource and type(registry) is ScenarioRegistry
+        from .snapshot_repair_source import SnapshotRepairSource
+        from .agents import ProjectUnifiedDiffAgent
+        self._snapshot = type(source) is SnapshotRepairSource
+        # This route is strictly local proposal construction, never execution or transfer.
+        if self._snapshot:
+            _require(type(agent) is ProjectUnifiedDiffAgent and transfer_policy is None
+                and executor is None and diagnostic_policy is None, 'snapshot_proposal_only')
+            _require(agent.external is False and agent.provider_id == 'local-unified-diff',
+                     'snapshot_proposal_only')
+        _require(type(source) in (RepairSource, SnapshotRepairSource) and type(registry) is ScenarioRegistry
             and type(engine) is QualificationEngine and engine.registry is registry
             and type(journal) is RepairJournal and callable(getattr(agent, 'propose_project', None)),
             'repair_configuration')
@@ -306,6 +315,8 @@ class ProjectRepair:
         self._provider_json = canonical({'id': agent.provider_id, 'external': agent.external,
             'model': getattr(agent, 'model', None)}).decode('utf-8')
         self._execution_lock = threading.Lock()
+        if self._snapshot:
+            self.reservation_bytes = source.snapshot_reservation_bytes + 2 * 1024 * 1024
 
     @property
     def definition_digest(self):
@@ -322,7 +333,7 @@ class ProjectRepair:
     def availability(self):
         from .repair_execution import RepairExecutionError
         available, reason = False, 'protected_verification_unavailable'
-        if self.executor is not None:
+        if not self._snapshot and self.executor is not None:
             try:
                 self.executor.ready(project_digest=self.source.project_digest, build_recipe_id=self.build_recipe_id,
                                     validation_recipe_ids=self.validation_recipe_ids, _observe=True)
@@ -334,6 +345,7 @@ class ProjectRepair:
             'verificationAvailable': available, 'reason': reason}
 
     def create(self, approved, *, campaign_id, issue_id, owner_id, request_id, mode='propose', retain_until_ms=None):
+        _require(not self._snapshot or mode == 'propose', 'snapshot_proposal_only')
         approved = self.registry.require(approved)
         contracts.validate_id(campaign_id)
         _require(type(mode) is str and mode in {'propose', 'verify'} and approved.project_digest == self.source.project_digest,
@@ -348,10 +360,12 @@ class ProjectRepair:
 
     def execute(self, identifier, approved, *, authorize, diagnostic_reader=None):
         from .agents import AgentUnavailable
+        from .source_snapshot import SnapshotError
         from .qualification import QualificationError
         from .repair_journal import RepairJournalError, TERMINAL
         from .repair_execution import RepairExecutionError
         _require(callable(authorize), 'repair_configuration')
+        _require(not self._snapshot or diagnostic_reader is None, 'snapshot_proposal_only')
         with self._execution_lock:
             if not self.journal.claim(identifier):
                 return self.journal.get(identifier)
@@ -360,6 +374,13 @@ class ProjectRepair:
             result_base = {'verified': False, 'afterEvidence': None}
             try:
                 def boundary():
+                    if self._snapshot:
+                        from .agents import ProjectUnifiedDiffAgent
+                        _require(type(self.agent) is ProjectUnifiedDiffAgent
+                            and self.executor is None and self.diagnostic_policy is None
+                            and json.loads(self._transfer_json) is None, 'snapshot_proposal_only')
+                        _require(self.agent.external is False and self.agent.provider_id == 'local-unified-diff',
+                                 'snapshot_proposal_only')
                     _require(not cancel.is_set(), 'cancelled')
                     self.registry.require(approved)
                     _require(request['definitionDigest'] == self.definition_digest, 'repair_policy_changed')
@@ -372,13 +393,15 @@ class ProjectRepair:
                 _require(type(request) is dict and contracts.digest(request) == document['requestDigest']
                     and request['qualificationDigest'] == approved.qualification_digest
                     and document['projectId'] == self.source.project['id'], 'repair_request')
+                _require(not self._snapshot or request.get('mode') == 'propose', 'snapshot_proposal_only')
                 boundary()
                 try:
                     baseline = self.engine.require_reproduced(approved, request['campaignId'])
                 except QualificationError:
                     raise RepairError('baseline_unqualified') from None
                 build_id = approved.qualification['originalBuildId']
-                frozen = self.source.freeze(build_id)
+                frozen = (self.source.freeze(build_id, cancel=cancel) if self._snapshot
+                          else self.source.freeze(build_id))
                 original_build = next(item for item in self.source.project['builds'] if item['id'] == build_id)
                 plan = {'schemaVersion': 1, 'projectDigest': approved.project_digest,
                     'recordingDigest': approved.recording_digest, 'specificationDigest': approved.specification_digest,
@@ -408,9 +431,13 @@ class ProjectRepair:
                     _require(callable(diagnostic_reader), 'diagnostics_unavailable')
                     diagnostics = derive_app_log_diagnostics(self.source.project, approved.original,
                         frozen.digest, self.diagnostic_policy, read_object=diagnostic_reader)
-                packet = proposal_packet(self.source.project, frozen, approved.specification,
+                packet_source = (BlobSet(self.source.editable_entries(frozen, cancel=cancel)) if self._snapshot else frozen)
+                packet = proposal_packet(self.source.project, packet_source, approved.specification,
                     provider_id=self.agent.provider_id, external=self.agent.external,
                     policy=json.loads(self._transfer_json), diagnostics=diagnostics)
+                if self._snapshot:
+                    # Packet carries only editable text, but binds the complete original source.
+                    packet['sourceDigest'] = frozen.digest
                 plan.pop('digest')
                 plan['proposalPacketDigest'] = contracts.digest(packet)
                 if diagnostics is not None:
@@ -423,30 +450,60 @@ class ProjectRepair:
                 if diagnostics is not None:
                     self.journal.write_blobs(identifier, 'diagnostics',
                         BlobSet((('diagnostics.json', canonical(packet['diagnostics'])),)))
-                self.source.require_original(frozen, build_id)
+                self.source.require_original(frozen, build_id, **({'cancel': cancel} if self._snapshot else {}))
                 attempts = [{'number': 1, 'status': 'requested'}]
                 self.journal.update(identifier, phase='proposing', attempts=attempts)
                 boundary()
                 edits = self.agent.propose_project(packet, cancellation=cancel)
+                if self._snapshot:
+                    from .snapshot_repair_source import freeze_edits
+                    edits = freeze_edits(edits)
                 boundary()
-                self.source.require_original(frozen, build_id)
-                candidate = self.source.apply(frozen, edits)
-                original_entries = dict(frozen.entries)
-                changed = sorted(path for path, raw in candidate.entries if original_entries[path] != raw)
-                patch = ''.join(''.join(difflib.unified_diff(original_entries[path].decode('utf-8').splitlines(True),
-                    dict(candidate.entries)[path].decode('utf-8').splitlines(True),
-                    fromfile='a/' + path, tofile='b/' + path)) for path in changed)
-                proposal = {'schemaVersion': 1, 'repairPlanDigest': plan['digest'], 'verified': False,
-                    'candidateSourceDigest': candidate.digest, 'edits': edits, 'patch': patch}
+                self.source.require_original(frozen, build_id, **({'cancel': cancel} if self._snapshot else {}))
+                if self._snapshot:
+                    with self.journal.begin_snapshot_output(identifier, 'candidate',
+                            reservation_bytes=self.source.snapshot_reservation_bytes) as output:
+                        boundary()
+                        candidate = self.source.apply(frozen, edits, output.path, cancel=cancel,
+                            output_parent_identity=output.parent_identity)
+                        boundary()
+                        changed = list(candidate.changed_paths)
+                        # Exact edits are bounded; do not regenerate potentially quadratic diffs.
+                        proposal = {'schemaVersion': 2, 'kind': 'local-snapshot-proposal',
+                            'repairPlanDigest': plan['digest'], 'verified': False,
+                            'candidateSourceDigest': candidate.digest,
+                            'candidateSnapshot': candidate.reference, 'edits': edits,
+                            'patchReceipt': copy.deepcopy(self.agent.last_receipt)}
+                        encoded = canonical(proposal)
+                        _require(len(encoded) <= 2 * 1024 * 1024, 'proposal_limit')
+                        boundary()
+                        output.write_sidecar('proposal', encoded)
+                        self.source.require_original(frozen, build_id, cancel=cancel)
+                        self.engine.require_reproduced(approved, request['campaignId'])
+                        self.source.require_candidate(candidate, cancel=cancel)
+                        boundary()
+                        output.complete(candidate.reference, cancel=cancel)
+                else:
+                    candidate = self.source.apply(frozen, edits)
+                    original_entries = dict(frozen.entries)
+                    changed = sorted(path for path, raw in candidate.entries if original_entries[path] != raw)
+                    patch = ''.join(''.join(difflib.unified_diff(original_entries[path].decode('utf-8').splitlines(True),
+                        dict(candidate.entries)[path].decode('utf-8').splitlines(True),
+                        fromfile='a/' + path, tofile='b/' + path)) for path in changed)
+                    proposal = {'schemaVersion': 1, 'repairPlanDigest': plan['digest'], 'verified': False,
+                        'candidateSourceDigest': candidate.digest, 'edits': edits, 'patch': patch}
                 encoded = canonical(proposal)
                 _require(len(encoded) <= 2 * 1024 * 1024, 'proposal_limit')
                 boundary()
                 self.journal.update(identifier, phase='candidate-ready')
-                self.journal.write_blobs(identifier, 'candidate', candidate)
-                self.journal.write_blobs(identifier, 'proposal', BlobSet((('proposal.json', encoded),)))
+                if not self._snapshot:
+                    self.journal.write_blobs(identifier, 'candidate', candidate)
+                if not self._snapshot:
+                    self.journal.write_blobs(identifier, 'proposal', BlobSet((('proposal.json', encoded),)))
                 boundary()
-                self.source.require_original(frozen, build_id)
-                self.engine.require_reproduced(approved, request['campaignId'])
+                if not self._snapshot:
+                    self.source.require_original(frozen, build_id)
+                    self.engine.require_reproduced(approved, request['campaignId'])
                 boundary()
                 result_base = {
                     'verified': False, 'changedPaths': changed, 'candidateSourceDigest': candidate.digest,
@@ -459,12 +516,12 @@ class ProjectRepair:
                 attempts[0]['status'] = 'verifying'
                 def progress(phase, data):
                     attempts[0].setdefault('execution', {}).update(copy.deepcopy(data))
-                    self.source.require_original(frozen, build_id)
+                    self.source.require_original(frozen, build_id, **({'cancel': cancel} if self._snapshot else {}))
                     boundary()
                     self.journal.update(identifier, phase=phase, attempts=attempts)
                 proof = self.executor.execute(candidate, approved, operation_id=identifier,
                     repair_plan_digest=plan['digest'], cancellation=cancel, boundary=boundary, progress=progress)
-                self.source.require_original(frozen, build_id)
+                self.source.require_original(frozen, build_id, **({'cancel': cancel} if self._snapshot else {}))
                 self.engine.require_reproduced(approved, request['campaignId'])
                 boundary()
                 verified = self.executor.require_verified(proof, candidate.digest, plan['digest'], approved)
@@ -473,7 +530,7 @@ class ProjectRepair:
                 attempts[0]['status'] = 'verified'
                 return self.journal.finish(identifier, 'verified', attempts=attempts,
                     result={**result_base, **verified, 'verified': True})
-            except (RepairError, RepairExecutionError, RepairJournalError, QualificationError, AgentUnavailable,
+            except (RepairError, RepairExecutionError, RepairJournalError, QualificationError, AgentUnavailable, SnapshotError,
                     contracts.ContractError, ArtifactError, OSError, ValueError, TypeError, KeyError) as error:
                 current = self.journal.get(identifier)
                 if current['status'] in TERMINAL:
@@ -497,7 +554,7 @@ class ProjectRepair:
                 return self.journal.finish(identifier, status, reason=reason, attempts=attempts,
                                            result={**result_base, 'verified': False, 'afterEvidence': None})
             finally:
-                if self.executor is not None: self.executor.discard(identifier)
+                if not self._snapshot and self.executor is not None: self.executor.discard(identifier)
 
     def proposal(self, identifier):
         from .execution.artifacts import read_regular

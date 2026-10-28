@@ -14,8 +14,8 @@ jobs:
   g0:
     name: G0 / Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
-    # Includes three explicit once-per-matrix synthetic scale proofs.
-    timeout-minutes: 30
+    # Includes four explicit once-per-matrix synthetic scale proofs.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +52,11 @@ jobs:
       - name: Measure end-to-end synthetic Android snapshot scale once without Gradle
         if: matrix.python-version == '3.12'
         run: python scripts/release-check.py --goal ANDROID_SNAPSHOT_SCALE --effects filesystem,process
+      - name: Run local snapshot G9 proposal contracts without build or AI
+        run: python scripts/release-check.py --goal G9_SNAPSHOT_CONTRACTS --effects filesystem,process,loopback
+      - name: Measure synthetic G9 large-source and inert-APK proposal scale once
+        if: matrix.python-version == '3.12'
+        run: python scripts/release-check.py --goal G9_SNAPSHOT_SCALE --effects filesystem,process,loopback
       - name: Run synthetic native-provider contract checks
         run: python scripts/release-check.py --goal NATIVE_CONTRACTS --effects filesystem,process
       - name: Run deployment preflight and loopback observation binding checks

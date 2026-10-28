@@ -5,7 +5,7 @@ new local directory, verifies them, and materializes them into another new local
 directory. It does **not** execute a build, inspect a repository automatically,
 run Git, extract an archive, contact a server, upload source, or invoke AI.
 
-This is a large-source staging primitive. Existing v2 instrumentation and G9
+This is a large-source staging primitive. Existing v2 instrumentation and legacy G9
 repair retain their 900/1,024-file and 60/64 MiB contracts. The separate opt-in
 [UIKit observation v3 consumer](IOS-SNAPSHOT-OBSERVATIONS.md) uses snapshots for
 local preparation and unsigned builds. Large application artifacts remain
@@ -157,3 +157,9 @@ provenance. Existing v2 source limits and execution transfer limits are unchange
 Android's opt-in [Views observation v3 consumer](ANDROID-SNAPSHOT-OBSERVATIONS.md)
 uses snapshots for local preparation and unsigned Debug builds with one explicit
 Activity analysis source. It does not migrate G9 or enlarge APK/wire limits.
+
+## Local proposal consumer
+
+[Opt-in G9 snapshot proposals](G9-SNAPSHOT-PROPOSALS.md) use snapshots for local
+unified-diff proposals only, with streamed Android APK identity. Protected
+verification and remote execution still use their existing bounded protocols.

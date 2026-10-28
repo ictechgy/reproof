@@ -1735,6 +1735,58 @@
           "gate": "software"
         }
       ]
+    },
+    "G9_SNAPSHOT_CONTRACTS": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g9-snapshot-contracts",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_snapshot_repair_source",
+            "tests.test_snapshot_repair_journal",
+            "tests.test_snapshot_repair_configuration",
+            "tests.test_snapshot_project_repair",
+            "tests.test_project_repair",
+            "tests.test_project_repair_jobs",
+            "tests.test_repair_configuration"
+          ],
+          "environment": "local-python-synthetic-g4-baseline-local-diff-no-app-execution",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "G9_SNAPSHOT_SCALE": {
+      "available": true,
+      "checks": [
+        {
+          "id": "g9-snapshot-scale",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_snapshot_project_repair_scale"
+          ],
+          "environment": "local-python-synthetic-g4-baseline-local-diff-no-app-execution",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 600,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }

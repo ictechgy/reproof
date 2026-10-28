@@ -12,6 +12,7 @@ from .. import contracts
 from ..contracts.versions import exact
 from ..issue_package import PackageError
 from ..project_repair import ProjectRepair, RepairError, RepairSource
+from ..snapshot_repair_source import SnapshotRepairSource
 from ..repair_journal import RepairJournal, RepairJournalError, TERMINAL
 from .model import LiveError, check
 from .evidence_store import EvidenceStoreError
@@ -19,7 +20,7 @@ from .evidence_store import EvidenceStoreError
 
 @dataclass(frozen=True, slots=True)
 class ProjectRepairConfiguration:
-    source: RepairSource
+    source: RepairSource | SnapshotRepairSource
     agent: object
     build_recipe_id: str
     validation_recipe_ids: tuple[str, ...]
@@ -47,7 +48,7 @@ class ProjectRepairJobs:
         try:
             self.journal = RepairJournal(root, disk_limit=disk_limit)
             for configured in configurations:
-                check(type(configured) is ProjectRepairConfiguration and type(configured.source) is RepairSource,
+                check(type(configured) is ProjectRepairConfiguration and type(configured.source) in (RepairSource, SnapshotRepairSource),
                       'repair_configuration', 'A local repair source registration is required', 400)
                 project_id = configured.source.project['id']
                 runtime = workflow._runtime(project_id)
@@ -129,6 +130,8 @@ class ProjectRepairJobs:
             self.workflow._authorize(principal, issue['projectId'], 'fixture.execute')
         runtime = self.runtimes.get(issue['projectId'])
         check(runtime is not None, 'repair_not_configured', 'Repair proposals are not configured for this project', 409)
+        check(not runtime._snapshot or body['mode'] == 'propose', 'snapshot_proposal_only',
+              'Local snapshot repair currently supports proposals only', 409)
         view = self.workflow.get(principal, issue_id)
         check(view['approval'] is not None and view['specificationDigest'] == body['specificationDigest']
               and issue['state'] == 'reproduced' and issue['campaignId'] is not None,
