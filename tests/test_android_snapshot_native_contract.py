@@ -4,6 +4,7 @@ from pathlib import Path
 import runpy
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from reproof.groovy_integration import configure_groovy
 from reproof.source_snapshot import capture
@@ -43,6 +44,22 @@ class AndroidSnapshotNativeContractTests(unittest.TestCase):
                     self.assertIn("flavorDimensions 'qa'", module)
                     self.assertEqual(module.count('signingConfig = signingConfigs.debug'), 2)
                     self.assertIn("id 'io.reproof.instrumentation'", configure_groovy(settings, module)['module.gradle'])
+                    from reproof.android_snapshot_observation import prepare_snapshot_observation
+                    def analyzer(files, activity, taps):
+                        self.assertEqual(set(files), {harness['ACTIVITY']})
+                        return {'schemaVersion': 1, 'activityPath': harness['ACTIVITY'],
+                            'sites': [{'id': 's123abc', 'path': harness['ACTIVITY'],
+                                       'line': 12, 'target': 'save', 'kind': 'tap'}]}
+                    with patch('subprocess.Popen', side_effect=AssertionError('Native execution forbidden')):
+                        prepared = prepare_snapshot_observation(root / 'snapshot', selected,
+                                                                root / 'prepared', analyzer=analyzer)
+                    derived = (prepared['source'] / 'data/app/build.gradle').read_text()
+                    typed = 'setSigningConfig((com.android.build.api.dsl.ApkSigningConfig) null)'
+                    self.assertEqual(derived.count(typed), 3)
+                    self.assertIn('defaultConfig { ' + typed + ' }', derived)
+                    self.assertIn('productFlavors.configureEach { ' + typed + ' }', derived)
+                    self.assertIn('debug { ' + typed + ' }', derived)
+                    self.assertEqual((root / 'source/app/build.gradle').read_text(), module)
                 self.assertEqual((root / 'source' / harness['ACTIVITY']).read_text().count('setOnClickListener'), 1)
 
     def test_synthetic_workspace_rejects_any_created_key_store(self):

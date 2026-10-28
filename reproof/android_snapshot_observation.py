@@ -204,9 +204,12 @@ def _changes(original,profile,metadata,sites):
     if groovy:
         from .groovy_integration import configure_groovy
         integration=configure_groovy(settings_text,module_text)
-        signing=('\nandroid {\n    defaultConfig { signingConfig = null }\n'
-                 '    productFlavors.configureEach { signingConfig = null }\n'
-                 '    buildTypes { debug { signingConfig = null } }\n}\n')
+        # Groovy null property assignment is ambiguous across AGP's legacy
+        # setters. A direct public-API typed argument selects the nullable setter.
+        clear = 'setSigningConfig((com.android.build.api.dsl.ApkSigningConfig) null)'
+        signing=('\nandroid {\n    defaultConfig { ' + clear + ' }\n'
+                 '    productFlavors.configureEach { ' + clear + ' }\n'
+                 '    buildTypes { debug { ' + clear + ' } }\n}\n')
     else:
         from .kotlin_instrumenter import configure_gradle
         integration=configure_gradle(settings_text,module_text)
