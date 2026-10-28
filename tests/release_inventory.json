@@ -1851,6 +1851,8 @@
             "-m",
             "unittest",
             "tests.test_android_recovery_authority",
+            "tests.test_android_recovery_environment",
+            "tests.test_android_recovery_context.PrivateContextContractTests",
             "tests.test_android_recovery_transport",
             "tests.test_android_recovery_qualification",
             "tests.test_android_recovery_native_protocol.AndroidRecoveryNativeProtocolTests.test_native_integration_has_distinct_recovery_boundary",
@@ -1888,6 +1890,29 @@
             "native-compile"
           ],
           "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "ANDROID_RECOVERY_GATEWAY_CONTRACTS": {
+      "available": true,
+      "checks": [
+        {
+          "id": "android-recovery-gateway-contracts",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_android_recovery_context.PrivateGatewayTests"
+          ],
+          "environment": "public-synthetic-unix-sockets-no-adb-or-device",
+          "effects": [
+            "filesystem",
+            "process",
+            "loopback"
+          ],
+          "timeoutSeconds": 120,
           "evidence": "unittest-summary",
           "gate": "software"
         }

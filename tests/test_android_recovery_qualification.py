@@ -27,7 +27,7 @@ def frame():
 
 
 class FakeProducer:
-    def __init__(self, owner, serial, helper_apk, app_apk, *, runtime_profile, helper_digest, work):
+    def __init__(self, owner, serial, helper_apk, app_apk, *, runtime_profile, helper_digest, work, context):
         self.owner = owner
         self.app_profile = runtime_profile
         self.target_package = runtime_profile.data['package']
@@ -66,7 +66,9 @@ class FakeProducer:
             nativeClockId='android-elapsed-realtime', nativeTimeMs=self._counter,
             nativeProcessIdentity=copy.deepcopy(self._process))
 
-    def read_status(self):
+    def read_status(self, *, guard=None):
+        if guard is not None:
+            guard()
         return self.status()
 
     def recovery_call(self, grant):
@@ -126,6 +128,14 @@ class FakeProbe(FakeProducer):
         return self
 
 
+class FakeIsolatedContext:
+    valid = True
+
+    def require_bound(self, serial, package, helper_digest, app_digest):
+        if not self.valid:
+            raise ContractError('Synthetic server epoch lost')
+
+
 class QualificationIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -141,7 +151,8 @@ class QualificationIntegrationTests(unittest.TestCase):
         self.patches = [patch.object(qualification, 'HostAuthority',
             side_effect=lambda path:HostAuthority(path, clock=self.clock, lease_directory=self.root/'leases')),
             patch('reproof.live.android_recovery_transport.QualificationAndroidProvider', FakeProducer),
-            patch('reproof.live.android_recovery_transport._ProbeProducer', FakeProbe)]
+            patch('reproof.live.android_recovery_transport._ProbeProducer', FakeProbe),
+            patch('reproof.live.android_recovery_context.IsolatedAdbContext', FakeIsolatedContext)]
         for item in self.patches:item.start()
         self.harnesses=[]
 
@@ -161,7 +172,7 @@ class QualificationIntegrationTests(unittest.TestCase):
 
     def make(self):
         harness = qualification.QualificationHarness.create(self.root, serial='emulator-'+str(5554+2*len(self.harnesses)),
-            helper_apk=self.helper, app_apk=self.app, runtime_profile=self.profile, grant_provider=self.grant)
+            helper_apk=self.helper, app_apk=self.app, runtime_profile=self.profile, grant_provider=self.grant, context=FakeIsolatedContext())
         self.harnesses.append(harness)
         return harness
 
@@ -287,7 +298,27 @@ class QualificationIntegrationTests(unittest.TestCase):
         with patch.object(qualification,'Lab') as lab:
             with self.assertRaises(ContractError):qualification.QualificationHarness.create(self.root,
                 serial='physical-phone',helper_apk=self.helper,app_apk=self.app,
-                runtime_profile=self.profile,grant_provider=self.grant)
+                runtime_profile=self.profile,grant_provider=self.grant, context=FakeIsolatedContext())
             self.app.write_bytes(b'changed')
             with self.assertRaises(ContractError):self.make()
             lab.assert_not_called()
+
+    def test_lost_isolated_server_epoch_cannot_start_or_recover(self):
+        harness = self.make()
+        harness._context.valid = False
+        with self.assertRaises(ContractError):
+            harness.start()
+        self.assertIsNone(harness._provider)
+        harness = self.make()
+        self.quarantine(harness)
+        harness._context.valid = False
+        with self.assertRaises(ContractError):
+            harness.recover()
+        self.assertEqual(harness._provider.calls, [])
+
+    def test_context_replacement_is_not_importable_ownership(self):
+        harness = self.make()
+        harness._context = object()
+        with self.assertRaises(ContractError):
+            harness.start()
+        self.assertIsNone(harness._provider)

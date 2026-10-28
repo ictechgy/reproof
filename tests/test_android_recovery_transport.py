@@ -11,6 +11,7 @@ from reproof.core import ContractError
 from reproof.live import android_recovery_transport as transport
 from tests.test_android_launch import fixture
 from tests import test_android_startup_wait as startup_tests
+from tests import test_live_authority as authority_tests
 
 
 def configuration():
@@ -25,7 +26,7 @@ def producer():
     result=transport._Producer();result._configure(configuration())
     result.device=Mock();result.transport=Mock();result.stop=threading.Event();result.thread=Mock()
     result.thread.is_alive.return_value=False;result.process=Mock();result.process.poll.return_value=0
-    result.process.pid=12345;result.port=None;result.token='ephemeral';result._startup_status=None
+    result.process.pid=12345;result.token='ephemeral';result._startup_status=None
     return result
 
 
@@ -36,13 +37,35 @@ def grant(purpose='old-retire'):
     return result,wire
 
 
+class ContextDouble:
+    """Only a test substitute; production requires the exact isolated context."""
+    def __init__(self):
+        self.require_bound = Mock()
+        self.run_shell = Mock(return_value=b'1\n')
+        self.apk_identity = Mock()
+        self.call_helper = Mock(return_value={})
+        self.write_helper_configuration = Mock()
+        self.start_instrumentation = Mock(return_value=Mock())
+        self.collect_instrumentation = Mock(return_value=True)
+
+
 class AndroidRecoveryTransportTests(unittest.TestCase):
+    def setUp(self):
+        from reproof.live import android_recovery_context
+        selected = patch.object(android_recovery_context, 'IsolatedAdbContext', ContextDouble)
+        selected.start()
+        self.addCleanup(selected.stop)
+        self.context = ContextDouble()
+
+    def device(self, serial='emulator-5554', context=None):
+        return transport._QualificationAdbDevice(serial, self.context if context is None else context,
+            target_package='example.app', helper_digest='b'*64, app_digest='a'*64)
+
     def _startup(self,*,missing=False,late_failure=False):
         harness=startup_tests.AndroidStartupWaitTests();harness.setUp();self.addCleanup(harness.doCleanups)
         profile,_=fixture();owner=Mock();owner.bind_initial.return_value=configuration()
-        with patch.object(transport,'find_adb',return_value='/synthetic/adb'):
-            provider=transport.QualificationAndroidProvider(owner,'emulator-5554','helper.apk','app.apk',
-                runtime_profile=profile,helper_digest='b'*64,work='/tmp')
+        provider=transport.QualificationAndroidProvider(owner,'emulator-5554','helper.apk','app.apk',
+            runtime_profile=profile,helper_digest='b'*64,work='/tmp',context=self.context)
         provider.device_authority=Mock();provider.lease=Mock();provider.lease.__enter__=Mock();provider.lease.__exit__=Mock()
         provider.stop=startup_tests.Stop(harness.clock,provider)
         provider.device=Mock();harness.provider=provider
@@ -85,42 +108,45 @@ class AndroidRecoveryTransportTests(unittest.TestCase):
     def test_actual_private_startup_failure_never_runs_ordinary_cleanup(self):self._startup(late_failure=True)
 
     def test_no_discovery_or_device_commands_during_construction(self):
-        profile,_=fixture()
-        with patch.object(transport,'find_adb',return_value='/synthetic/adb'),patch.object(transport._ProcessOwner,'run') as run:
-            provider=transport.QualificationAndroidProvider(Mock(),'emulator-5554','helper.apk','app.apk',
-                runtime_profile=profile,helper_digest='b'*64,work='/tmp')
-        run.assert_not_called();self.assertIsNone(provider.process);self.assertIsNone(provider.fixture_config)
-        self.assertFalse(provider.record_sdk);self.assertFalse(provider.automatic_app_logs)
-        with self.assertRaises(ContractError):provider.close()
+        profile, _ = fixture()
+        provider = transport.QualificationAndroidProvider(Mock(), 'emulator-5554', 'helper.apk', 'app.apk',
+            runtime_profile=profile, helper_digest='b'*64, work='/tmp', context=self.context)
+        self.context.require_bound.assert_called_once()
+        self.context.run_shell.assert_not_called()
+        self.context.start_instrumentation.assert_not_called()
+        self.assertIsNone(provider.process)
+        self.assertIsNone(provider.fixture_config)
+        self.assertFalse(provider.record_sdk)
+        self.assertFalse(provider.automatic_app_logs)
+        with self.assertRaises(ContractError):
+            provider.close()
 
-    def test_only_explicit_emulator_serial_accepted(self):
-        for serial in ('device123','auto','emulator-1','emulator-99999','emulator-5554;bad',None):
-            with patch.object(transport,'find_adb') as find,self.assertRaises(ContractError):
-                transport._QualificationAdbDevice(serial,'/tmp')
-            find.assert_not_called()
+    def test_only_explicit_emulator_serial_and_exact_context_accepted(self):
+        for serial in ('device123', 'auto', 'emulator-1', 'emulator-99999', 'emulator-5554;bad', None):
+            with self.subTest(serial=serial), self.assertRaises(ContractError):
+                self.device(serial)
+        self.context.require_bound.assert_not_called()
+        with self.assertRaises(ContractError):
+            self.device(context=Mock())
 
-    def test_bounded_command_requires_guard_and_collected_result(self):
-        with patch.object(transport,'find_adb',return_value='/synthetic/adb'):
-            device=transport._QualificationAdbDevice('emulator-5554','/tmp')
-        with self.assertRaises(ContractError):device._command(('never-run',))
-        device.guard=Mock();device.owner=Mock()
-        device.owner.run.return_value=SimpleNamespace(terminated=True,bounded=True,interrupted=False,returncode=0,stdout=b'1\n')
-        device.verify_emulator();self.assertEqual(device.owner.run.call_args.kwargs['max_output_bytes'],65536)
-        self.assertEqual(device.guard.call_count,2)
-        for field in ('terminated','bounded'):
-            setattr(device.owner.run.return_value,field,False)
-            with self.assertRaises(ContractError):device.verify_emulator()
-            setattr(device.owner.run.return_value,field,True)
+    def test_fixed_shell_requires_guard_and_never_uses_direct_command(self):
+        device = self.device()
+        with self.assertRaises(ContractError):
+            device.verify_emulator()
+        device.guard = Mock()
+        device.verify_emulator()
+        self.context.run_shell.assert_called_once_with(('getprop', 'ro.kernel.qemu'),
+            guard=device.guard, allow_absent=False)
+        self.assertFalse(hasattr(device, '_command'))
+        self.assertFalse(hasattr(device, 'adb_call'))
 
     def test_emulator_property_must_be_measured_one(self):
-        with patch.object(transport,'find_adb',return_value='/synthetic/adb'):
-            device=transport._QualificationAdbDevice('emulator-5554','/tmp')
+        device = self.device()
         for value in (b'0\n',b'',b'yes'):
             with patch.object(device,'_fixed',return_value=value),self.assertRaises(ContractError):device.verify_emulator()
 
     def test_exact_helper_process_identity_and_safe_fixed_paths(self):
-        with patch.object(transport,'find_adb',return_value='/synthetic/adb'):
-            device=transport._QualificationAdbDevice('emulator-5554','/tmp')
+        device = self.device()
         stat=b'123 (io.reproof.live) '+b' '.join([b'S']+[b'0']*18+[b'789']+[b'0']*5)
         with patch.object(device,'_fixed',side_effect=[b'123\n',b'io.reproof.live\0',stat]) as fixed:
             self.assertEqual(device.helper_process(),{'pid':123,'startTicks':'789'})
@@ -178,8 +204,9 @@ class AndroidRecoveryTransportTests(unittest.TestCase):
         wire['configurationDigest']=selected.configuration_digest
         selected._preexit_process=identity;selected._exit_receipt={'grant':wire,'nativeProcessIdentity':identity}
         selected.device.helper_process.return_value=None
-        with patch.object(transport._ProcessOwner,'_group_empty',return_value=True):
-            result=selected.collect_exit(issued._issuer,issued)
+        selected.device.context.collect_instrumentation.return_value = True
+        result=selected.collect_exit(issued._issuer,issued)
+        selected.device.context.collect_instrumentation.assert_called_once_with(selected.process, guard=issued._issuer.check)
         self.assertTrue(result['remoteHelperAbsent']);self.assertTrue(result['clientCollected'])
         self.assertEqual(selected.token,'');selected.device._fixed.assert_called_once_with('test','!','-e','/proc/123')
 
@@ -193,11 +220,10 @@ class AndroidRecoveryTransportTests(unittest.TestCase):
 
     def test_probe_start_is_fresh_and_has_no_normal_poller_or_launch(self):
         profile,_=fixture()
-        with patch.object(transport,'find_adb',return_value='/synthetic/adb'):
-            old=transport.QualificationAndroidProvider(Mock(),'emulator-5554','helper.apk','app.apk',
-                runtime_profile=profile,helper_digest='b'*64,work='/tmp')
+        old=transport.QualificationAndroidProvider(Mock(),'emulator-5554','helper.apk','app.apk',
+            runtime_profile=profile,helper_digest='b'*64,work='/tmp',context=self.context)
         old._configure(configuration());old._exit_receipt={'nativeProcessIdentity':{'pid':123,'startTicks':'789'}}
-        old.token='';old.process=Mock();old.process.poll.return_value=0;old.device=Mock()
+        old.token='';old._client_collected=True;old.process=Mock();old.process.poll.side_effect=AssertionError('Retired handle');old.device=Mock()
         old.helper_incarnation='oldhelper';old.provider_incarnation='oldprovider';old.host_incarnation='host'
         issuer=Mock();selected=transport._ProbeProducer(old,dict(configuration(),phase='probe'),'freshhelper','freshprovider',issuer)
         self.assertTrue(selected.token);self.assertIsNone(selected.thread)
@@ -211,27 +237,103 @@ class AndroidRecoveryTransportTests(unittest.TestCase):
         with patch.object(selected,'_spawn',side_effect=spawn),patch.object(selected,'_verify_installed') as installed:
             self.assertIs(selected.start(),selected)
         self.assertEqual(installed.call_count,2);self.assertIsNone(selected.thread)
-        selected.transport.call.assert_called_once_with('/qualification-recovery/status')
+        selected.transport.call.assert_called_once_with('/qualification-recovery/status', guard=issuer.check)
         selected.device.helper_process.assert_called_once_with(status['nativeProcessIdentity'])
         copy_status=selected.startup_status;copy_status['hostIncarnation']='changed'
         self.assertEqual(selected.startup_status['hostIncarnation'],'host')
 
-    def test_spawn_writes_only_fixed_helper_configuration_and_has_guard_before_process(self):
-        selected=producer();selected.app_profile=fixture()[0];selected.target_package=selected.app_profile.data['package']
-        selected.device.adb='/synthetic/adb';selected.device.serial='emulator-5554'
-        selected.device.adb_call.return_value=b'4567'
-        selected.configuration_digest=selected.configuration_digest
-        config=selected._config('helper','host','provider')
-        with patch.object(transport.subprocess,'Popen',return_value=Mock()) as spawn:
+    def test_spawn_uses_only_context_configuration_and_owned_instrumentation(self):
+        selected = producer()
+        selected.app_profile = fixture()[0]
+        selected.target_package = selected.app_profile.data['package']
+        selected.device.context = self.context
+        selected._ordinary_transport_guard = Mock()
+        config = selected._config('helper', 'host', 'provider')
+        selected._spawn(config)
+        self.context.write_helper_configuration.assert_called_once()
+        self.assertEqual(self.context.write_helper_configuration.call_args.kwargs['guard'], selected.device.guard)
+        self.context.start_instrumentation.assert_called_once_with(guard=selected.device.guard)
+        self.assertIs(selected.process, self.context.start_instrumentation.return_value)
+        self.assertIs(selected.transport.context, self.context)
+        self.context.run_shell.assert_not_called()
+        self.context.start_instrumentation.reset_mock()
+        self.context.write_helper_configuration.side_effect = ContractError('revoked')
+        with self.assertRaises(ContractError):
             selected._spawn(config)
-        command=selected.device._run.call_args.args[0]
-        self.assertEqual(command[:5],('/synthetic/adb','-s','emulator-5554','shell','-T'))
-        self.assertNotIn('install',command);self.assertNotIn('pm clear',str(command))
-        self.assertEqual(spawn.call_args.kwargs['stdout'],transport.subprocess.DEVNULL)
-        self.assertEqual(spawn.call_args.kwargs['stderr'],transport.subprocess.DEVNULL)
-        selected.device.guard.side_effect=ContractError('revoked')
-        with patch.object(transport.subprocess,'Popen') as spawn,self.assertRaises(ContractError):selected._spawn(config)
-        spawn.assert_not_called()
+        self.context.start_instrumentation.assert_not_called()
+
+    def test_gateway_preserves_ordinary_guard_and_never_lends_recovery_authority(self):
+        ordinary, recovery = Mock(), Mock()
+        bridge = transport._QualificationBridge(self.context, 'private-token', ordinary)
+        bridge.call('/frame')
+        self.assertIs(self.context.call_helper.call_args.kwargs['guard'], ordinary)
+        bridge.call('/qualification-recovery/status', guard=recovery)
+        self.assertIs(self.context.call_helper.call_args.kwargs['guard'], recovery)
+        bridge.call('/frame')
+        self.assertIs(self.context.call_helper.call_args.kwargs['guard'], ordinary)
+        with self.assertRaises(ContractError):
+            bridge.call('/command', {}, guard=recovery)
+        probe = transport._QualificationBridge(self.context, 'new-token', recovery, probe=True)
+        with self.assertRaises(ContractError):
+            probe.call('/frame')
+        probe.call('/qualification-recovery/status')
+        self.assertIs(self.context.call_helper.call_args.kwargs['guard'], recovery)
+
+    def test_real_authority_observation_survives_startup_confirmation_not_revocation(self):
+        harness = authority_tests.AuthorityTestCase()
+        harness.setUp()
+        self.addCleanup(harness.tearDown)
+        authority = harness.claim()
+        self.addCleanup(authority.close)
+        admission = authority.admit_operation(operation_id='startup', payload_digest='a'*64,
+            session_id='session', sequence=1)
+        permit = authority.prepare_dispatch(admission, provider_incarnation='provider')
+        provider = transport.QualificationAndroidProvider.__new__(transport.QualificationAndroidProvider)
+        provider.device_authority = authority
+        provider.provider_incarnation = 'provider'
+        provider.sid = 'session'
+        provider.stop = threading.Event()
+        session = {'provider': provider, 'deviceAuthority': authority, 'providerIncarnation': 'provider'}
+        provider._fixture_session = session
+        provider.lab = Mock()
+        provider.lab._session.return_value = session
+        provider._ordinary_binding = (authority, 'provider', session)
+        self.context.call_helper.side_effect = lambda *args, **kwargs: (kwargs['guard']() or {})
+        bridge = transport._QualificationBridge(self.context, 'private-token', provider._ordinary_transport_guard)
+        bridge.call('/status')
+        authority.confirm_operation(permit, authority_tests.ProviderResult('startup-receipt', 'succeeded', 'b'*64))
+        with self.assertRaises(ContractError):
+            authority.check_dispatch_permit(permit)
+        bridge.call('/frame')
+        session['providerIncarnation'] = 'replacement'
+        with self.assertRaises(ContractError):
+            bridge.call('/frame')
+        session['providerIncarnation'] = 'provider'
+        authority.revoke_dispatches()
+        with self.assertRaises(ContractError):
+            bridge.call('/frame')
+
+    def test_context_failure_never_falls_back_to_direct_transport(self):
+        bridge = transport._QualificationBridge(self.context, 'private-token', Mock())
+        self.context.call_helper.side_effect = ContractError('unqualified')
+        with self.assertRaises(ContractError):
+            bridge.call('/status')
+        source = Path(transport.__file__).read_text()
+        for forbidden in ('find_adb(', 'subprocess.', 'HTTPConnection(', 'adb_call(', '_ProcessOwner', 'build-tools'):
+            self.assertNotIn(forbidden, source)
+
+    def test_uncollected_context_process_retains_ephemeral_token(self):
+        selected = producer()
+        identity = self._terminal(selected)
+        issued, wire = grant('old-exit')
+        wire['configurationDigest'] = selected.configuration_digest
+        selected._preexit_process = identity
+        selected._exit_receipt = {'grant': wire, 'nativeProcessIdentity': identity}
+        selected.device.helper_process.return_value = None
+        selected.device.context.collect_instrumentation.return_value = False
+        with self.assertRaises(ContractError):
+            selected.collect_exit(issued._issuer, issued)
+        self.assertEqual(selected.token, 'ephemeral')
 
     def test_local_artifact_links_and_size_bounds_rejected(self):
         with tempfile.TemporaryDirectory() as temp:

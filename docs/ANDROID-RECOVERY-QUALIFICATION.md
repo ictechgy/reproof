@@ -7,6 +7,48 @@ output can release ordinary Live quarantine. Actual dedicated disposable-AVD
 qualification and independent review are required before a separate production
 integration decision. No device execution is part of this source implementation.
 
+## Runtime entry is blocked
+
+The private harness now requires an `IsolatedAdbContext`. Its production birth
+entry fails before filesystem, process or network effects: there is no supported
+way to import a PID, socket, JSON claim or another process's server ownership.
+Portable tests construct synthetic owners explicitly. They do not make this
+source a runnable Mac trial, and no lost-ACK runtime runner is enabled.
+
+The finite client path reuses the existing Darwin ADB gateway and process
+sandbox: only the selected transport and fixed shell operations or helper port
+8766 are permitted. No install, sync, abb, forwarding, default server selection,
+or unsandboxed fallback is accepted. Both short calls and instrumentation use
+explicit private HOME and ANDROID_USER_HOME values, not the user's environment.
+Gateway shutdown drains its workers but always preserves the private socket
+namespace and reports incomplete cleanup. This is a second runtime blocker:
+the current implementation cannot prove that the first pathname observation
+after bind still denotes the socket it created. It does not delete a possibly
+replaced entry or call recursive cleanup. Passing relay-restriction tests is
+therefore not successful end-to-end qualification or clean shutdown evidence.
+
+This restriction is deliberate. An explicit ADB host/port is insufficient:
+the official client's version-mismatch branch can kill and restart a daemon.
+The gateway rejects daemon management and checks protocol version 41; the
+client sandbox denies process creation and network access outside its gateway.
+These are source-level boundaries, not a claim that the current Mac sandbox or
+ADB binary has been qualified. See the official
+[ADB client implementation](https://android.googlesource.com/platform/packages/modules/adb/+/refs/heads/android15-qpr2-s8-release/client/adb_client.cpp).
+
+A future birth implementation needs exact binary/source correspondence,
+negative sandbox and discovery preflight, a retained newly owned server epoch,
+and explicit registration of only the newly owned disposable emulator. Disabling
+USB, mDNS and emulator scanning must be verified for that binary; `--one-device`
+is not a substitute for emulator-discovery isolation. No new server sandbox,
+security-setting change or broad discovery fallback is implemented here.
+
+Reported Mac metadata includes installed platforms and build-tools 34/35/36,
+JDK 17 and API 36 emulator images. Exact minor versions, signed installable
+artifacts and an actual build remain unqualified. A future trial needs separate
+permission for the disposable AVD, public fixture installation, temporary ADB
+authentication/signing keys and any required downloads; no automatic SDK install
+or use of an existing AVD is authorized by this source work.
+
 ## Scope and trust boundary
 
 Only a new harness-owned Android general-runtime-profile shared-v2 session is

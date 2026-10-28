@@ -7,21 +7,16 @@ from __future__ import annotations
 import base64
 from collections import OrderedDict
 import hashlib
-import http.client
 import json
 import os
 from pathlib import Path
 import re
 import secrets
-import shlex
-import subprocess
 import threading
 import time
 from . import android_live as live
 from ..core import ContractError
-from ..device import AdbDevice, find_adb
 from ..execution.artifacts import open_regular
-from ..repair_android_signing import _ProcessOwner
 from ..android_profile import AndroidRuntimeProfile
 
 
@@ -47,28 +42,29 @@ def _digest_file(path,limit):
     return sha.hexdigest()
 
 
-class _QualificationAdbDevice(AdbDevice):
-    """No device enumeration; every future command has finite output ownership."""
-    def __init__(self,serial,work):
-        _require(type(serial) is str and re.fullmatch(r'emulator-[0-9]{4,5}',serial)
-            and 1024<=int(serial[9:])<=65535)
-        self.serial=serial;self.adb=find_adb();self.work=Path(work)
-        self.identity=hashlib.sha256(serial.encode()).hexdigest()[:16]
-        self.authority_lease=None;self._lease_local=threading.local();self.app_profile=None
-        self.owner=_ProcessOwner();self.guard=None;self.cancel=threading.Event()
+class _QualificationAdbDevice:
+    """Fixed operations through one mandatory, process-owned isolated context."""
+    def __init__(self, serial, context, *, target_package, helper_digest, app_digest):
+        from .android_recovery_context import IsolatedAdbContext
+        _require(type(context) is IsolatedAdbContext)
+        _require(type(serial) is str and re.fullmatch(r'emulator-[0-9]{4,5}', serial)
+                 and 1024 <= int(serial[9:]) <= 65535)
+        context.require_bound(serial, target_package, helper_digest, app_digest)
+        self.serial = serial
+        self.context = context
+        self.identity = hashlib.sha256(serial.encode()).hexdigest()[:16]
+        self.authority_lease = None
+        self.guard = None
 
-    def _run(self,args,timeout=5,input_bytes=b'',allow_absent=False):
-        _require(callable(self.guard));self.guard()
-        result=self.owner.run(tuple(map(str,args)),work=self.work,input_bytes=input_bytes,pass_fds=(),
-            cancellation=self.cancel,deadline_monotonic=time.monotonic()+min(timeout or 5,10),max_output_bytes=65536)
-        self.guard();_require(result.terminated and result.bounded and not result.interrupted)
-        _require(result.returncode==0 or (allow_absent and result.returncode==1 and result.stdout==b''))
-        return result.stdout
+    def _fixed(self, *args, allow_absent=False):
+        _require(callable(self.guard))
+        raw = self.context.run_shell(tuple(args), guard=self.guard, allow_absent=allow_absent)
+        _require(type(raw) is bytes and len(raw) <= 65536)
+        return raw
 
-    def _command(self,args,timeout=None):return self._run(args,timeout or 5)
-
-    def _fixed(self,*args,allow_absent=False):
-        return self._run((self.adb,'-s',self.serial,'shell',shlex.join(args)),allow_absent=allow_absent)
+    def apk_identity(self, path):
+        _require(callable(self.guard))
+        return self.context.apk_identity(path, guard=self.guard)
 
     def verify_emulator(self):_require(self._fixed('getprop','ro.kernel.qemu').strip()==b'1')
 
@@ -93,24 +89,35 @@ class _QualificationAdbDevice(AdbDevice):
         return result
 
 
-class _QualificationBridge(live.UsbBridgeClient):
-    def call(self,path,body=None,timeout=5,binary=False):
-        if not path.startswith('/qualification-recovery'):return super().call(path,body,timeout,binary)
-        _require(path in {'/qualification-recovery','/qualification-recovery/status'} or
-            re.fullmatch(r'/qualification-recovery/recovery_[a-f0-9]{32}(?:/frame)?',path))
-        connection=http.client.HTTPConnection('127.0.0.1',self.port,timeout=min(timeout,5))
-        try:
-            data=None if body is None else json.dumps(body,allow_nan=False,separators=(',',':')).encode()
-            _require(data is None or len(data)<=8192)
-            headers={'Authorization':'Bearer '+self.token,'Connection':'close'}
-            if data is not None:headers['Content-Type']='application/json'
-            connection.request('GET' if data is None else 'POST',path,data,headers)
-            response=connection.getresponse();limit=4*1024*1024 if binary else 65536
-            raw=response.read(limit+1);_require(response.status in {200,202} and len(raw)<=limit)
-            if binary:return raw
-            value=json.loads(raw);_require(type(value) is dict);return value
-        except (ValueError,UnicodeError,RecursionError):raise ContractError('Invalid recovery response') from None
-        finally:connection.close()
+class _QualificationBridge:
+    """All helper HTTP travels through the scoped gateway, never a TCP forward.
+
+    The ordinary startup guard is captured, not borrowed from the device's
+    mutable shell guard. Recovery authority cannot authorize ordinary media.
+    """
+    def __init__(self, context, token, ordinary_guard, *, probe=False):
+        from .android_recovery_context import IsolatedAdbContext
+        _require(type(context) is IsolatedAdbContext and callable(ordinary_guard))
+        self.context = context
+        self.token = token
+        self._ordinary_guard = ordinary_guard
+        self._probe = probe
+
+    def call(self, path, body=None, timeout=5, binary=False, *, guard=None):
+        _require(type(path) is str and len(path) <= 160)
+        recovery = path.startswith('/qualification-recovery')
+        if recovery:
+            _require(path in {'/qualification-recovery', '/qualification-recovery/status'} or
+                     re.fullmatch(r'/qualification-recovery/recovery_[a-f0-9]{32}(?:/frame)?', path))
+        else:
+            _require(not self._probe and guard is None and (
+                path in {'/status', '/frame', '/command', '/stop', '/inspect'} or
+                re.fullmatch(r'/ack/(?:[a-f0-9]{32}|[a-z][a-z0-9_-]{0,63})', path) or
+                re.fullmatch(r'/frames/after/[0-9]+', path)))
+        selected_guard = self._ordinary_guard if guard is None else guard
+        _require(callable(selected_guard))
+        return self.context.call_helper(path, body, token=self.token, timeout=timeout,
+                                        binary=binary, guard=selected_guard)
 
 
 class _Producer:
@@ -124,6 +131,7 @@ class _Producer:
         _require(len(raw)<=8192)
         self._configuration=raw;self.configuration_digest=_digest(configuration)
         self._retirement=None;self._exit_receipt=None;self._requests={};self._preexit_process=None
+        self._client_collected = False
 
     @property
     def qualification_configuration(self):return json.loads(self._configuration)
@@ -131,7 +139,12 @@ class _Producer:
     @property
     def startup_status(self):return None if self._startup_status is None else json.loads(self._startup_status)
 
-    def read_status(self):return self.transport.call('/qualification-recovery/status')
+    def read_status(self, *, guard=None):
+        if guard is None and hasattr(self, 'issuer'):
+            guard = self.issuer.check
+        if guard is None:
+            _require(self.startup_status is None)
+        return self.transport.call('/qualification-recovery/status', guard=guard)
 
     def recovery_call(self,grant):
         wire=grant.wire();grant._issuer.check()
@@ -143,12 +156,12 @@ class _Producer:
             self._preexit_process=self.device.helper_process(self._retirement['nativeProcessIdentity'])
             grant._issuer.check()
         self._requests[wire['operationId']]=wire
-        value=self.transport.call('/qualification-recovery',{'grant':wire})
+        value=self.transport.call('/qualification-recovery',{'grant':wire},guard=grant._issuer.check)
         grant._issuer.check();return value
 
     def recovery_result(self,grant):
         wire=grant.wire();_require(self._requests.get(wire['operationId'])==wire)
-        value=self.transport.call('/qualification-recovery/'+wire['operationId']);grant._issuer.check()
+        value=self.transport.call('/qualification-recovery/'+wire['operationId'],guard=grant._issuer.check);grant._issuer.check()
         if value.get('pending') is False and type(value.get('receipt')) is dict:
             receipt=value['receipt']
             _require(receipt.get('grant')==wire and receipt.get('status')=='complete')
@@ -158,7 +171,7 @@ class _Producer:
 
     def recovery_frame(self,grant):
         wire=grant.wire();_require(wire['purpose']=='fresh-probe' and self._requests.get(wire['operationId'])==wire)
-        value=self.transport.call('/qualification-recovery/'+wire['operationId']+'/frame',binary=True)
+        value=self.transport.call('/qualification-recovery/'+wire['operationId']+'/frame',binary=True,guard=grant._issuer.check)
         grant._issuer.check();return value
 
     def collect_exit(self,issuer,grant):
@@ -183,14 +196,13 @@ class _Producer:
         issuer.check();self.stop.set()
         if self.thread is not None:
             self.thread.join(timeout=5);issuer.check();_require(not self.thread.is_alive())
-        _require(self.process is not None);issuer.check()
-        try:self.process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            issuer.check();_require(_ProcessOwner._terminate(self.process))
-        issuer.check();_require(self.process.poll() is not None and _ProcessOwner._group_empty(self.process.pid))
+        _require(self.process is not None)
+        issuer.check()
+        _require(self.device.context.collect_instrumentation(self.process, guard=issuer.check) is True)
+        self._client_collected = True
+        issuer.check()
         self.device.helper_process(absent=True)
         self.device._fixed('test','!','-e',f"/proc/{expected['pid']}");issuer.check()
-        if self.port is not None:self.device.adb_call('forward','--remove','tcp:'+str(self.port),timeout=5)
         issuer.check();self.token='';self.transport.token=''
         return {'remoteHelperAbsent':True,'clientCollected':True,'pollerJoined':True,
             'nativeProcessIdentity':expected}
@@ -211,15 +223,13 @@ class _Producer:
         # Never overwrite/start against an unrelated existing helper owner.
         self.device.helper_process(absent=True)
         raw=json.dumps(config,separators=(',',':')).encode();_require(len(raw)<=16384)
-        command=shlex.join(['run-as',live.HELPER,'sh','-c','umask 077 && mkdir -p files && cat > files/live-config.json'])
-        self.device._run((self.device.adb,'-s',self.device.serial,'shell','-T',command),input_bytes=raw)
-        port=self.device.adb_call('forward','tcp:0','tcp:8766').strip()
-        _require(port.isdigit() and 1024<=int(port)<=65535);self.port=int(port)
-        self.transport=_QualificationBridge(self.port,self.token)
-        self.device.guard()
-        self.process=subprocess.Popen([self.device.adb,'-s',self.device.serial,'shell',
-            'am instrument -w -r '+live.HELPER+'/.LiveInstrumentation'],stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,start_new_session=True)
+        _require(callable(self.device.guard))
+        self.device.context.write_helper_configuration(raw, guard=self.device.guard)
+        self.transport = _QualificationBridge(
+            self.device.context, self.token,
+            self.issuer.check if hasattr(self, 'issuer') else self._ordinary_transport_guard,
+            probe=self.qualification_configuration['phase'] == 'probe')
+        self.process = self.device.context.start_instrumentation(guard=self.device.guard)
         self.device.guard()
 
     def _config(self,helper,host,provider):
@@ -233,7 +243,7 @@ class _Producer:
 
 class QualificationAndroidProvider(_Producer,live.AndroidLiveProvider):
     """General shared session with preinstalled artifacts; never ordinary cleanup."""
-    def __init__(self,owner,serial,helper_apk,app_apk,*,runtime_profile,helper_digest,work):
+    def __init__(self,owner,serial,helper_apk,app_apk,*,runtime_profile,helper_digest,work,context):
         _require(type(runtime_profile) is AndroidRuntimeProfile)
         data=runtime_profile.data
         _require(data['package']!=live.HELPER and data['capabilities']['logAdapter'] is None
@@ -242,14 +252,16 @@ class QualificationAndroidProvider(_Producer,live.AndroidLiveProvider):
         _require(type(helper_digest) is str and re.fullmatch('[0-9a-f]{64}',helper_digest))
         self.owner=owner;self.app_profile=runtime_profile;self.general_profile=True;self.explicit_profile=True
         self.target_package=data['package'];self.target_activity=data['launchTarget']['value']
-        self.device=_QualificationAdbDevice(serial,work);self.helper_apk=Path(helper_apk).absolute()
+        self.device = _QualificationAdbDevice(serial, context, target_package=data['package'],
+            helper_digest=helper_digest, app_digest=data['artifact']['sha256'])
+        self.helper_apk=Path(helper_apk).absolute()
         self.sample_apk=Path(app_apk).absolute();self.helper_digest=helper_digest;self.identity=runtime_profile.application_identity
         self.launch_config=None;self.launch_configuration_verified=False;self.fixture=None;self.fixture_spec=None
         self.fixture_config=None;self._fixture_context=None;self._fixture_session=None;self._fixture_committed=False
         self._fixture_challenge=None;self.record_sdk=False;self.automatic_app_logs=False;self.observation_profile=None
         self._managed_device=False;self.artifact_temp=None;self.capture_max_width=960
         self.stop=threading.Event();self.frame_mutex=threading.RLock();self.lease=None;self.lease_held=False
-        self.process=None;self.port=None;self.transport=None;self.thread=None;self.token=secrets.token_urlsafe(32)
+        self.process=None;self.transport=None;self.thread=None;self.token=secrets.token_urlsafe(32)
         self.last_native_frame=0;self.frame_map=OrderedDict();self.capture_started_at=None;self.capture_session_id=None
         self.app_log_run_id=None;self.app_log_marker=None;self.device_authority=None;self.provider_incarnation=None
         self.native_handshake=None;self.handshake_ready=None;self._startup_permit=None;self._startup_lock=threading.RLock()
@@ -257,6 +269,19 @@ class QualificationAndroidProvider(_Producer,live.AndroidLiveProvider):
         self.native_frame_buffer_bound=False;self.native_frame_buffered=False;self.native_frame_buffer_version=None
         self.native_frame_buffer_capacity=16;self.native_frame_timing_declared=False;self.installed_identity_evidence=None
         self.helper_ready=threading.Event();self.target_launched=False;self._startup_status=None;self.frame_clock=None
+
+    def _ordinary_transport_guard(self):
+        # Startup permits become terminal after the startup receipt. Passive
+        # transport remains bound to the live ordinary ownership generation;
+        # every mutation still validates its own permit in _execute.
+        binding = getattr(self, '_ordinary_binding', None)
+        _require(binding is not None and not self.stop.is_set())
+        authority, incarnation, session = binding
+        _require(self.device_authority is authority and self.provider_incarnation == incarnation
+                 and self._fixture_session is session and self.lab._session(self.sid) is session
+                 and session.get('provider') is self and session.get('deviceAuthority') is authority
+                 and session.get('providerIncarnation') == incarnation)
+        authority.check_observation_authority()
 
     def _validate_native_metadata(self,value):
         result=super()._validate_native_metadata(value)
@@ -284,6 +309,7 @@ class QualificationAndroidProvider(_Producer,live.AndroidLiveProvider):
             and configuration['artifactDigest']==self.app_profile.data['artifact']['sha256']
             and configuration['helperArtifactDigest']==self.helper_digest)
         self.owner.require_initial(self);self.owner.initial_dispatch(self)
+        self._ordinary_binding = (self.device_authority, permit.provider_incarnation, session)
         self.device.guard=lambda:self._check_permit(permit)
         self.lease.__enter__();self.lease_held=True
         self.device.verify_emulator()
@@ -316,10 +342,10 @@ class _ProbeProducer(_Producer):
     """Recovery-only helper; never a Lab provider or ordinary dispatch permit."""
     def __init__(self,old,configuration,helper_incarnation,provider_incarnation,issuer):
         _require(type(old) is QualificationAndroidProvider and old._exit_receipt is not None
-            and old.token=='' and old.process.poll() is not None)
+            and old.token=='' and old._client_collected is True)
         self.old=old;self.issuer=issuer;self.device=old.device;self.app_profile=old.app_profile
         self.target_package=old.target_package;self.helper_apk=old.helper_apk;self.sample_apk=old.sample_apk
-        self.helper_digest=old.helper_digest;self.token=secrets.token_urlsafe(32);self.port=None
+        self.helper_digest=old.helper_digest;self.token=secrets.token_urlsafe(32)
         self.process=None;self.transport=None;self.thread=None;self.stop=threading.Event();self._startup_status=None
         self.helper_incarnation=helper_incarnation;self.provider_incarnation=provider_incarnation
         self.host_incarnation=old.host_incarnation
@@ -338,8 +364,9 @@ class _ProbeProducer(_Producer):
         deadline=time.monotonic()+10
         while True:
             self.issuer.check();_require(self.process.poll() is None and time.monotonic()<deadline)
-            try:status=self.read_status()
-            except (OSError,http.client.HTTPException):time.sleep(.05);continue
+            # No broad retry can turn a denied/changed scoped context into a
+            # transient helper-startup condition. Birth is not qualified yet.
+            status=self.read_status()
             _require(status.get('recoveryQualificationVersion')==1 and type(status.get('recoveryQualificationVersion')) is int
                 and status.get('recoveryQualificationConfigurationDigest')==self.configuration_digest
                 and status.get('helperIncarnation')==self.helper_incarnation

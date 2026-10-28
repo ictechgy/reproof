@@ -97,7 +97,10 @@ class _RecoveryChannel:
 
     def read_status(self):
         self.require_owned()
-        value = copy.deepcopy(self._status) if self._terminal else self._producer.read_status()
+        issuer = self._owner._active_issuer
+        _require(issuer is not None, 'Live recovery issuer required')
+        value = (copy.deepcopy(self._status) if self._terminal else
+                 self._producer.read_status(guard=issuer.check))
         _require(type(value) is dict, 'Qualification status unavailable')
         for key in ('nativeIncarnation', 'nativeProcessIdentity', 'helperIncarnation',
                     'providerIncarnation', 'hostIncarnation', 'nativeClockId'):
@@ -212,8 +215,10 @@ class QualificationHarness:
     use the normal trusted coordinator composition; no local grant is fabricated.
     """
     @classmethod
-    def create(cls, parent, *, serial, helper_apk, app_apk, runtime_profile, grant_provider):
+    def create(cls, parent, *, serial, helper_apk, app_apk, runtime_profile, grant_provider, context):
         from .android_recovery_transport import _digest_file
+        from .android_recovery_context import IsolatedAdbContext
+        _require(type(context) is IsolatedAdbContext, 'Owned isolated ADB context required')
         _require(type(serial) is str and re.fullmatch(r'emulator-[0-9]{4,5}', serial)
             and callable(grant_provider), 'Explicit disposable emulator required')
         profile = runtime_profile if type(runtime_profile) is AndroidRuntimeProfile else validate_android_runtime_profile(runtime_profile)
@@ -223,6 +228,7 @@ class QualificationHarness:
         helper_digest = _digest_file(helper_apk, 150*1024*1024)
         _require(_digest_file(app_apk, 150*1024*1024) == data['artifact']['sha256'],
             'Qualification app artifact differs')
+        context.require_bound(serial, data['package'], helper_digest, data['artifact']['sha256'])
         parent = Path(parent).absolute()
         parent_fd = _directory(parent)
         root_fd = None
@@ -241,6 +247,7 @@ class QualificationHarness:
             obj.serial, obj.profile = serial, profile
             obj.helper_apk, obj.app_apk = Path(helper_apk).absolute(), Path(app_apk).absolute()
             obj.helper_digest = helper_digest
+            obj._context = context
             obj._grant_provider = grant_provider
             obj._channels = {}
             obj._provider = obj._probe = obj._journal = obj._active_issuer = obj._session = None
@@ -279,6 +286,10 @@ class QualificationHarness:
     def _check(self):
         _require(not self._closed and self._pid == os.getpid() and self._thread == threading.get_ident(),
             'Live private qualification owner required')
+        from .android_recovery_context import IsolatedAdbContext
+        _require(type(self._context) is IsolatedAdbContext, 'Owned isolated ADB context required')
+        self._context.require_bound(self.serial, self.profile.data['package'],
+                                    self.helper_digest, self.profile.data['artifact']['sha256'])
         parent = _directory(self._parent)
         try:
             _require((os.fstat(parent).st_dev, os.fstat(parent).st_ino) ==
@@ -296,7 +307,8 @@ class QualificationHarness:
         self._check()
         _require(self._provider is None and self._journal is None, 'Qualification session is one-use')
         provider = QualificationAndroidProvider(self, self.serial, self.helper_apk, self.app_apk,
-            runtime_profile=self.profile, helper_digest=self.helper_digest, work=self.root)
+            runtime_profile=self.profile, helper_digest=self.helper_digest, work=self.root,
+            context=self._context)
         self._provider = provider
         return provider
 

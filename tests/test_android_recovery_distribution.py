@@ -40,3 +40,13 @@ class RecoveryDistributionTests(unittest.TestCase):
             self.assertNotIn('android_recovery_qualification',(ROOT/'reproof/live'/name).read_text())
         self.assertIn('--goal ANDROID_RECOVERY_QUALIFICATION_CONTRACTS',
             (ROOT/'.github/workflows/portable-tests.yml').read_text())
+
+    def test_private_transport_has_no_raw_adb_or_forward_fallback(self):
+        source = (ROOT/'reproof/live/android_recovery_transport.py').read_text()
+        for forbidden in ('find_adb', 'subprocess.Popen', 'HTTPConnection', "'forward'", 'class _QualificationAdbDevice(AdbDevice)'):
+            self.assertNotIn(forbidden, source)
+        self.assertIn('type(context) is IsolatedAdbContext', source)
+        goal = json.loads((ROOT/'tests/release_inventory.json').read_text())['goals'][
+            'ANDROID_RECOVERY_QUALIFICATION_CONTRACTS']['checks'][0]
+        self.assertIn('tests.test_android_recovery_context.PrivateContextContractTests', goal['command'])
+        self.assertIn('tests.test_android_recovery_environment', goal['command'])

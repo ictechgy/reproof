@@ -143,12 +143,20 @@ class InstalledDistributionTests(unittest.TestCase):
     def test_installed_private_recovery_is_unqualified_and_complete(self):
         program = """from reproof.live.android_recovery_qualification import QualificationHarness
 from reproof.live.android_recovery_authority import QualificationJournal, inspect_qualification_journal
+from reproof.live.android_recovery_context import IsolatedAdbContext
+from reproof.core import ContractError
 from reproof.resources import resource_root
 from reproof.live.model import Lab
 source = (resource_root()/'android/live/src/main/java/io/reproof/live/AndroidRecoveryProtocol.kt').read_text()
 assert 'AndroidRecoveryProtocol' in source and 'AndroidRecoveryExitDelivery' in source
 assert not hasattr(Lab, 'recover_qualification_device')
 assert not hasattr(QualificationHarness, 'resume')
+try:
+    IsolatedAdbContext.birth()
+except ContractError:
+    pass
+else:
+    raise AssertionError('unqualified birth must be blocked')
 print('private recovery installed; normal recovery remains unqualified')
 """
         result = _command([str(self.python), '-I', '-c', program], cwd=self.work)
