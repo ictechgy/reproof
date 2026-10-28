@@ -16,7 +16,7 @@ class NativeCapturePolicySourceTests(unittest.TestCase):
     def test_nondefault_configuration_is_strict_and_handshake_is_private_metadata(self):
         source = SOURCE.read_text()
         policy = POLICY.read_text()
-        self.assertIn('"appOwnedFixture", "capturePolicy") + authorityFields', source)
+        self.assertIn('"appOwnedFixture", "capturePolicy", "qualificationRecovery") + authorityFields', source)
         self.assertIn('shared = hasAuthority, general = profile.general', source)
         self.assertIn('maxWidth != capturePolicy.maxWidth', source)
         self.assertIn('if (!shared || !general || raw.keys != setOf(', policy)

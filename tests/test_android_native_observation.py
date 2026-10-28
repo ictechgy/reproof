@@ -16,7 +16,7 @@ class AndroidNativeObservationTests(unittest.TestCase):
         status = source[source.index('    private fun statusSnapshot()'):source.index('    private fun observeSample()')]
         launch = source[source.index('    private fun launchGeneralTarget('):source.index('    private fun terminateGeneralTarget(')]
         ready = source[source.index('        fun isReady():'):source.index('        fun isStopped():')]
-        guard = source[source.index('    private fun targetFrameAllowed('):source.index('    private fun captureFrame()')]
+        guard = source[source.index('    private fun targetFrameAllowed('):source.index('    private fun captureDisplayAllowed()')]
         program = '''
 import org.json.JSONObject
 import org.json.JSONArray
@@ -38,10 +38,14 @@ private data class Profile(val general: Boolean = true, val observations: Set<St
 }
 private class ApprovedLaunch(val digest: String = "a".repeat(64), val shellArguments: String = "")
 private class AppOwnedFixture
+private class CapturePolicy { fun fields() = emptyMap<String, Any?>() }
+private class RecoverySelection(val digest: String = "c".repeat(64))
 private class FixtureClient { fun status() = JSONObject() }
 private data class Config(val profile: Profile = Profile()) {
  val approvedLaunch: ApprovedLaunch? = null
  val appOwnedFixture: AppOwnedFixture? = null
+ val capturePolicy: CapturePolicy? = null
+ val qualificationRecovery: RecoverySelection? = null
  val profileDigest = "b".repeat(64)
  val targetPackage = "com.example.inventory"
  val protocolVersion: Int? = 2
@@ -62,6 +66,7 @@ private class Probe {
  private val server: Server? = Server()
  private val appOwnedFixtureClient: FixtureClient? = null
  private val nativeIncarnation = "native"
+ private val recoveryProcessIdentity: Map<String, Any?>? = null
  private val inputLock = Any()
  private val captureLock = Any()
  private val generalTargetReady = AtomicBoolean(false)
@@ -137,9 +142,9 @@ fun main() {
 }
 '''
         json_boundary = '''package org.json
-class JSONObject {
+class JSONObject(initial: Map<String, Any?> = emptyMap()) {
  companion object { val NULL = Any() }
- private val values = linkedMapOf<String, Any?>()
+ private val values = linkedMapOf<String, Any?>().apply { putAll(initial) }
  fun put(key: String, value: Any?): JSONObject { values[key] = value; return this }
  fun opt(key: String): Any? = values[key]
  fun get(key: String): Any = values[key] ?: error("missing")

@@ -140,6 +140,22 @@ class InstalledDistributionTests(unittest.TestCase):
         self.assertEqual(origin.returncode, 0)
         self.assertTrue(Path(origin.stdout.strip()).resolve().is_relative_to(self.venv.resolve()))
 
+    def test_installed_private_recovery_is_unqualified_and_complete(self):
+        program = """from reproof.live.android_recovery_qualification import QualificationHarness
+from reproof.live.android_recovery_authority import QualificationJournal, inspect_qualification_journal
+from reproof.resources import resource_root
+from reproof.live.model import Lab
+source = (resource_root()/'android/live/src/main/java/io/reproof/live/AndroidRecoveryProtocol.kt').read_text()
+assert 'AndroidRecoveryProtocol' in source and 'AndroidRecoveryExitDelivery' in source
+assert not hasattr(Lab, 'recover_qualification_device')
+assert not hasattr(QualificationHarness, 'resume')
+print('private recovery installed; normal recovery remains unqualified')
+"""
+        result = _command([str(self.python), '-I', '-c', program], cwd=self.work)
+        self.assertEqual(result.returncode, 0, result.stderr[-1000:])
+        self.assertEqual(result.stdout.strip(), 'private recovery installed; normal recovery remains unqualified')
+        self.assertEqual(list(self.work.iterdir()), [])
+
     def test_installed_android_capture_policy_and_helper_are_complete(self):
         program = """from reproof.android_capture import capture_policy, require_capture_receipt
 from reproof.resources import resource_root

@@ -131,6 +131,29 @@ jobs:
           assert check['status'] == 'pass' and type(check['testsRun']) is int and check['testsRun'] == 2
           print('Two pure Kotlin capture contracts passed; no device execution')
           PYCAPTURE
+      - name: Execute private unqualified recovery Kotlin contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/reproof-android-recovery-logs"
+          python3 scripts/release-check.py --goal ANDROID_RECOVERY_QUALIFICATION_NATIVE --effects filesystem,process,native-compile \
+            | tee "$RUNNER_TEMP/reproof-android-recovery-logs/recovery-contracts.json"
+          python3 - <<'PYRECOVERY'
+          import json, os
+          from pathlib import Path
+          result = json.loads((Path(os.environ['RUNNER_TEMP']) / 'reproof-android-recovery-logs/recovery-contracts.json').read_text())
+          assert result['status'] == 'pass' and len(result['checks']) == 1
+          check = result['checks'][0]
+          assert check['status'] == 'pass' and type(check['testsRun']) is int and check['testsRun'] == 3
+          print('Three private recovery/neighbor source/JVM contracts passed; runtime remains UNQUALIFIED')
+          PYRECOVERY
+      - name: Preserve private recovery Kotlin evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-recovery-qualification-contract-results
+          path: ${{ runner.temp }}/reproof-android-recovery-logs/recovery-contracts.json
+          if-no-files-found: error
       - name: Preserve pure Kotlin capture evidence
         if: always()
         uses: actions/upload-artifact@v4

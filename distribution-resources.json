@@ -12,6 +12,7 @@
     "android/gradlew.bat",
     "android/live/build.gradle.kts",
     "android/live/src/main/AndroidManifest.xml",
+    "android/live/src/main/java/io/reproof/live/AndroidRecoveryProtocol.kt",
     "android/live/src/main/java/io/reproof/live/AppOwnedFixture.kt",
     "android/live/src/main/java/io/reproof/live/ApprovedLaunch.kt",
     "android/live/src/main/java/io/reproof/live/CapturePolicy.kt",
