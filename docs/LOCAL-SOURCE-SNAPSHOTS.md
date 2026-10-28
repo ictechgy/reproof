@@ -153,3 +153,7 @@ The opt-in [UIKit observation v3 path](IOS-SNAPSHOT-OBSERVATIONS.md) consumes
 snapshots for local instrumentation and unsigned Simulator compilation. Its
 separate profile/receipt checks do not turn a snapshot into G9 authorization or
 provenance. Existing v2 source limits and execution transfer limits are unchanged.
+
+Android's opt-in [Views observation v3 consumer](ANDROID-SNAPSHOT-OBSERVATIONS.md)
+uses snapshots for local preparation and unsigned Debug builds with one explicit
+Activity analysis source. It does not migrate G9 or enlarge APK/wire limits.

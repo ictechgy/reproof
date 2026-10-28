@@ -1686,6 +1686,55 @@
           "gate": "software"
         }
       ]
+    },
+    "ANDROID_SNAPSHOT_CONTRACTS": {
+      "available": true,
+      "checks": [
+        {
+          "id": "android-snapshot-contracts",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_android_snapshot_observation",
+            "tests.test_android_snapshot_cli",
+            "tests.test_android_snapshot_native_contract",
+            "tests.test_source_snapshot_derivation",
+            "tests.test_android_observation.AndroidObservationTests.test_observation_contract_has_no_fixture_or_repair_policy",
+            "tests.test_android_observation.AndroidObservationTests.test_invalid_inputs_and_unbound_sites_fail_closed"
+          ],
+          "environment": "local-python-synthetic-compiler-double-no-native-execution",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 180,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
+    "ANDROID_SNAPSHOT_SCALE": {
+      "available": true,
+      "checks": [
+        {
+          "id": "android-snapshot-scale",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_android_snapshot_observation_scale"
+          ],
+          "environment": "local-python-synthetic-compiler-double-no-native-execution",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 600,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
     }
   }
 }

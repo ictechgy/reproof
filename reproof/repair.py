@@ -147,6 +147,8 @@ def run_command(command,cwd,*,stdin=None,timeout=300,max_output=2*1024*1024,env_
 
 
 def build_android(source,gradle,java_home,sdk_home,task,apk_relative,timeout=300,app_profile=None,android_user_home=None):
+    require(app_profile is None or app_profile.data.get('kind') != 'views-observation-v3',
+            'Use the v3 snapshot route for Views builds')
     source_inputs=app_profile.data.get('sourceInputs') if app_profile is not None else None
     source_extensions=app_profile.data.get('inputExtensions') if app_profile is not None else None
     source=Path(source);before=snapshot_source(source, source_inputs=source_inputs, source_extensions=source_extensions, isolated=True)
