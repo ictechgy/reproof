@@ -500,3 +500,51 @@ ramdisk, system, vendor and `data/empty_data_disk` remain mandatory members of
 the closed revision-2 image manifest; no existing AVD or userdata is imported.
 Static checks and synthetic lifecycle tests establish configuration wiring,
 not successful image initialization, boot, hypervisor or recovery execution.
+
+### Incremental warnings and private startup diagnostics
+
+One SDK-fixed trial reported emulator boot after 19.3 seconds, but the private
+host inventory/boot confirmation reached its 180-second limit. It did not
+install the fixtures or run input/recovery. A buffered `read(8192)` delayed
+short stderr output until exit; the old trial's missing inventory observations
+cannot be reconstructed as device/boot evidence. A private ad hoc raw-log
+excerpt also failed to hide a temporary **public** ADB key. Do not publish or
+paste retained raw stdout/stderr, even after pathname or keyword redaction.
+
+The private birth/preflight child collector now uses `read1(8192)`: available
+pipe bytes are consumed without waiting for a full buffer or EOF. Retention is
+still limited to 65,537 bytes per stream; over-limit/read-failure and fixed
+warning/error/fatal/permission-denied classifications latch an alert. The
+shared signing collector is unchanged. Birth checks the alert before starting
+another process, during long verification, in live-owner checks and through a
+composite cancellation token for bounded shell queries. Receive polling checks
+at most every 100 ms while waiting for response bytes; connect/send and the
+callback EOF check can still wait up to two seconds. This is fail-fast at
+bounded host cancellation points, **not** a hard real-time guarantee or proof
+of when the native program originally emitted a diagnostic. Detection never
+changes the caller's cancellation event, original uncertain input, authority
+release or recovery verdict. Cleanup still collects only owned processes.
+
+Public failure summaries expose only fixed stages/classifications, return codes,
+byte counts/hashes, collector completeness and selected-device inventory enums.
+The last inventory response is reduced to an enum, byte count and SHA-256 with
+an attempt counter; raw serials and lines are not copied. Boot property outcomes
+are separate from inventory state. No response means `not-observed`, not an
+inferred empty inventory. These observations are diagnostics, not authenticated
+recovery receipts. `BirthIncomplete.report` and the trial's `birthDiagnostics`
+are the supported inspection interface; raw collectors remain private evidence.
+
+Console ports are now restricted to even 5554–5584 (paired ADB 5555–5585), inside
+the emulator's recommended range. The private fixture disables only optional
+`BluetoothEmulation`, `Uwb` and `WiFiPacketStream` features with a fixed `-feature`
+argument. It does not grant netsimd execution or broaden any sandbox network,
+write or executable permission. AOSP's
+[device feature gates](https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android-qemu2-glue/main.cpp)
+and [feature defaults](https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android/data/advancedFeatures.ini)
+provide source-level support; they do not prove that the selected binary never
+starts another optional service. Unsupported-option warnings or another denied
+execution still stop the trial rather than triggering a permission fallback.
+Actual compatibility and recovery remain subject to a separately approved trial.
+
+Absence of a warning classification is not proof of the absence of denied operations: a native
+process can suppress or buffer its own diagnostics before the host receives them.

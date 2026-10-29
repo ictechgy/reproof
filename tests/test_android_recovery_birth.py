@@ -159,6 +159,13 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         seed = self.file('image/userdata-qemu.img')
         with self.assertRaises(ContractError):replace(plan, image=replace(plan.image, files=plan.image.files+(seed,)))
 
+    def test_recommended_port_pair_range_is_enforced_before_effects(self):
+        plan = self.plan()
+        self.assertEqual(replace(plan, console_port=5584).console_port, 5584)
+        for port in (5553, 5555, 5586, 5680, 5682):
+            with self.subTest(port=port), self.assertRaises(ContractError):
+                replace(plan, console_port=port)
+
     def test_closed_tree_rejects_extra_and_changed_files(self):
         plan = self.plan();plan.emulator.verify()
         extra = Path(plan.emulator.root)/'foreign';extra.write_bytes(b'not selected')
@@ -184,7 +191,7 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         self.assertIn(str(root/'report.sock'), emu)
         self.assertNotIn('remote ip "*', emu+server)
 
-    def _launch(self, fail=False):
+    def _launch(self, fail=False, inventory_reply=None, cancel_after_inventory=False, fail_boot_query=False):
         plan = self.plan();actual_verify = birth.PinnedFile.verify
         _Child.calls = [];_Child.fail_second = fail
         def verify(selected, **kwargs):
@@ -196,8 +203,14 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         def query(owner, service, **kwargs):
             if service == b'host:version':return b'0029'
             if service.startswith(b'host:emulator:'):return b''
+            if cancel_after_inventory:
+                owner.cancellation.set()
+            if inventory_reply is not None:
+                return inventory_reply
             return ('emulator-'+str(owner.plan.console_port)+'\tdevice\n').encode()
         def shell(owner, command):
+            if fail_boot_query and command == 'getprop sys.boot_completed':
+                raise ContractError('synthetic query failed')
             if command == 'getprop ro.boot.qemu.avd_name':return owner.avd_name.encode()
             return b'1\n'
         with patch.object(birth.os, 'fstatvfs', return_value=SimpleNamespace(f_bavail=100*1024**3, f_frsize=1)), \
@@ -228,6 +241,10 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         self.assertIn('-port', argv);self.assertNotIn('-ports', argv)
         self.assertEqual(argv[argv.index('-port')+1], '5554')
         self.assertNotIn('-wipe-data', argv);self.assertIn('-no-snapshot', argv)
+        self.assertEqual(argv[argv.index('-feature')+1], '-BluetoothEmulation,-Uwb,-WiFiPacketStream')
+        self.assertEqual(owner._inventory_state, 'selected-device')
+        self.assertEqual(owner._inventory_polls, 1)
+        self.assertEqual(owner._boot_state, 'complete')
         config = (Path(plan.output)/'avd'/(owner.avd_name+'.avd')/'config.ini').read_text()
         self.assertIn('disk.dataPartition.size=6144M', config)
         self.assertEqual(_Child.calls[0][0][-2:], ('server','nodaemon'))
@@ -296,6 +313,55 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
             selected.rmdir()
             selected.symlink_to(owner.plan.emulator.root, target_is_directory=True)
         self._reject_prepared_change_before_process(replace_directory)
+
+    def test_offline_inventory_survives_failure_without_raw_identifiers(self):
+        with self.assertRaises(birth.BirthIncomplete) as caught:
+            self._launch(inventory_reply=b'emulator-5554\toffline\n', cancel_after_inventory=True)
+        report = caught.exception.report
+        self.assertEqual(report['inventoryState'], 'selected-offline')
+        self.assertEqual(report['inventoryPolls'], 1)
+        self.assertEqual(report['inventorySha256'], hashlib.sha256(b'emulator-5554\toffline\n').hexdigest())
+        self.assertEqual(report['inventoryBytes'], len(b'emulator-5554\toffline\n'))
+        self.assertEqual(report['inventoryQuery'], 'returned')
+        self.assertEqual(report['bootState'], 'not-queried')
+        self.assertNotIn('emulator-5554', str(report))
+        caught.exception.owner.collect()
+
+    def test_failed_boot_query_is_not_reported_as_not_queried(self):
+        with self.assertRaises(birth.BirthIncomplete) as caught:
+            self._launch(fail_boot_query=True)
+        self.assertEqual(caught.exception.report['bootState'], 'query-failed')
+        self.assertEqual(caught.exception.report['inventoryState'], 'selected-device')
+        caught.exception.owner.collect()
+
+    def test_warning_during_long_verify_prevents_emulator_start(self):
+        original = birth.PinnedTree.verify
+        calls = 0
+        def verify(tree, **kwargs):
+            nonlocal calls
+            calls += 1
+            result = original(tree, **kwargs)
+            if calls == 3:
+                # The third tree verification occurs after server start.
+                self.assertIsInstance(kwargs['cancellation'], birth.OutputCancellation)
+            return result
+        original_layout = birth._require_launch_layout
+        count = 0
+        def layout(owner):
+            nonlocal count
+            count += 1
+            original_layout(owner)
+            if count == 2:
+                import io
+                collector = birth.IncrementalCollector(io.BytesIO(b'Operation not permitted'))
+                collector.thread.start();collector.thread.join(1)
+                owner._children[0].collectors = [collector]
+        with patch.object(birth.PinnedTree, 'verify', verify), \
+                patch.object(birth, '_require_launch_layout', layout), self.assertRaises(birth.BirthIncomplete) as caught:
+            self._launch()
+        self.assertEqual(len(_Child.calls), 1)
+        self.assertTrue(caught.exception.report['outputAlert'])
+        caught.exception.owner.collect()
 
     def test_partial_child_start_retains_both_owners_and_never_mints_context(self):
         owner, _ = self._launch(fail=True)

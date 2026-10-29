@@ -28,7 +28,9 @@ from reproof.execution.wire import safe_transfer_path
 from .android_recovery_tool_ca import selected_public_ca, verify_public_ca
 from reproof.adb_endpoint import (AdbEndpoint, _frame, adb_client_sandbox,
                                   _darwin_runtime_reads, _darwin_keychain_denials)
-from reproof.repair_android_signing import _Collector, _ProcessOwner
+from reproof.repair_android_signing import _ProcessOwner
+from .android_recovery_diagnostics import (IncrementalCollector, OutputCancellation,
+    output_alert, inventory_state, birth_summary)
 from .android_recovery_authority import _directory
 from .android_recovery_tool_pin import ADB_DARWIN_SHA256, require_pinned_adb
 
@@ -226,7 +228,7 @@ class BirthPlan:
                  'Only the fixed AOSP API36 arm64 revision 2 image layout is supported')
         _require(type(self.sample_apk) is PinnedFile and type(self.helper_apk) is PinnedFile
                  and max(self.sample_apk.size, self.helper_apk.size) <= _MAX_APK)
-        _require(type(self.console_port) is int and 5554 <= self.console_port <= 5682
+        _require(type(self.console_port) is int and 5554 <= self.console_port <= 5584
                  and self.console_port % 2 == 0 and type(self.lifetime_seconds) is int
                  and 120 <= self.lifetime_seconds <= 1800)
         selected = [self.adb.path, self.aapt.path, self.emulator.root, self.image.root,
@@ -280,6 +282,7 @@ class BirthIncomplete(ContractError):
     def __init__(self, owner):
         super().__init__('Private birth incomplete; owned resources retained for collection')
         self.owner = owner
+        self.report = birth_summary(owner)
 
 
 class _Child:
@@ -292,7 +295,7 @@ class _Child:
         self.process = subprocess.Popen(argv, cwd=work, env=environment, stdin=stdin,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, start_new_session=True)
         for stream in (self.process.stdout, self.process.stderr):
-            collector = _Collector(stream, 65536)
+            collector = IncrementalCollector(stream, 65536)
             self.collectors.append(collector)
             collector.thread.start()
 
@@ -315,6 +318,7 @@ class OwnedBirth:
         return super().__new__(cls)
 
     def require_live(self):
+        _require(not output_alert(self._children), 'Private native output warning or read failure')
         _require(_OWNERS.get(id(self)) is self and self._pid == os.getpid() and not self._closed
                  and not self.cancellation.is_set() and time.monotonic() < self.deadline)
         _require(self.server is not None and self.server.poll() is None
@@ -459,8 +463,13 @@ def _read(connection, count, *, owner=None, deadline=None):
             owner.require_live()
             remaining = min(owner.deadline, deadline)-time.monotonic()
             _require(remaining > 0, 'Private startup response expired')
-            connection.settimeout(min(2, remaining))
-        chunk = connection.recv(count-len(value))
+            connection.settimeout(min(.1, remaining))
+        try:
+            chunk = connection.recv(count-len(value))
+        except socket.timeout:
+            if owner is None:
+                raise
+            continue
         _require(chunk, 'Private startup response ended early')
         value.extend(chunk)
     return bytes(value)
@@ -500,7 +509,7 @@ def _fixed_query(owner, command):
     argv, gateway = context._client.prepare_fixed(command)
     try:
         result = owner._operations.run(argv, work=context.work, input_bytes=b'', pass_fds=(),
-            cancellation=owner.cancellation, deadline_monotonic=min(owner.deadline, time.monotonic()+5),
+            cancellation=OutputCancellation(owner.cancellation, owner._children), deadline_monotonic=min(owner.deadline, time.monotonic()+5),
             max_output_bytes=65536, private_homes=(context.home, context.android_user_home))
         owner.require_live()
         _require(result.terminated and result.bounded and not result.interrupted and result.returncode == 0)
@@ -557,6 +566,7 @@ def _provision(owner, package, artifact):
     command = 'cmd package install -t -S '+str(artifact.size)
     argv, gateway = context._client.prepare_fixed(command)
     child = _Child()
+    child._diagnostic_role = 'initial-install'
     owner._children.append(child)  # Retain before launch or collector creation.
     try:
         # The fixed birth-only install may read only this selected stdin APK.
@@ -832,6 +842,7 @@ def launch_qualification_birth(plan, *, cancellation):
     owner.avd_name = 'reproof_'+uuid.uuid4().hex
     _OWNERS[id(owner)] = owner
     try:
+        owner._stage = 'prepare'
         _prepare_directories(owner)
         _require_launch_layout(owner)
         notify = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -843,24 +854,30 @@ def launch_qualification_birth(plan, *, cancellation):
         owner._listeners.append(report)
         report.bind(str(root/'report.sock'));report.listen(1);report.settimeout(.1)
         environment = _environment(root/'home', root/'android', root/'avd', root/'client', owner.notification_port)
-        server = _Child();owner._children.append(server)
+        server = _Child();server._diagnostic_role = 'server';owner._children.append(server)
         server_profile = _sandbox(plan, root, root/'server.sock', root/'report.sock', owner.notification_port, emulator=False)
         _active(cancellation, owner.deadline)
         require_pinned_adb(plan.adb.path)
         plan.sandbox.verify(cancellation=cancellation, deadline=owner.deadline)
+        owner._stage = 'server-start'
         server.start(('/usr/bin/sandbox-exec', '-p', server_profile, plan.adb.path,
                       '-L', 'localfilesystem:'+str(root/'server.sock'), 'server', 'nodaemon'), dict(environment, TMPDIR=str(root/'server-work')), root/'server-work')
         owner.server = server.process
         owner.server_pid = server.process.pid
-        emulator = _Child();owner._children.append(emulator)
+        _require(not output_alert(owner._children), 'Private server output warning')
+        emulator = _Child();emulator._diagnostic_role = 'emulator';owner._children.append(emulator)
         profile = _sandbox(plan, root, root/'server.sock', root/'report.sock', owner.notification_port, emulator=True)
-        plan.emulator.verify(cancellation=cancellation, deadline=owner.deadline)
+        plan.emulator.verify(cancellation=OutputCancellation(cancellation, owner._children),
+                             deadline=owner.deadline)
         _active(cancellation, owner.deadline)
         _require_launch_layout(owner)
+        _require(not output_alert(owner._children), 'Private server output warning')
+        owner._stage = 'emulator-start'
         emulator.start(('/usr/bin/sandbox-exec', '-p', profile, str(Path(plan.emulator.root)/'emulator'),
                         '-avd', owner.avd_name, '-sysdir', plan.image.root, '-port', str(plan.console_port),
                         '-report-console', 'unix:'+str(root/'report.sock')+',max=10',
                         '-no-window', '-no-audio', '-no-snapshot', '-no-boot-anim',
+                        '-feature', '-BluetoothEmulation,-Uwb,-WiFiPacketStream',
                         '-gpu', 'swiftshader_indirect'), _emulator_environment(owner), root/'client')
         owner.emulator = emulator.process
         owner.require_live()
@@ -870,24 +887,48 @@ def launch_qualification_birth(plan, *, cancellation):
         owner.endpoint = _pin_server_socket(owner)
         owner.socket_identity = owner.endpoint._identity
         _require(_server_query(owner, b'host:version') == b'0029')
+        owner._stage = 'callbacks'
         _accept_exact(owner, report, str(plan.console_port).encode())
         _accept_exact(owner, notify, ('host:emulator:'+str(plan.console_port+1)).encode(), framed=True)
         _server_query(owner, ('host:emulator:'+str(plan.console_port+1)).encode(), registration=True)
         _bootstrap_context(owner)
+        owner._stage = 'inventory'
         until = min(owner.deadline, time.monotonic()+180)
         while True:
             owner.require_live();_require(time.monotonic() < until)
-            inventory = _server_query(owner, b'host:devices')
-            wanted = ('emulator-'+str(plan.console_port)+'\tdevice\n').encode()
-            _require(inventory in (b'', wanted, wanted.replace(b'device', b'offline')))
-            if inventory == wanted and _fixed_query(owner, 'getprop sys.boot_completed').strip() == b'1':
-                break
+            owner._inventory_polls = getattr(owner, '_inventory_polls', 0)+1
+            owner._inventory_query = 'pending'
+            try:
+                inventory = _server_query(owner, b'host:devices')
+            except BaseException:
+                owner._inventory_query = 'failed'
+                raise
+            owner._inventory_query = 'returned'
+            owner._inventory_digest = hashlib.sha256(inventory).hexdigest()
+            owner._inventory_bytes = len(inventory)
+            owner._inventory_state = inventory_state(inventory, 'emulator-'+str(plan.console_port))
+            _require(owner._inventory_state != 'unexpected', 'Private inventory mismatch')
+            if owner._inventory_state == 'selected-device':
+                owner._boot_state = 'pending'
+                try:
+                    boot = _fixed_query(owner, 'getprop sys.boot_completed').strip()
+                except BaseException:
+                    owner._boot_state = 'query-failed'
+                    raise
+                owner._boot_state = 'complete' if boot == b'1' else 'not-complete' if boot in (b'', b'0') else 'unexpected'
+                _require(owner._boot_state != 'unexpected', 'Private boot property mismatch')
+                if owner._boot_state == 'complete':
+                    break
             time.sleep(.2)
+        owner._stage = 'identity'
         _assert_avd(owner)
+        owner._stage = 'install-sample'
         _provision(owner, 'io.reproof.sample', plan.sample_apk)
+        owner._stage = 'install-helper'
         _provision(owner, 'io.reproof.live', plan.helper_apk)
+        owner._stage = 'ready'
         owner._ready = True
         owner.require_live()
         return owner
     except BaseException as error:
-        raise BirthIncomplete(owner) from error
+        raise BirthIncomplete(owner) from None
