@@ -417,3 +417,49 @@ loader-read hypothesis, but no exact denied path was observed. Commonizing the
 allowlist is not proof of the crash cause or a passing runtime test. The original
 attempt remains failed before ADB/AVD startup, and another Mac execution still
 requires separate authorization.
+
+
+### One local public CA input is not a credential-transfer exception
+
+The operator-recorded emulator 36.1.9/build 13823996 selection includes a public
+`lib/ca-bundle.pem`. The original generic file opener intentionally rejected all
+PEM paths as potentially private credentials; reusing it for this local SDK
+input therefore prevented preparation before any trial/native action.
+
+The private tool-tree verifier recognizes only this source-fixed declaration:
+
+| Selected member | Bytes | SHA-256 |
+|---|---:|---|
+| `lib/ca-bundle.pem` | 258424 | `0f119da204025da7808273fab42ed8e030cafb5c7ea4e1deda4e75f066f528fb` |
+| `emulator` | 1694800 | `7e8559aac63105502a6a4fec03dcc0cc7aaaf6f8e1e046bcad29095d46bd26eb` |
+| `source.properties` | 102 | `1b29166b5f4c5e690859fed6b03c6e37fbfe77e7f103d52ae21796844a91d492` |
+
+All three identities must match the immutable selection, the emulator must be
+an explicitly selected executable, and the CA must not be an executable. These
+recorded pins identify an approved local selection; they are not independent
+vendor provenance or a vendor signature. A different tool version/bundle needs
+separate explicit pin review, not an operator-supplied generic PEM exemption.
+
+Before opening any selected content, every selected path is checked against the
+unchanged general path policy, with this single context-bound exception. The
+local opener rejects symlinks, multiple hardlinks and non-regular files, checks
+content hash/size/stamps, and reopens the exact path to check identity. The tree
+holds its root descriptor throughout verification; the CA descriptor remains
+open through parsing and rebound checks. Cancellation/deadline checks remain.
+
+The bundle is bounded to 1 MiB, 16,384 lines and 512 certificate blocks (64 KiB
+each). Only CERTIFICATE PEM blocks are accepted, PRIVATE KEY markers are
+rejected, and a fresh in-memory SSLContext parses the certificate blocks.
+Bounded printable UTF-8 comments/titles outside PEM blocks are allowed; PEM
+labels and base64 bodies remain strictly ASCII. No default
+trust store is loaded, no global trust is changed, and no network connection is
+made. Certificate parsing alone can never authorize another path/hash.
+
+Ordinary PinnedFile verification, source/BlobSet/wire transfer, external AI and
+upload policies still reject PEM/key/credential paths. The public CA bytes are
+not packaged, transferred or returned by this verifier. The recorded 324-file
+emulator plus 20-file r2 image metadata audit found this as the only path-policy
+conflict; synthetic tests additionally reject other credential suffixes before
+any selected file read. Actual Mac retry and full tool-tree/runtime verification
+remain separate qualifications. Reuse of an older sandbox probe binary is not
+implied: callers must still select the newly compiled stage-marker probe.

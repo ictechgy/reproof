@@ -24,6 +24,8 @@ import uuid
 
 from reproof.core import ContractError
 from reproof.execution.artifacts import open_regular
+from reproof.execution.wire import safe_transfer_path
+from .android_recovery_tool_ca import selected_public_ca, verify_public_ca
 from reproof.adb_endpoint import (AdbEndpoint, _frame, adb_client_sandbox,
                                   _darwin_runtime_reads, _darwin_keychain_denials)
 from reproof.repair_android_signing import _Collector, _ProcessOwner
@@ -132,7 +134,19 @@ class PinnedTree:
         _require(type(self.executables) is tuple and len(self.executables) <= 32
                  and set(self.executables) <= {item.path for item in self.files})
 
+    def _validate_paths(self):
+        root = _absolute(self.root)
+        safe_transfer_path('/'.join(root.parts[1:]))
+        public_ca = selected_public_ca(self.root, self.files, self.executables)
+        for item in self.files:
+            relative = str(Path(item.path).relative_to(root))
+            if item.path != public_ca:
+                safe_transfer_path(relative)
+        return public_ca
+
     def verify(self, *, cancellation=None, deadline=None):
+        # Validate every selected path before opening any selected contents.
+        public_ca = self._validate_paths()
         root = _absolute(self.root)
         fd = _directory(root)
         stack = [('', 0)]
@@ -163,7 +177,11 @@ class PinnedTree:
                     os.close(current)
             _require(found == expected)
             for item in self.files:
-                item.verify(cancellation=cancellation, deadline=deadline)
+                if item.path == public_ca:
+                    verify_public_ca(self.root, item, self.files, self.executables,
+                                     cancellation=cancellation, deadline=deadline)
+                else:
+                    item.verify(cancellation=cancellation, deadline=deadline)
             for name in self.executables:
                 _require(os.access(name, os.X_OK))
             again = _directory(root)

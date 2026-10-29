@@ -148,6 +148,8 @@ from reproof.live.android_recovery_birth import BirthPlan, OwnedBirth, launch_qu
 from reproof.live.android_recovery_trial import run_one_lost_ack, TrialIncomplete
 from reproof.live.android_recovery_preflight import run_sandbox_preflight, PROBE_SOURCE
 from reproof.live.android_recovery_tool_pin import ADB_RELEASE, ADB_DARWIN_SHA256
+from reproof.live.android_recovery_tool_ca import _APPROVED_CA
+from reproof.execution.wire import safe_transfer_path
 from reproof.core import ContractError
 from reproof.resources import resource_root
 from reproof.live.model import Lab
@@ -156,6 +158,13 @@ assert 'AndroidRecoveryProtocol' in source and 'AndroidRecoveryExitDelivery' in 
 assert not hasattr(Lab, 'recover_qualification_device')
 assert not hasattr(QualificationHarness, 'resume')
 assert ADB_RELEASE == '35.0.2' and len(ADB_DARWIN_SHA256) == 64
+assert _APPROVED_CA.relative == 'lib/ca-bundle.pem' and _APPROVED_CA.size == 258424
+try:
+    safe_transfer_path('lib/ca-bundle.pem')
+except ContractError:
+    pass
+else:
+    raise AssertionError('local public CA must not become transferable')
 assert callable(run_one_lost_ack) and issubclass(TrialIncomplete, ContractError)
 assert callable(run_sandbox_preflight)
 assert (resource_root()/'scripts/android-recovery-sandbox-probe.c').read_text() == PROBE_SOURCE
