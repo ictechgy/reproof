@@ -91,12 +91,24 @@ a malicious same-UID process racing every filesystem operation is claimed.
 See [local snapshot semantics](LOCAL-SOURCE-SNAPSHOTS.md) for lifetime ownership,
 FD limits, `cleanupIncomplete`, content identity and non-atomic capture caveats.
 
+## Dependency-cache boundary
+
+The repository's local [ReproofSDK Swift package](../ios/SDK/README.md) is a
+separate, dependency-free integration. It does not enable SPM imports in this
+snapshot path. When a `.xcworkspace` is declared, the closed-workspace validator
+rejects both local and remote package references and package-product
+dependencies. A pre-resolved cache or `Package.resolved` file does not override
+that rejection. Without a declared workspace, that validator returns without
+applying this workspace-specific rejection; this is not an approved SPM-cache
+or import contract for single-project builds. Neither path implicitly admits
+private caches or credentials. See [Xcode evidence scope](XCODE-SUPPORT.md).
+
 ## Deliberate unsupported cases
 
 - v3 device/signing builds and native runtime qualification;
-- SPM package references and workspace structures rejected by the existing
-  closed-workspace validator; this includes portions of the reported company
-  workspace architecture;
+- SPM package references in a declared `.xcworkspace`, and workspace
+  structures rejected by the existing closed-workspace validator; this includes
+  portions of the reported company workspace architecture;
 - broader SwiftUI observation coverage or Android snapshot instrumentation;
 - implicit dependency downloads, credentials or private package-cache import;
 - executable mode, ACL or xattr preservation;
