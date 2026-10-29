@@ -63,6 +63,39 @@ def _require(condition, code="android_signing_unavailable"):
         raise AndroidSigningError(code)
 
 
+def _process_environment(work, *, private_homes=None):
+    """Fixed process environment; optional private roots never import ambient values.
+
+    The caller retains lifetime ownership of private roots and checks their
+    identities around dispatch. This validation alone is not an ownership token.
+    """
+    environment = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C",
+                   "TMPDIR": str(work)}
+    if private_homes is None:
+        return environment
+    _require(type(private_homes) is tuple and len(private_homes) == 2,
+             "android_private_environment_invalid")
+    from .execution.artifacts import open_directory
+    try:
+        identities = []
+        for key, path in zip(("HOME", "ANDROID_USER_HOME"), private_homes):
+            _require(isinstance(path, Path) and path.is_absolute(),
+                     "android_private_environment_invalid")
+            descriptor = open_directory(path)
+            try:
+                value = os.fstat(descriptor)
+                _require(value.st_uid == os.getuid() and stat.S_IMODE(value.st_mode) == 0o700,
+                         "android_private_environment_invalid")
+                identities.append((value.st_dev, value.st_ino))
+            finally:
+                os.close(descriptor)
+            environment[key] = str(path)
+        _require(identities[0] != identities[1], "android_private_environment_invalid")
+    except (OSError, RuntimeError, ValueError, TypeError):
+        raise AndroidSigningError("android_private_environment_invalid") from None
+    return environment
+
+
 def _sha256_file(path: Path, maximum: int) -> str:
     try:
         before = path.lstat()
@@ -426,7 +459,7 @@ class _ProcessOwner:
 
     def run(self, arguments, *, work, input_bytes, pass_fds,
             cancellation, deadline_monotonic, watched_files=(),
-            max_output_bytes=MAX_TOOL_BYTES):
+            max_output_bytes=MAX_TOOL_BYTES, private_homes=None):
         _require(type(arguments) is tuple and arguments
                  and all(type(item) is str and "\0" not in item
                          for item in arguments),
@@ -450,12 +483,7 @@ class _ProcessOwner:
             raise AndroidSigningError(
                 "android_signing_cancelled" if cancellation.is_set()
                 else "android_signing_timeout")
-        environment = {
-            "PATH": "/usr/bin:/bin",
-            "LANG": "C",
-            "LC_ALL": "C",
-            "TMPDIR": str(work),
-        }
+        environment = _process_environment(work, private_homes=private_homes)
         try:
             with self._lock:
                 _require(not self._closed, "android_signing_process_closed")

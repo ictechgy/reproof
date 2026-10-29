@@ -30,6 +30,8 @@ import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.util.LinkedHashMap
 import java.util.UUID
+import java.util.Base64
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.ThreadPoolExecutor
@@ -61,6 +63,9 @@ internal class NativeFrameBuffer(
         totalBytes += bytes.size
         return true
     }
+
+    @Synchronized
+    fun clear() { frames.clear(); totalBytes = 0 }
 
     @Synchronized
     fun latest(): Frame? = frames.peekLast()?.copy(bytes = frames.peekLast().bytes.copyOf())
@@ -103,6 +108,11 @@ class LiveInstrumentation : Instrumentation() {
         private const val HELPER_VERSION = 2
         private const val NATIVE_CLOCK_ID = "android-elapsed-realtime"
 
+        private fun recoveryMap(value: JSONObject): Map<String, Any?> = value.keys().asSequence().associateWith { key ->
+            when (val item = value.get(key)) { JSONObject.NULL -> null; is JSONObject -> recoveryMap(item)
+                is String, is Int, is Long, is Boolean -> item; else -> error("invalid_recovery_json") }
+        }
+
         private fun exactInt(value: JSONObject, key: String): Int? =
             (value.opt(key) as? Int)
 
@@ -137,6 +147,12 @@ class LiveInstrumentation : Instrumentation() {
     private val fixtureAdmissionClosed = AtomicBoolean(false)
     private val nativeIncarnation = "native_" + UUID.randomUUID().toString().replace("-", "")
     private val effectGrant = ThreadLocal<AuthorityGrant?>()
+    @Volatile private var activeRecoveryProbeGrant: AndroidRecoveryGrant? = null
+    private val recoveryExecutor = Executors.newSingleThreadExecutor()
+    private val recoveryExit = CountDownLatch(1)
+    private val recoveryCommandDrained = CountDownLatch(1)
+    private var recoveryProtocol: AndroidRecoveryProtocol? = null
+    private var recoveryProcessIdentity: Map<String, Any?>? = null
     @Volatile private var cleanupGrant: AuthorityGrant? = null
 
     override fun onCreate(arguments: Bundle?) {
@@ -154,6 +170,11 @@ class LiveInstrumentation : Instrumentation() {
         if (liveConfig.appOwnedFixture != null) {
             appOwnedFixtureClient = AppOwnedFixtureClient(context.applicationContext, liveConfig.appOwnedFixture, liveConfig.targetPackage)
         }
+        if (liveConfig.qualificationRecovery != null) {
+            recoveryProcessIdentity = readRecoveryProcessIdentity()
+            if (recoveryProcessIdentity == null) { finish(1, Bundle()); return }
+            recoveryProtocol = AndroidRecoveryProtocol(liveConfig.qualificationRecovery) { SystemClock.elapsedRealtime() }
+        }
         val ui = getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         automation = ui
         val nativeServer = NativeHttpServer(
@@ -162,9 +183,22 @@ class LiveInstrumentation : Instrumentation() {
             observationProvider = { observeSample() },
             commandStop = { grant -> stopFromServer(grant) },
             nativeIncarnation = nativeIncarnation,
+            recovery = recoveryProtocol,
+            processIdentity = recoveryProcessIdentity,
+            recoveryStart = { grant -> recoveryExecutor.execute { performRecovery(grant) } },
+            recoveryProbePublicationAllowed = { activeRecoveryProbeGrant?.let { grant ->
+                grant.purpose == "fresh-probe" && recoveryGrantLive(grant) && targetAppVisible() &&
+                    verifyRecoveryArtifacts(grant) && targetAppVisible() && recoveryGrantLive(grant)
+            } == true },
         )
         server = nativeServer
         nativeServer.start()
+        if (liveConfig.qualificationRecovery?.phase == "probe") {
+            recoveryCommandDrained.countDown()
+            recoveryExit.await()
+            cleanupAndFinish()
+            return
+        }
         startScreenshotLoop(liveConfig)
         watchdogExecutor.scheduleAtFixedRate({ watchdogPointers() }, 1, 1, TimeUnit.SECONDS)
         commandLoop()
@@ -181,6 +215,10 @@ class LiveInstrumentation : Instrumentation() {
                 if (!captureFrame()) false to "frame_capture_failed" else result
             } else result
             nativeServer.ack(command.id, finalResult.first, finalResult.second, command.authority)
+        }
+        if (recoveryProtocol?.retiring() == true) {
+            recoveryCommandDrained.countDown()
+            recoveryExit.await()
         }
         cleanupAndFinish()
     }
@@ -200,6 +238,9 @@ class LiveInstrumentation : Instrumentation() {
         if (requiresGeometry(command) && !geometryMatches(command.geometryVersion)) {
             effectGrant.remove()
             return false to "stale_geometry"
+        }
+        if (recoveryProtocol != null && recoveryProtocol?.normalAllowed() != true) {
+            effectGrant.remove(); return false to "recovery_admission_closed"
         }
         val selectedProfile = config?.profile
         if (config?.appOwnedFixture != null && (!generalTargetReady.get() || fixtureAdmissionClosed.get()) &&
@@ -238,7 +279,7 @@ class LiveInstrumentation : Instrumentation() {
         // startScreenshotLoop sets this once before command admission. Shared
         // stop clears it irreversibly before waiting for a gesture lock, so an
         // older command cannot cross another effect boundary while stop waits.
-        if (!cleanupOnly && !screenshotRunning.get()) return false
+        if (!cleanupOnly && (!screenshotRunning.get() || (recoveryProtocol != null && recoveryProtocol?.normalAllowed() != true))) return false
         val current = effectGrant.get()
         val grant = current ?: (if (cleanupOnly) cleanupGrant else null) ?: return false
         val binding = grant.protocolVersion == NATIVE_PROTOCOL_VERSION &&
@@ -423,8 +464,12 @@ class LiveInstrumentation : Instrumentation() {
         return true
     }
 
-    private fun injectMotion(values: List<PointerState>, action: Int, downTime: Long, eventTime: Long, cleanupOnly: Boolean = false): Boolean {
-        if (values.isEmpty() || !effectAuthorized(cleanupOnly)) return false
+    private fun injectMotion(values: List<PointerState>, action: Int, downTime: Long, eventTime: Long, cleanupOnly: Boolean = false,
+        recoveryGrant: AndroidRecoveryGrant? = null): Boolean {
+        if (values.isEmpty()) return false
+        if (recoveryGrant != null) {
+            if (action != MotionEvent.ACTION_CANCEL || recoveryGrant.purpose !in setOf("old-retire", "probe-retire") || !recoveryGrantLive(recoveryGrant)) return false
+        } else if (!effectAuthorized(cleanupOnly)) return false
         val properties = Array(values.size) { index ->
             MotionEvent.PointerProperties().apply {
                 id = values[index].id
@@ -441,7 +486,8 @@ class LiveInstrumentation : Instrumentation() {
         }
         val event = MotionEvent.obtain(downTime, eventTime, action, values.size, properties, coords, 0, 0, 1f, 1f, 0, 0, android.view.InputDevice.SOURCE_TOUCHSCREEN, 0)
         return try {
-            automation?.injectInputEvent(event, true) == true
+            if (recoveryGrant != null && !recoveryGrantLive(recoveryGrant)) false
+            else automation?.injectInputEvent(event, true) == true
         } finally {
             event.recycle()
         }
@@ -702,6 +748,11 @@ class LiveInstrumentation : Instrumentation() {
     private fun statusSnapshot(): JSONObject = JSONObject().apply {
         val liveConfig = config
         put("ready", server?.isReady() == true)
+        if (liveConfig?.qualificationRecovery != null) {
+            put("recoveryQualificationVersion", 1)
+            put("recoveryQualificationConfigurationDigest", liveConfig.qualificationRecovery.digest)
+            put("nativeProcessIdentity", JSONObject(recoveryProcessIdentity ?: emptyMap<String, Any?>()))
+        }
         put("stopped", server?.isStopped() == true)
         put("profileDigest", liveConfig?.profileDigest ?: JSONObject.NULL)
         put("nativeDigest", liveConfig?.profile?.nativeDigest ?: JSONObject.NULL)
@@ -827,6 +878,111 @@ class LiveInstrumentation : Instrumentation() {
         }
     }
 
+    private fun recoveryGrantLive(grant: AndroidRecoveryGrant): Boolean {
+        val selected = config?.qualificationRecovery ?: return false
+        return grant.data["configurationDigest"] == selected.digest && grant.data["nativeIncarnation"] == nativeIncarnation &&
+            SystemClock.elapsedRealtime() < grant.deadline && server?.isStopped() == false
+    }
+
+    private fun readRecoveryProcessIdentity(): Map<String, Any?>? = try {
+        val bytes = ByteArray(4097)
+        var used = 0
+        File("/proc/self/stat").inputStream().use { input ->
+            while (used < bytes.size) { val count = input.read(bytes, used, bytes.size - used); if (count < 0) break; used += count }
+        }
+        require(used in 1..4096)
+        parseRecoveryProcessStat(bytes.copyOf(used), android.os.Process.myPid())
+    } catch (_: Throwable) { null }
+
+    private fun verifyRecoveryArtifacts(grant: AndroidRecoveryGrant): Boolean {
+        val selection = config?.qualificationRecovery ?: return false
+        val live = config ?: return false
+        return try {
+            for ((packageName, expected) in listOf(live.targetPackage to selection.data["artifactDigest"],
+                    "io.reproof.live" to selection.data["helperArtifactDigest"])) {
+                val before = context.packageManager.getPackageInfo(packageName, 0)
+                val app = before.applicationInfo ?: return false
+                if (!app.splitSourceDirs.isNullOrEmpty()) return false
+                val file = File(app.sourceDir)
+                val expectedLength = file.length()
+                val modified = file.lastModified()
+                if (!file.isFile || expectedLength !in 1..(150L * 1024 * 1024)) return false
+                val hash = MessageDigest.getInstance("SHA-256")
+                var total = 0L
+                file.inputStream().use { input -> val buffer = ByteArray(65536)
+                    while (true) {
+                        if (!recoveryGrantLive(grant)) return false
+                        val count = input.read(buffer); if (count < 0) break
+                        total += count
+                        if (total > expectedLength || total > 150L * 1024 * 1024) return false
+                        hash.update(buffer, 0, count)
+                    }
+                }
+                if (total != expectedLength || file.length() != expectedLength || file.lastModified() != modified || !recoveryGrantLive(grant)) return false
+                if (hash.digest().joinToString("") { "%02x".format(it.toInt() and 255) } != expected) return false
+                val after = context.packageManager.getPackageInfo(packageName, 0)
+                if (!after.applicationInfo?.splitSourceDirs.isNullOrEmpty() || after.lastUpdateTime != before.lastUpdateTime || after.applicationInfo?.sourceDir != app.sourceDir || after.applicationInfo?.uid != app.uid) return false
+            }
+            readRecoveryProcessIdentity() == recoveryProcessIdentity
+        } catch (_: Throwable) { false }
+    }
+
+    private fun recoveryAwait(grant: AndroidRecoveryGrant, predicate: () -> Boolean): Boolean =
+        awaitRecoveryBarrier(grant.deadline, { SystemClock.elapsedRealtime() }, { recoveryGrantLive(grant) }, predicate) { Thread.sleep(10) }
+
+    private fun performRecovery(grant: AndroidRecoveryGrant) {
+        val protocol = recoveryProtocol ?: return
+        val nativeServer = server ?: return
+        try {
+            check(recoveryGrantLive(grant) && verifyRecoveryArtifacts(grant))
+            when (grant.purpose) {
+                "old-retire", "probe-retire" -> {
+                    screenshotRunning.set(false)
+                    generalTargetReady.set(false)
+                    watchdogExecutor.shutdownNow(); screenshotExecutor.shutdownNow()
+                    nativeServer.closeProducerSockets()
+                    check(recoveryAwait(grant) { recoveryCommandDrained.count == 0L && nativeServer.recoveryInflightEmpty() })
+                    val cancelled = synchronized(inputLock) {
+                        if (pointers.isEmpty()) true else {
+                            val ok = injectMotion(pointers.values.toList(), MotionEvent.ACTION_CANCEL, pointerDownTime,
+                                SystemClock.uptimeMillis(), recoveryGrant = grant)
+                            if (ok) { pointers.clear(); pointerDownTime = 0L; pointerLastInputTime = 0L }
+                            ok
+                        }
+                    }
+                    check(cancelled && recoveryGrantLive(grant))
+                    check(recoveryAwait(grant) { watchdogExecutor.isTerminated && screenshotExecutor.isTerminated && nativeServer.recoveryMediaEmpty() })
+                    check(verifyRecoveryArtifacts(grant) && recoveryGrantLive(grant))
+                    check(protocol.complete(grant, recoveryProcessIdentity!!, nativeServer.retirementEvidence()))
+                }
+                "fresh-probe" -> {
+                    val live = config ?: error("missing_config")
+                    check(recoveryGrantLive(grant))
+                    // Fixed selected component only; no ordinary permit, arbitrary args or reset.
+                    val output = runShellAndRead("am start -S -W -n ${live.profile.componentName}") ?: error("probe_launch_unknown")
+                    check(recoveryGrantLive(grant) && output.contains("Status: ok") && output.contains("Activity: ${live.profile.componentName}"))
+                    check(recoveryAwait(grant) { targetAppVisible() })
+                    check(verifyRecoveryArtifacts(grant) && recoveryGrantLive(grant))
+                    synchronized(captureLock) { generalTargetReady.set(true) }
+                    activeRecoveryProbeGrant = grant
+                    try { check(captureFrame()) } finally { activeRecoveryProbeGrant = null }
+                    check(recoveryGrantLive(grant) && verifyRecoveryArtifacts(grant) && targetAppVisible() && recoveryGrantLive(grant))
+                    check(protocol.complete(grant, recoveryProcessIdentity!!, nativeServer.probeEvidence() ?: error("probe_frame_missing")))
+                }
+                "old-exit", "probe-exit" -> {
+                    check(protocol.complete(grant, recoveryProcessIdentity!!, emptyMap()))
+                    // Terminal receipt is available before exit. Host still independently proves remote absence.
+                    nativeServer.exitAfterReceipt(grant.operationId) { if (recoveryGrantLive(grant)) recoveryExit.countDown() }
+                }
+                else -> error("unsupported_recovery")
+            }
+        } catch (_: Throwable) {
+            screenshotRunning.set(false)
+            watchdogExecutor.shutdownNow(); screenshotExecutor.shutdownNow()
+            protocol.fail(grant)
+        }
+    }
+
     private fun stopFromServer(grant: AuthorityGrant?): Boolean {
         effectGrant.set(grant);cleanupGrant = grant
         if (config?.protocolVersion != null && !effectAuthorized(cleanupOnly = true)) {
@@ -850,6 +1006,7 @@ class LiveInstrumentation : Instrumentation() {
         watchdogExecutor.shutdownNow()
         screenshotExecutor.shutdownNow()
         server?.shutdown()
+        recoveryExecutor.shutdownNow()
         finish(if (cleanupFailed) 1 else 0, Bundle())
     }
 
@@ -891,6 +1048,7 @@ class LiveInstrumentation : Instrumentation() {
         val approvedLaunch: ApprovedLaunch?,
         val appOwnedFixture: AppOwnedFixture?,
         val capturePolicy: CapturePolicy?,
+        val qualificationRecovery: AndroidRecoverySelection?,
     ) {
         companion object {
             fun read(context: Context): LiveConfig? {
@@ -904,7 +1062,7 @@ class LiveInstrumentation : Instrumentation() {
                     // fields; SDK capture remains opt-in.
                     val required = setOf("token", "port", "targetPackage", "maxFps", "maxWidth")
                     val authorityFields = setOf("protocolVersion", "helperVersion", "helperIncarnation", "hostIncarnation", "providerIncarnation")
-                    val expected = required + setOf("recordSdk", "appProfile", "profileDigest", "approvedLaunch", "appOwnedFixture", "capturePolicy") + authorityFields
+                    val expected = required + setOf("recordSdk", "appProfile", "profileDigest", "approvedLaunch", "appOwnedFixture", "capturePolicy", "qualificationRecovery") + authorityFields
                     val keys = objectValue.keys().asSequence().toSet()
                     if (!keys.containsAll(required) || !keys.all { it in expected }) return null
                     val token = objectValue.getString("token")
@@ -946,6 +1104,18 @@ class LiveInstrumentation : Instrumentation() {
                         CapturePolicy.parse(selected.keys().asSequence().associateWith { selected.get(it) },
                             shared = hasAuthority, general = profile.general) ?: return null
                     } else null
+                    val qualificationRecovery = if (objectValue.has("qualificationRecovery")) {
+                        if (!hasAuthority || !profile.general || targetPackage == "io.reproof.live" || recordSdk || appOwnedFixture != null || approvedLaunch != null || "logs" in profile.observations) return null
+                        val envelope = objectValue.getJSONObject("qualificationRecovery")
+                        if (envelope.keys().asSequence().toSet() != setOf("configurationBase64", "configurationDigest")) return null
+                        val encoded = envelope.getString("configurationBase64")
+                        if (encoded.length > 5464) return null
+                        val raw = Base64.getDecoder().decode(encoded)
+                        if (Base64.getEncoder().encodeToString(raw) != encoded) return null
+                        AndroidRecoverySelection.parse(raw, recoveryMap(JSONObject(String(raw, Charsets.US_ASCII))), envelope.getString("configurationDigest")).also {
+                            if (it.data["profileDigest"] != profileDigest || it.data["applicationId"] != profile.applicationId) return null
+                        }
+                    } else null
                     if (capturePolicy != null && maxWidth != capturePolicy.maxWidth) return null
                     val idPattern = Regex("[a-z][a-z0-9_-]{0,63}")
                     if (token.isEmpty() || token.length > 512 || port !in 1..65535 ||
@@ -956,7 +1126,7 @@ class LiveInstrumentation : Instrumentation() {
                             helperIncarnation?.matches(idPattern) != true || hostIncarnation?.matches(idPattern) != true ||
                             providerIncarnation?.matches(idPattern) != true))) null
                     else LiveConfig(token, port, targetPackage, maxFps, maxWidth, recordSdk, profile, profileDigest,
-                        protocolVersion, helperVersion, helperIncarnation, hostIncarnation, providerIncarnation, approvedLaunch, appOwnedFixture, capturePolicy)
+                        protocolVersion, helperVersion, helperIncarnation, hostIncarnation, providerIncarnation, approvedLaunch, appOwnedFixture, capturePolicy, qualificationRecovery)
                 } catch (_: Throwable) { null }
             }
         }
@@ -979,6 +1149,10 @@ class LiveInstrumentation : Instrumentation() {
         private val observationProvider: () -> JSONObject,
         private val commandStop: (AuthorityGrant?) -> Boolean,
         private val nativeIncarnation: String,
+        private val recovery: AndroidRecoveryProtocol?,
+        private val processIdentity: Map<String, Any?>?,
+        private val recoveryStart: (AndroidRecoveryGrant) -> Unit,
+        private val recoveryProbePublicationAllowed: () -> Boolean,
     ) {
         private companion object {
             const val MAX_FRAME_BYTES = 3 * 1024 * 1024
@@ -997,6 +1171,12 @@ class LiveInstrumentation : Instrumentation() {
         private val accepted = LinkedHashMap<String, ByteArray>()
         private val receipts = LinkedHashMap<String, Receipt>()
         private var sequenceWatermark = 0
+        private var normalClosed = config.qualificationRecovery?.phase == "probe"
+        private var frozenWatermark = 0
+        private var detachedCommand: String? = null
+        private val producerSockets = mutableSetOf<Socket>()
+        private var probeFrame: ByteArray? = null
+        private var probeFrameMetadata: Map<String, Any?>? = null
         private var serverSocket: ServerSocket? = null
         private var latestFrame: ByteArray? = null
         private val frameBuffer = NativeFrameBuffer(MAX_FRAME_BUFFER_FRAMES, MAX_FRAME_BUFFER_BYTES)
@@ -1027,8 +1207,8 @@ class LiveInstrumentation : Instrumentation() {
         fun shutdown() { requestStop(); clientExecutor.shutdownNow() }
 
         fun nextCommand(): LiveCommand? = synchronized(commandMonitor) {
-            while (pending == null && !stopped.get()) commandMonitor.wait(500)
-            if (stopped.get()) return@synchronized null
+            while (pending == null && !stopped.get() && !normalClosed) commandMonitor.wait(500)
+            if (stopped.get() || normalClosed) return@synchronized null
             val command = pending ?: return@synchronized null
             pending = null; inflight = command.id; command
         }
@@ -1050,10 +1230,20 @@ class LiveInstrumentation : Instrumentation() {
             if (json.isEmpty() || json.size > MAX_FRAME_HEADER_BYTES) return false
             val prefix = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN).putInt(json.size).putInt(jpeg.size).array()
             val encoded = prefix + json + jpeg
-            if (!frameBuffer.append(id, encoded)) return false
-            synchronized(this) { latestFrame = encoded }
-            firstFrame.set(true)
-            return true
+            synchronized(commandMonitor) {
+                if (normalClosed) {
+                    if (config.qualificationRecovery?.phase != "probe" || probeFrame != null || recovery?.probing() != true || !recoveryProbePublicationAllowed()) return false
+                    probeFrame = encoded.copyOf()
+                    probeFrameMetadata = mapOf("nativeFrameId" to id, "frameSha256" to recoveryDigest(encoded), "frameBytes" to encoded.size,
+                        "width" to width, "height" to height, "geometryVersion" to geometryVersion, "targetForeground" to true,
+                        "captureStartMs" to nativeTiming?.optLong("captureStartMs"), "captureEndMs" to nativeTiming?.optLong("captureEndMs"))
+                    return true
+                }
+                if (stopped.get() || !frameBuffer.append(id, encoded)) return false
+                synchronized(this) { latestFrame = encoded }
+                firstFrame.set(true)
+                return true
+            }
         }
 
         private fun handle(socket: Socket) {
@@ -1067,7 +1257,121 @@ class LiveInstrumentation : Instrumentation() {
             } finally { try { socket.close() } catch (_: Throwable) {}; activeClients.decrementAndGet() }
         }
 
+        private val recoveryExitDelivery = AndroidRecoveryExitDelivery()
+
+        private fun recoveryHandshake(): JSONObject = JSONObject().apply {
+            put("ready", ready.get()); put("stopped", stopped.get())
+            put("profileDigest", config.profileDigest); put("nativeDigest", config.profile.nativeDigest)
+            put("targetPackage", config.targetPackage); put("generalProfile", true)
+            put("launchConfigurationDigest", JSONObject.NULL)
+            config.capturePolicy?.let { put("capturePolicy", JSONObject(it.fields())) }
+            put("protocolVersion", NATIVE_PROTOCOL_VERSION); put("helperVersion", HELPER_VERSION)
+            put("hostIncarnation", config.hostIncarnation); put("helperIncarnation", config.helperIncarnation)
+            put("providerIncarnation", config.providerIncarnation); put("nativeIncarnation", nativeIncarnation)
+            put("nativeClockId", NATIVE_CLOCK_ID); put("nativeTimeMs", SystemClock.elapsedRealtime())
+            put("recoveryQualificationVersion", 1)
+            put("recoveryQualificationConfigurationDigest", config.qualificationRecovery!!.digest)
+            put("nativeProcessIdentity", JSONObject(processIdentity!!))
+            put("capabilities", JSONObject().apply {
+                put("actions", org.json.JSONArray(config.profile.actions.toList())); put("inputMode", "continuous-pointer")
+                put("maxPointers", 5); put("multitouch", true); put("media", "framed-jpeg")
+                put("observation", "registered-resource-ids"); put("sdkCapture", false)
+                put("viewsObservationLaunchVersion", 2); put("launchConfigurationVersion", 1)
+                put("nativeFrameBufferVersion", 1); put("nativeFrameTimingVersion", 1)
+                if (config.capturePolicy != null) put("capturePolicyVersion", 1)
+            })
+        }
+
+        private fun recoveryRoute(socket: Socket, request: Request) {
+            val protocol = recovery ?: run { respond(socket, 404, "application/json", "{}".toByteArray()); return }
+            if (request.method == "GET" && request.path == "/qualification-recovery/status") {
+                respond(socket, 200, "application/json", recoveryHandshake().toString().toByteArray()); return
+            }
+            if (request.method == "POST" && request.path == "/qualification-recovery") {
+                try {
+                    val parsed = JSONObject(String(request.body, Charsets.UTF_8))
+                    require(parsed.keys().asSequence().toSet() == setOf("grant"))
+                    val grant = AndroidRecoveryGrant.parse(recoveryMap(parsed.getJSONObject("grant")), config.qualificationRecovery!!,
+                        config.hostIncarnation!!, config.helperIncarnation!!, config.providerIncarnation!!, nativeIncarnation, SystemClock.elapsedRealtime())
+                    val admitted = synchronized(commandMonitor) {
+                        val fresh = protocol.admit(grant)
+                        if (fresh && grant.purpose in setOf("old-retire", "probe-retire")) {
+                            normalClosed = true; ready.set(false); frozenWatermark = sequenceWatermark
+                            detachedCommand = pending?.id
+                            pending?.let { command -> receipts[command.id] = Receipt(command.id, false,
+                                "recovery_detached_unstarted", "best-effort", command.authority) }
+                            pending = null
+                            synchronized(this) { latestFrame = null }
+                            commandMonitor.notifyAll()
+                        }
+                        fresh
+                    }
+                    if (admitted) recoveryStart(grant)
+                    respond(socket, 202, "application/json", "{\"accepted\":true}".toByteArray())
+                } catch (_: Throwable) { respond(socket, 409, "application/json", "{\"error\":\"recovery_rejected\"}".toByteArray()) }
+                return
+            }
+            if (request.method == "GET" && request.path.startsWith("/qualification-recovery/")) {
+                val suffix = request.path.removePrefix("/qualification-recovery/")
+                val frameRequest = suffix.endsWith("/frame")
+                val id = if (frameRequest) suffix.removeSuffix("/frame") else suffix
+                if (!id.matches(Regex("[a-z][a-z0-9_-]{0,63}"))) { respond(socket, 400, "application/json", "{}".toByteArray()); return }
+                val result = protocol.status(id)
+                if (result == null) { respond(socket, 404, "application/json", "{}".toByteArray()); return }
+                if (frameRequest) {
+                    val receipt = result["receipt"] as? Map<*, *>
+                    val frame = synchronized(commandMonitor) {
+                        if (receipt?.get("kind") != "probe-frame" || protocol.retiring() || probeFrame == null) null
+                        else { producerSockets.add(socket); probeFrame!!.copyOf() }
+                    }
+                    if (frame == null) { respond(socket, 409, "application/json", "{}".toByteArray()); return }
+                    try { respond(socket, 200, "application/x-repro-frame", frame) }
+                    finally { synchronized(commandMonitor) { producerSockets.remove(socket); commandMonitor.notifyAll() } }
+                    return
+                }
+                respond(socket, 200, "application/json", JSONObject(result).toString().toByteArray())
+                recoveryExitDelivery.afterSuccessfulWrite(id, result)
+                return
+            }
+            respond(socket, 404, "application/json", "{}".toByteArray())
+        }
+
+        fun closeProducerSockets() {
+            val sockets = synchronized(commandMonitor) { producerSockets.toList() }
+            sockets.forEach { try { it.close() } catch (_: Throwable) {} }
+        }
+        fun recoveryInflightEmpty(): Boolean = synchronized(commandMonitor) { pending == null && inflight == null }
+        fun recoveryMediaEmpty(): Boolean = synchronized(commandMonitor) { producerSockets.isEmpty() }
+        fun retirementEvidence(): Map<String, Any?> = synchronized(commandMonitor) {
+            check(normalClosed && pending == null && inflight == null && producerSockets.isEmpty())
+            probeFrame = null; probeFrameMetadata = null; frameBuffer.clear()
+            synchronized(this) { latestFrame = null }
+            mapOf("normalAdmissionClosed" to true, "commandQueueDrained" to true, "inflightCompleted" to true,
+                "pointersCancelled" to true, "captureWorkersStopped" to true, "inspectionMediaDrained" to true,
+                "publicationClosed" to true, "admissionWatermark" to frozenWatermark, "detachedCommandId" to detachedCommand)
+        }
+        fun probeEvidence(): Map<String, Any?>? = synchronized(commandMonitor) { probeFrameMetadata?.toMap() }
+        fun exitAfterReceipt(id: String, callback: () -> Unit) = recoveryExitDelivery.onTerminalDelivery(id, callback)
+
+
         private fun route(socket: Socket, request: Request) {
+            if (recovery != null && request.method == "GET" && request.path == "/status") {
+                respond(socket, 200, "application/json", recoveryHandshake().toString().toByteArray()); return
+            }
+            if (request.path == "/qualification-recovery" || request.path.startsWith("/qualification-recovery/")) {
+                recoveryRoute(socket, request); return
+            }
+            val producer = request.path == "/inspect" || request.path == "/frame" || request.path.startsWith("/frames/after/")
+            val allowed = synchronized(commandMonitor) {
+                if (normalClosed) false else { if (producer) producerSockets.add(socket); true }
+            }
+            if (!allowed) { respond(socket, 409, "application/json", "{\"error\":\"recovery_admission_closed\"}".toByteArray()); return }
+            try { normalRoute(socket, request) } finally {
+                if (producer) synchronized(commandMonitor) { producerSockets.remove(socket); commandMonitor.notifyAll() }
+            }
+        }
+
+        private fun normalRoute(socket: Socket, request: Request) {
             when {
                 request.method == "GET" && request.path == "/status" -> respond(socket, 200, "application/json", statusProvider().toString().toByteArray())
                 request.method == "GET" && request.path == "/inspect" -> respond(socket, 200, "application/json", observationProvider().toString().toByteArray())
@@ -1094,6 +1398,7 @@ class LiveInstrumentation : Instrumentation() {
                 request.method == "POST" && request.path == "/command" -> command(socket, request.body)
                 request.method == "GET" && request.path.startsWith("/ack/") -> ackResponse(socket, request.path.removePrefix("/ack/"))
                 request.method == "POST" && request.path == "/stop" -> {
+                    if (recovery != null) { respond(socket, 409, "application/json", "{\"error\":\"qualification_stop_requires_retirement\"}".toByteArray()); return }
                     val parsed = try { JSONObject(String(request.body, Charsets.UTF_8)) } catch (_: Throwable) { null }
                     val grant = parsed?.optJSONObject("authority")?.let { parseAuthority(it) }
                     val keys = parsed?.keys()?.asSequence()?.toSet() ?: emptySet()
@@ -1129,13 +1434,14 @@ class LiveInstrumentation : Instrumentation() {
             }
             val digest = MessageDigest.getInstance("SHA-256").digest(body)
             synchronized(commandMonitor) {
+                if (normalClosed) { respond(socket, 409, "application/json", "{\"error\":\"recovery_admission_closed\"}".toByteArray()); return }
                 val prior = accepted[id]
                 if (prior != null) {
                     if (MessageDigest.isEqual(prior, digest)) respond(socket, 202, "application/json", "{\"accepted\":true}".toByteArray())
                     else respond(socket, 409, "application/json", "{\"error\":\"duplicate_command\"}".toByteArray())
                     return
                 }
-                if (pending != null || inflight != null || stopped.get()) { respond(socket, 409, "application/json", "{\"error\":\"busy\"}".toByteArray()); return }
+                if (pending != null || inflight != null || stopped.get() || normalClosed) { respond(socket, 409, "application/json", "{\"error\":\"busy\"}".toByteArray()); return }
                 if (config.protocolVersion != null && !acceptAuthority(authority!!)) {
                     respond(socket, 409, "application/json", "{\"error\":\"authority_rejected\"}".toByteArray()); return
                 }

@@ -40,6 +40,7 @@ on:
       - 'tests/fixtures/ios-app-logs/**'
       - 'tests/fixtures/ios-auto-runtime/**'
       - 'tests/release_inventory.json'
+      - 'scripts/android-recovery-sandbox-probe.c'
       - 'scripts/release-check.py'
   push:
     branches: [main]
@@ -81,6 +82,7 @@ on:
       - 'tests/fixtures/ios-app-logs/**'
       - 'tests/fixtures/ios-auto-runtime/**'
       - 'tests/release_inventory.json'
+      - 'scripts/android-recovery-sandbox-probe.c'
       - 'scripts/release-check.py'
 
 permissions:
@@ -112,6 +114,14 @@ jobs:
             fi
           done
           test "$python_found" = true
+      - name: Compile public recovery sandbox probe without executing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/clang -Wall -Wextra -Werror scripts/android-recovery-sandbox-probe.c -o "$RUNNER_TEMP/reproof-sandbox-probe"
+          test -s "$RUNNER_TEMP/reproof-sandbox-probe"
+          shasum -a 256 "$RUNNER_TEMP/reproof-sandbox-probe"
+          echo 'RECOVERY_SANDBOX_PROBE_COMPILED_NOT_EXECUTED'
       - name: Run synthetic Foundation tests and verify nonzero XCTest execution
         shell: bash
         run: |

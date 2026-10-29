@@ -6,6 +6,8 @@ on:
       - 'android/**'
       - 'reproof/instrumentation_templates/android/**'
       - '.github/workflows/android-compile.yml'
+      - 'scripts/build-android-recovery-fixtures.py'
+      - 'tests/test_android_recovery_fixture_artifacts.py'
       - 'scripts/check-android-fixture-junit.py'
       - 'tests/test_android_readiness_junit.py'
       - 'tests/test_android_capture*.py'
@@ -29,6 +31,8 @@ on:
       - 'android/**'
       - 'reproof/instrumentation_templates/android/**'
       - '.github/workflows/android-compile.yml'
+      - 'scripts/build-android-recovery-fixtures.py'
+      - 'tests/test_android_recovery_fixture_artifacts.py'
       - 'scripts/check-android-fixture-junit.py'
       - 'tests/test_android_readiness_junit.py'
       - 'tests/test_android_capture*.py'
@@ -115,6 +119,33 @@ jobs:
           exact(reports[0], expected)
           print('Two unsigned snapshot consumer builds verified; no device or behavior qualification')
           PYSNAPSHOT
+      - name: Build exactly two unsigned public recovery fixture APKs (no device execution)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest tests.test_android_recovery_fixture_artifacts
+          mapfile -t gradle_candidates < <(find "$HOME/.gradle/wrapper/dists/gradle-8.14.5-bin" -type f -path '*/gradle-8.14.5/bin/gradle')
+          test "${#gradle_candidates[@]}" -eq 1
+          python3 scripts/build-android-recovery-fixtures.py \
+            --output "$RUNNER_TEMP/reproof-recovery-fixtures" \
+            --gradle "${gradle_candidates[0]}" --gradle-home "$HOME/.gradle" \
+            --java-home "$JAVA_HOME" --sdk-home "$ANDROID_HOME"
+      - name: Preserve unsigned public recovery APKs and identity manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-recovery-unsigned-fixtures
+          path: |
+            ${{ runner.temp }}/reproof-recovery-fixtures/artifacts/sample-unsigned.apk
+            ${{ runner.temp }}/reproof-recovery-fixtures/artifacts/helper-unsigned.apk
+            ${{ runner.temp }}/reproof-recovery-fixtures/artifacts/manifest.json
+          if-no-files-found: error
+      - name: Preserve unsigned fixture build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-recovery-unsigned-fixture-build-logs
+          path: ${{ runner.temp }}/reproof-recovery-fixtures/*.log
+          if-no-files-found: warn
       - name: Execute pure Kotlin capture policy and geometry contracts
         shell: bash
         run: |
@@ -131,6 +162,29 @@ jobs:
           assert check['status'] == 'pass' and type(check['testsRun']) is int and check['testsRun'] == 2
           print('Two pure Kotlin capture contracts passed; no device execution')
           PYCAPTURE
+      - name: Execute private unqualified recovery Kotlin contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/reproof-android-recovery-logs"
+          python3 scripts/release-check.py --goal ANDROID_RECOVERY_QUALIFICATION_NATIVE --effects filesystem,process,native-compile \
+            | tee "$RUNNER_TEMP/reproof-android-recovery-logs/recovery-contracts.json"
+          python3 - <<'PYRECOVERY'
+          import json, os
+          from pathlib import Path
+          result = json.loads((Path(os.environ['RUNNER_TEMP']) / 'reproof-android-recovery-logs/recovery-contracts.json').read_text())
+          assert result['status'] == 'pass' and len(result['checks']) == 1
+          check = result['checks'][0]
+          assert check['status'] == 'pass' and type(check['testsRun']) is int and check['testsRun'] == 3
+          print('Three private recovery/neighbor source/JVM contracts passed; runtime remains UNQUALIFIED')
+          PYRECOVERY
+      - name: Preserve private recovery Kotlin evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-recovery-qualification-contract-results
+          path: ${{ runner.temp }}/reproof-android-recovery-logs/recovery-contracts.json
+          if-no-files-found: error
       - name: Preserve pure Kotlin capture evidence
         if: always()
         uses: actions/upload-artifact@v4

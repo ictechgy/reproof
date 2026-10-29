@@ -59,6 +59,30 @@ jobs:
         run: python scripts/release-check.py --goal G9_SNAPSHOT_SCALE --effects filesystem,process,loopback
       - name: Run Android capture policy host contracts without native execution
         run: python scripts/release-check.py --goal ANDROID_CAPTURE_CONTRACTS --effects filesystem,process
+      - name: Private unqualified Android recovery host contracts
+        run: python scripts/release-check.py --goal ANDROID_RECOVERY_QUALIFICATION_CONTRACTS --effects filesystem,process
+      - name: Private recovery gateway synthetic socket contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/release-check.py --goal ANDROID_RECOVERY_GATEWAY_CONTRACTS --effects filesystem,process,loopback \
+            | tee "$RUNNER_TEMP/android-recovery-gateway.json"
+          python - <<'PYGATEWAY'
+          import json, os
+          from pathlib import Path
+          result = json.loads((Path(os.environ['RUNNER_TEMP']) / 'android-recovery-gateway.json').read_text())
+          assert result['status'] == 'pass' and len(result['checks']) == 1
+          check = result['checks'][0]
+          assert check['status'] == 'pass' and type(check['testsRun']) is int and check['testsRun'] == 6
+          print('Six synthetic gateway socket contracts passed; no ADB or device execution')
+          PYGATEWAY
+      - name: Preserve private recovery gateway evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-recovery-gateway-${{ matrix.python-version }}
+          path: ${{ runner.temp }}/android-recovery-gateway.json
+          if-no-files-found: warn
       - name: Run synthetic native-provider contract checks
         run: python scripts/release-check.py --goal NATIVE_CONTRACTS --effects filesystem,process
       - name: Run deployment preflight and loopback observation binding checks

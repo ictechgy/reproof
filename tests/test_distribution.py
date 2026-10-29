@@ -140,6 +140,53 @@ class InstalledDistributionTests(unittest.TestCase):
         self.assertEqual(origin.returncode, 0)
         self.assertTrue(Path(origin.stdout.strip()).resolve().is_relative_to(self.venv.resolve()))
 
+    def test_installed_private_recovery_is_unqualified_and_complete(self):
+        program = """from reproof.live.android_recovery_qualification import QualificationHarness
+from reproof.live.android_recovery_authority import QualificationJournal, inspect_qualification_journal
+from reproof.live.android_recovery_context import IsolatedAdbContext
+from reproof.live.android_recovery_birth import BirthPlan, OwnedBirth, launch_qualification_birth
+from reproof.live.android_recovery_trial import run_one_lost_ack, TrialIncomplete
+from reproof.live.android_recovery_preflight import run_sandbox_preflight, PROBE_SOURCE
+from reproof.live.android_recovery_tool_pin import ADB_RELEASE, ADB_DARWIN_SHA256
+from reproof.live.android_recovery_tool_ca import _APPROVED_CA
+from reproof.execution.wire import safe_transfer_path
+from reproof.core import ContractError
+from reproof.resources import resource_root
+from reproof.live.model import Lab
+source = (resource_root()/'android/live/src/main/java/io/reproof/live/AndroidRecoveryProtocol.kt').read_text()
+assert 'AndroidRecoveryProtocol' in source and 'AndroidRecoveryExitDelivery' in source
+assert not hasattr(Lab, 'recover_qualification_device')
+assert not hasattr(QualificationHarness, 'resume')
+assert ADB_RELEASE == '35.0.2' and len(ADB_DARWIN_SHA256) == 64
+assert _APPROVED_CA.relative == 'lib/ca-bundle.pem' and _APPROVED_CA.size == 258424
+try:
+    safe_transfer_path('lib/ca-bundle.pem')
+except ContractError:
+    pass
+else:
+    raise AssertionError('local public CA must not become transferable')
+assert callable(run_one_lost_ack) and issubclass(TrialIncomplete, ContractError)
+assert callable(run_sandbox_preflight)
+assert (resource_root()/'scripts/android-recovery-sandbox-probe.c').read_text() == PROBE_SOURCE
+try:
+    OwnedBirth()
+except ContractError:
+    pass
+else:
+    raise AssertionError('imported ownership must be rejected')
+try:
+    IsolatedAdbContext.birth()
+except ContractError:
+    pass
+else:
+    raise AssertionError('unqualified birth must be blocked')
+print('private recovery installed; normal recovery remains unqualified')
+"""
+        result = _command([str(self.python), '-I', '-c', program], cwd=self.work)
+        self.assertEqual(result.returncode, 0, result.stderr[-1000:])
+        self.assertEqual(result.stdout.strip(), 'private recovery installed; normal recovery remains unqualified')
+        self.assertEqual(list(self.work.iterdir()), [])
+
     def test_installed_android_capture_policy_and_helper_are_complete(self):
         program = """from reproof.android_capture import capture_policy, require_capture_receipt
 from reproof.resources import resource_root

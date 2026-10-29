@@ -226,19 +226,40 @@ class AdbGateway:
     def __exit__(self,*_):self.close()
 
 
+_DARWIN_RUNTIME_DIRECTORIES = (
+    '/usr/lib', '/System/Library', '/System/Volumes/Preboot/Cryptexes/OS',
+    '/System/Cryptexes/OS', '/private/preboot/Cryptexes/OS', '/dev/fd')
+_DARWIN_RUNTIME_FILES = (
+    '/dev/null', '/dev/random', '/dev/urandom', '/', '/System', '/System/Volumes',
+    '/System/Volumes/Preboot', '/System/Volumes/Preboot/Cryptexes', '/System/Cryptexes')
+_DARWIN_KEYCHAIN_DIRECTORIES = (
+    '/System/Library/Keychains',
+    '/System/Volumes/Preboot/Cryptexes/OS/System/Library/Keychains',
+    '/System/Cryptexes/OS/System/Library/Keychains',
+    '/private/preboot/Cryptexes/OS/System/Library/Keychains')
+
+
+def _darwin_runtime_reads(directories=(), files=()):
+    # Read-only expressions; never add network, write or executable admission.
+    readable = ' '.join('(subpath '+json.dumps(path)+')'
+        for path in (*_DARWIN_RUNTIME_DIRECTORIES, *directories))
+    readable += ' '+' '.join('(literal '+json.dumps(path)+')'
+        for path in (*_DARWIN_RUNTIME_FILES, *files))
+    return '(allow file-read* '+readable+')'
+
+
+def _darwin_keychain_denials():
+    return '(deny file-read-data file-read-xattr '+' '.join(
+        '(subpath '+json.dumps(path)+')' for path in _DARWIN_KEYCHAIN_DIRECTORIES)+')'
+
+
 def adb_client_sandbox(adb,work,endpoint):
-    directories=('/usr/lib','/System/Library','/System/Volumes/Preboot/Cryptexes/OS',
-        '/System/Cryptexes/OS','/private/preboot/Cryptexes/OS','/dev/fd',str(work))
-    files=('/dev/null','/dev/random','/dev/urandom',str(adb),'/',
-        '/System','/System/Volumes','/System/Volumes/Preboot','/System/Volumes/Preboot/Cryptexes','/System/Cryptexes')
-    readable=' '.join('(subpath '+json.dumps(path)+')' for path in directories)
-    readable+=' '+' '.join('(literal '+json.dumps(path)+')' for path in files)
     return ('(version 1)(allow default)(deny network*)(deny mach-lookup)(deny process-fork)'
-        '(deny file-read* file-write*)(allow file-read-metadata)(allow file-read* '+readable+')'
+        '(deny file-read* file-write*)(allow file-read-metadata)'
+        +_darwin_runtime_reads((str(work),), (str(adb),))+
         '(allow file-write* (subpath '+json.dumps(str(work))+'))'
         '(allow network-outbound (literal '+json.dumps(str(endpoint))+'))'
-        '(deny file-read-data file-read-xattr (subpath "/System/Library/Keychains")'
-        ' (subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/Keychains"))')
+        +_darwin_keychain_denials())
 
 
 class ScopedAdbClient:
