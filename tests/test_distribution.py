@@ -149,6 +149,8 @@ from reproof.live.android_recovery_trial import run_one_lost_ack, TrialIncomplet
 from reproof.live.android_recovery_preflight import run_sandbox_preflight, PROBE_SOURCE
 from reproof.live.android_recovery_tool_pin import ADB_RELEASE, ADB_DARWIN_SHA256
 from reproof.live.android_recovery_tool_ca import _APPROVED_CA
+from reproof.live.android_recovery_diagnostics import inventory_state
+assert inventory_state(b'foreign\\tdevice\\n', 'emulator-5554') == 'unexpected'
 from reproof.execution.wire import safe_transfer_path
 from reproof.core import ContractError
 from reproof.resources import resource_root

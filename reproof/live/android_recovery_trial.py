@@ -17,6 +17,7 @@ import uuid
 from reproof.core import ContractError
 from reproof.android_profile import AndroidRuntimeProfile, validate_android_runtime_profile
 from .android_recovery_birth import BirthPlan, BirthIncomplete, launch_qualification_birth
+from .android_recovery_diagnostics import birth_summary
 from .android_recovery_qualification import QualificationHarness
 from .android_recovery_preflight import run_sandbox_preflight
 from .configuration import issue_bounded_project_grant
@@ -275,6 +276,8 @@ def run_one_lost_ack(plan, runtime_profile, *, sandbox_probe, cancellation):
             except BaseException:
                 report['abort'] = {'processesCollected': False, 'cleanupIncomplete': True,
                                    'recoverySucceeded': False}
+        if owner is not None:
+            report['birthDiagnostics'] = birth_summary(owner)
         report['cleanupIncomplete'] = not pollers or not report.get('abort', {}).get('processesCollected', owner is None)
         raise TrialIncomplete(report, owner, harness) from None
 
