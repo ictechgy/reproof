@@ -237,6 +237,66 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         self.assertTrue(all(child.collected for child in owner._children))
         with self.assertRaises(ContractError):owner.context
 
+    def test_sdk_anchor_and_sysdir_are_explicit_without_host_sdk_access(self):
+        with patch.dict(birth.os.environ, {'ANDROID_HOME':'/foreign/sdk',
+                                         'ANDROID_SDK_ROOT':'/foreign/other'}):
+            owner, plan = self._launch()
+        argv, environment, _, _ = _Child.calls[1]
+        self.assertEqual(argv[argv.index('-sysdir')+1], plan.image.root)
+        sdk = Path(plan.output)/'sdk'
+        self.assertEqual(environment['ANDROID_HOME'], str(sdk))
+        self.assertEqual(environment['ANDROID_SDK_ROOT'], str(sdk))
+        self.assertNotIn('ANDROID_HOME', _Child.calls[0][1])
+        self.assertEqual({p.name for p in sdk.iterdir()}, {'platforms','platform-tools'})
+        self.assertEqual(list((sdk/'platforms').iterdir()), [])
+        self.assertEqual(list((sdk/'platform-tools').iterdir()), [])
+        self.assertIn('image.sysdir.1='+plan.image.root, birth._avd_config(owner))
+        self.assertIn('disk.dataPartition.size=6144M', birth._avd_config(owner))
+        self.assertNotIn('/foreign/', str(_Child.calls))
+        policy = argv[2]
+        self.assertNotIn('(subpath '+birth.json.dumps(str(sdk))+')', policy)
+        self.assertNotIn(str(sdk/'platform-tools'/'adb'), str(_Child.calls))
+        self.assertTrue(owner.collect()['processesCollected'])
+
+    def _reject_prepared_change_before_process(self, change):
+        prepare = birth._prepare_directories
+        def changed(owner):
+            prepare(owner)
+            change(owner)
+        with patch.object(birth, '_prepare_directories', changed):
+            with self.assertRaises(birth.BirthIncomplete) as caught:
+                self._launch()
+        self.assertEqual(_Child.calls, [])
+        self.assertEqual(caught.exception.owner._listeners, [])
+        self.assertTrue(caught.exception.owner.abort()['processesCollected'])
+
+    def test_foreign_sdk_tool_rejected_before_any_process_or_listener(self):
+        self._reject_prepared_change_before_process(
+            lambda owner: (owner.root/'sdk/platform-tools/adb').write_bytes(b'foreign'))
+
+    def test_changed_avd_config_rejected_before_any_process_or_listener(self):
+        self._reject_prepared_change_before_process(
+            lambda owner: (owner.root/'avd'/(owner.avd_name+'.avd')/'config.ini').write_text(
+                'image.sysdir.1=/foreign/image\n'))
+
+    def test_replaced_sdk_directory_rejected_before_any_process_or_listener(self):
+        def replace_directory(owner):
+            selected = owner.root/'sdk/platforms'
+            selected.rename(owner.root/'retained-platforms')
+            selected.mkdir()
+        self._reject_prepared_change_before_process(replace_directory)
+
+    def test_incomplete_sdk_ownership_rejected_before_any_process_or_listener(self):
+        self._reject_prepared_change_before_process(
+            lambda owner: owner._sdk_fds.clear())
+
+    def test_sdk_symlink_rejected_before_any_process_or_listener(self):
+        def replace_directory(owner):
+            selected = owner.root/'sdk/platform-tools'
+            selected.rmdir()
+            selected.symlink_to(owner.plan.emulator.root, target_is_directory=True)
+        self._reject_prepared_change_before_process(replace_directory)
+
     def test_partial_child_start_retains_both_owners_and_never_mints_context(self):
         owner, _ = self._launch(fail=True)
         self.assertEqual(len(owner._children), 2)

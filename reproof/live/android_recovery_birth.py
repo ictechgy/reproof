@@ -680,6 +680,58 @@ def _write_at(directory, name, text):
         os.close(fd)
 
 
+def _avd_config(owner):
+    return ('avd.ini.encoding=UTF-8\nabi.type=arm64-v8a\nhw.cpu.arch=arm64\n'
+            'disk.dataPartition.size=6144M\nhw.ramSize=2048\nhw.lcd.width=720\nhw.lcd.height=1280\n'
+            'hw.lcd.density=320\nhw.gpu.enabled=yes\nhw.gpu.mode=swiftshader_indirect\n'
+            'PlayStore.enabled=false\ntag.id=default\ntarget=android-36\n'
+            'image.sysdir.1='+owner.plan.image.root+'\n')
+
+
+def _avd_index(owner):
+    return ('avd.ini.encoding=UTF-8\npath='+
+            str(owner.root/'avd'/(owner.avd_name+'.avd'))+'\ntarget=android-36\n')
+
+
+def _emulator_environment(owner):
+    root = owner.root
+    environment = _environment(root/'home', root/'android', root/'avd',
+                               root/'client', owner.notification_port)
+    # A fresh, empty SDK anchor, never the host SDK or an inherited setting.
+    environment.update(ANDROID_HOME=str(root/'sdk'), ANDROID_SDK_ROOT=str(root/'sdk'))
+    return environment
+
+
+def _require_launch_layout(owner):
+    """Static, no-process check of generated paths before any native launch."""
+    _root_matches(owner)
+    _require(set(owner._sdk_fds) == {'sdk', 'sdk/platforms', 'sdk/platform-tools'},
+             'Private SDK anchor ownership incomplete')
+    for relative, retained in owner._sdk_fds.items():
+        opened = _directory(owner.root/relative)
+        try:
+            before, current = os.fstat(retained), os.fstat(opened)
+            _require((before.st_dev, before.st_ino) == (current.st_dev, current.st_ino),
+                     'Private SDK anchor changed')
+            expected = {'platforms', 'platform-tools'} if relative == 'sdk' else set()
+            with os.scandir(opened) as entries:
+                found = set()
+                for entry in entries:
+                    _require(entry.name in expected and entry.name not in found,
+                             'Private SDK anchor must contain no tools or images')
+                    found.add(entry.name)
+                _require(found == expected, 'Private SDK anchor incomplete')
+        finally:
+            os.close(opened)
+    for relative, expected in (
+            ('avd/'+owner.avd_name+'.avd/config.ini', _avd_config(owner)),
+            ('avd/'+owner.avd_name+'.ini', _avd_index(owner))):
+        with os.fdopen(open_regular(owner.root, relative), 'rb') as source:
+            _require(source.read(8193) == expected.encode('utf-8'),
+                     'Private AVD configuration changed')
+    _root_matches(owner)
+
+
 def _prepare_directories(owner):
     root = owner.root
     parent = _directory(root.parent)
@@ -696,22 +748,26 @@ def _prepare_directories(owner):
     info = os.fstat(fd)
     owner._root_identity = (info.st_dev, info.st_ino)
     _root_matches(owner)
-    for name in ('client', 'server-work', 'home', 'android', 'gateways', 'avd'):
+    for name in ('client', 'server-work', 'home', 'android', 'gateways', 'avd', 'sdk'):
         os.mkdir(name, 0o700, dir_fd=fd)
+    owner._sdk_fds = {}
+    sdk = os.open('sdk', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+    owner._fds.append(sdk)
+    owner._sdk_fds['sdk'] = sdk
+    for name in ('platforms', 'platform-tools'):
+        os.mkdir(name, 0o700, dir_fd=sdk)
+        selected_sdk = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=sdk)
+        owner._fds.append(selected_sdk)
+        owner._sdk_fds['sdk/'+name] = selected_sdk
     avd = os.open('avd', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
     try:
         os.mkdir(owner.avd_name+'.avd', 0o700, dir_fd=avd)
         selected = os.open(owner.avd_name+'.avd', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=avd)
         try:
-            config = ('avd.ini.encoding=UTF-8\nabi.type=arm64-v8a\nhw.cpu.arch=arm64\n'
-                      'disk.dataPartition.size=6144M\nhw.ramSize=2048\nhw.lcd.width=720\nhw.lcd.height=1280\n'
-                      'hw.lcd.density=320\nhw.gpu.enabled=yes\nhw.gpu.mode=swiftshader_indirect\n'
-                      'PlayStore.enabled=false\ntag.id=default\ntarget=android-36\n'
-                      'image.sysdir.1='+owner.plan.image.root+'\n')
+            config = _avd_config(owner)
             _root_matches(owner)
             _write_at(selected, 'config.ini', config)
-            _write_at(avd, owner.avd_name+'.ini', 'avd.ini.encoding=UTF-8\npath='+
-                      str(root/'avd'/(owner.avd_name+'.avd'))+'\ntarget=android-36\n')
+            _write_at(avd, owner.avd_name+'.ini', _avd_index(owner))
             _root_matches(owner)
         finally:
             os.close(selected)
@@ -777,6 +833,7 @@ def launch_qualification_birth(plan, *, cancellation):
     _OWNERS[id(owner)] = owner
     try:
         _prepare_directories(owner)
+        _require_launch_layout(owner)
         notify = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         owner._listeners.append(notify)
         notify.bind(('127.0.0.1', 0));notify.listen(1);notify.settimeout(.1)
@@ -799,11 +856,12 @@ def launch_qualification_birth(plan, *, cancellation):
         profile = _sandbox(plan, root, root/'server.sock', root/'report.sock', owner.notification_port, emulator=True)
         plan.emulator.verify(cancellation=cancellation, deadline=owner.deadline)
         _active(cancellation, owner.deadline)
+        _require_launch_layout(owner)
         emulator.start(('/usr/bin/sandbox-exec', '-p', profile, str(Path(plan.emulator.root)/'emulator'),
-                        '-avd', owner.avd_name, '-port', str(plan.console_port),
+                        '-avd', owner.avd_name, '-sysdir', plan.image.root, '-port', str(plan.console_port),
                         '-report-console', 'unix:'+str(root/'report.sock')+',max=10',
                         '-no-window', '-no-audio', '-no-snapshot', '-no-boot-anim',
-                        '-gpu', 'swiftshader_indirect'), environment, root/'client')
+                        '-gpu', 'swiftshader_indirect'), _emulator_environment(owner), root/'client')
         owner.emulator = emulator.process
         owner.require_live()
         until = min(owner.deadline, time.monotonic()+10)
