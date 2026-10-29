@@ -463,3 +463,40 @@ conflict; synthetic tests additionally reject other credential suffixes before
 any selected file read. Actual Mac retry and full tool-tree/runtime verification
 remain separate qualifications. Reuse of an older sandbox probe binary is not
 implied: callers must still select the newly compiled stage-marker probe.
+
+### Explicit private SDK anchor and image resolution
+
+A subsequent approved trial passed the complete selected tool/image verification
+and all six sandbox probes, but the emulator launcher stopped before boot:
+`ANDROID_SDK_ROOT` was absent and its inferred host SDK path was not readable.
+No install, tap or recovery ran. This is a configuration failure, not evidence
+that recovery succeeded or that a sandbox boundary should be removed.
+
+Birth now creates a fresh private `sdk` directory containing only two empty
+folders, `platforms` and `platform-tools`. Both `ANDROID_HOME` and
+`ANDROID_SDK_ROOT` are set to that same owned anchor **only for the emulator**.
+No host SDK is exposed, imported, symlinked or searched by this configuration;
+no SDK tools, especially `platform-tools/adb`, are put in the anchor. The
+launcher receives `-sysdir` equal to the already hash-verified selected image
+root, also retained as the absolute `image.sysdir.1` in the fresh AVD config.
+
+The source basis is `ConfigDirs::isValidSdkRoot` (readable root plus those two
+folders), launcher `getAvdSystemPath`, and backend `_avdInfo_getSearchPaths`
+(explicit sysdir is the sole SDK image search directory). See the
+[AOSP source mirror snapshot](https://github.com/mirror/qemu-android/blob/e111ba9b1d03f295d5a208242cf9698cfaa29c4e/android/emu/files/src/android/emulation/ConfigDirs.cpp),
+[backend image search](https://github.com/mirror/qemu-android/blob/e111ba9b1d03f295d5a208242cf9698cfaa29c4e/android/emu/avd/src/android/avd/info.c),
+and [official launcher source](https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/emulator/main-emulator.cpp).
+These source checks are not a reproducible-build attestation for the selected
+36.1.9 binary and do not replace a separately approved runtime trial.
+
+Before any birth listener or process starts, and again before the emulator
+starts, a local static check compares the generated AVD config and index bytes,
+checks all three SDK directories against retained descriptors, and rejects
+missing, replaced, symlinked or non-empty SDK children. Native write/exec/network
+policies are unchanged: the anchor is under the already readable owned root
+and outside every native writable subtree. The image remains read-only; fresh
+userdata stays in the new AVD with the existing `6144M` size setting. Kernel,
+ramdisk, system, vendor and `data/empty_data_disk` remain mandatory members of
+the closed revision-2 image manifest; no existing AVD or userdata is imported.
+Static checks and synthetic lifecycle tests establish configuration wiring,
+not successful image initialization, boot, hypervisor or recovery execution.
