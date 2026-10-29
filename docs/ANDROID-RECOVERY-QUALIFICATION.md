@@ -400,3 +400,20 @@ text. Raw bounded collectors remain private on the retained owner. Diagnostic
 evidence does not bypass any success check or authorize a retry. A SIGABRT
 during loader initialization is not an identified denied path or a recovery
 result.
+
+### Shared Darwin loader reads
+
+The private producer policies and existing scoped ADB client now use one
+read-only expression for the same fixed OS library/Cryptex aliases and ancestor
+directory literals. All four corresponding system Keychain directory paths
+remain explicitly denied for data/xattr reads. No network, writable directory,
+executable, discovery or recovery authorization is added by that helper.
+
+This aligns an observed policy mismatch: the producer previously omitted paths
+already present in the client policy. A separately authorized first trial
+stopped at the server's restricted public probe with SIGABRT; the retained
+stack entered dyld CacheFinder/ignite/boot_boot/ignition_halt. That supports a
+loader-read hypothesis, but no exact denied path was observed. Commonizing the
+allowlist is not proof of the crash cause or a passing runtime test. The original
+attempt remains failed before ADB/AVD startup, and another Mac execution still
+requires separate authorization.

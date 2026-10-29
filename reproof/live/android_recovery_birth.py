@@ -24,7 +24,8 @@ import uuid
 
 from reproof.core import ContractError
 from reproof.execution.artifacts import open_regular
-from reproof.adb_endpoint import AdbEndpoint, _frame, adb_client_sandbox
+from reproof.adb_endpoint import (AdbEndpoint, _frame, adb_client_sandbox,
+                                  _darwin_runtime_reads, _darwin_keychain_denials)
 from reproof.repair_android_signing import _Collector, _ProcessOwner
 from .android_recovery_authority import _directory
 from .android_recovery_tool_pin import ADB_DARWIN_SHA256, require_pinned_adb
@@ -233,20 +234,16 @@ def _environment(home, android, avd, work, notification_port):
 def _sandbox(plan, root, socket_path, callback, notification_port, *, emulator):
     # Deliberately no ambient HOME, proxies, ADBHOST, discovery, or adb executable
     # permission in the emulator profile. This is not runtime enforcement proof.
-    roots = [str(root), '/usr/lib', '/System/Library', '/System/Volumes/Preboot/Cryptexes/OS']
+    roots = [str(root)]
     roots += [plan.emulator.root, plan.image.root] if emulator else []
-    literals = ['/dev/null', '/dev/random', '/dev/urandom']
     executables = plan.emulator.executables if emulator else (plan.adb.path,)
-    literals += list(executables)
-    readable = ' '.join('(subpath ' + json.dumps(x) + ')' for x in roots)
-    readable += ' ' + ' '.join('(literal ' + json.dumps(x) + ')' for x in literals)
     result = ('(version 1)(allow default)(deny network*)(deny process-exec)'
               '(deny file-read* file-write*)(allow file-read-metadata)'
-              '(allow file-read* ' + readable + ')'
+              +_darwin_runtime_reads(tuple(roots), tuple(executables))+
               '(allow file-write* ' + ' '.join('(subpath '+json.dumps(str(root/name))+')'
                   for name in (('home','android','avd','client') if emulator else ('home','android','server-work'))) + ')'
               '(allow process-exec ' + ' '.join('(literal '+json.dumps(x)+')' for x in executables) + ')'
-              '(deny file-read-data file-read-xattr (subpath "/System/Library/Keychains"))')
+              +_darwin_keychain_denials())
     if emulator:
         result += ('(allow network-outbound (literal ' + json.dumps(str(callback)) + ')'
                    ' (remote ip "localhost:' + str(notification_port) + '"))')

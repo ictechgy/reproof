@@ -561,3 +561,37 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         self.assertTrue(owner.abort()['processesCollected'])
         self.assertTrue(owner._children[0].collected)
         self.assertEqual(last.collect.call_count,2)
+
+    def test_shared_darwin_runtime_expression_grants_reads_only(self):
+        from reproof import adb_endpoint
+        reads = adb_endpoint._darwin_runtime_reads()
+        for name in ('/System/Cryptexes/OS', '/private/preboot/Cryptexes/OS',
+                     '/System/Volumes/Preboot/Cryptexes/OS', '/dev/fd'):
+            self.assertIn('(subpath '+birth.json.dumps(name)+')', reads)
+        self.assertIn('(literal "/")', reads)
+        for capability in ('network', 'file-write', 'process-exec', 'process-fork'):
+            self.assertNotIn(capability, reads)
+        denials = adb_endpoint._darwin_keychain_denials()
+        self.assertIn('(deny file-read-data file-read-xattr ', denials)
+        for root in ('', '/System/Volumes/Preboot/Cryptexes/OS',
+                     '/System/Cryptexes/OS', '/private/preboot/Cryptexes/OS'):
+            self.assertIn('(subpath '+birth.json.dumps(root+'/System/Library/Keychains')+')', denials)
+
+    def test_producer_and_client_share_loader_reads_without_network_or_exec_widening(self):
+        from reproof import adb_endpoint
+        plan = self.plan()
+        root = Path(plan.output)
+        endpoint, callback = root/'server.sock', root/'report.sock'
+        for emulator in (False, True):
+            policy = birth._sandbox(plan, root, endpoint, callback, 42001, emulator=emulator)
+            self.assertIn('(deny network*)(deny process-exec)', policy)
+            self.assertIn(adb_endpoint._darwin_keychain_denials(), policy)
+            for directory in adb_endpoint._DARWIN_RUNTIME_DIRECTORIES:
+                self.assertIn('(subpath '+birth.json.dumps(directory)+')', policy)
+            self.assertNotIn('(allow network*)', policy)
+            self.assertNotIn('(allow process-exec (subpath', policy)
+            self.assertNotIn('(allow file-write* (subpath "/System', policy)
+        client = adb_endpoint.adb_client_sandbox(plan.adb.path, root/'client', endpoint)
+        self.assertIn('(deny network*)(deny mach-lookup)(deny process-fork)', client)
+        self.assertIn(adb_endpoint._darwin_keychain_denials(), client)
+        self.assertIn('(allow network-outbound (literal '+birth.json.dumps(str(endpoint))+'))', client)
