@@ -1,8 +1,8 @@
 # iOS Simulator MVP
 
-2026-09-09 구현·검증. 지원 확인 환경은 Xcode 27.0(27A5228h), iOS 27.0 arm64 Simulator다. iPhone 실기기·서명·TestFlight 앱·SwiftUI는 아직 검증하지 않았다.
+이 문서는 2026-09-09의 샘플 Simulator MVP 실행 기록과 절차다. 당시 기록된 환경은 Xcode 27.0(27A5228h), iOS 27.0 arm64 Simulator이며, 현재 릴리스 전체의 지원 버전 표가 아니다. 과거 결과를 현재 checkout에서 다시 검증했다는 뜻도 아니다. 현재 CI 설정과 실기기 qualification의 구분은 [Xcode 지원·검증 범위](XCODE-SUPPORT.md)를 따른다.
 
-## 확인한 결과
+## 당시 확인한 결과
 
 - Swift SDK의 실제 입력 기록 → iOS v2 번들 생성.
 - 원본의 결함 3/3회 확인.
@@ -14,14 +14,14 @@
 
 이 문서의 초기 결과는 `scripts/ios-sample-fix.json`의 오프라인 기준 패치다. 후속 실제 Claude 수정과 사례 확장은 [사례별 실행 문서](IOS-CASES.md)를 참고한다.
 
-현재 워크스페이스의 결과:
+당시 작업 디렉터리의 결과(새 checkout에 포함되지 않을 수 있음):
 
 - [수정 검증 HTML](../artifacts/ios-repair/report.html)
 - [전체 job 증거](../artifacts/ios-repair/job.json)
 - [적용한 패치](../artifacts/ios-repair/attempt-1/patch.diff)
 - [입력 종류별 smoke 결과](../artifacts/ios-semantic-smoke/result.json)
 
-실행 산출물은 `artifacts/`에 생성되며 새 체크아웃에는 포함되지 않을 수 있다. 아래 명령으로 다시 만든다.
+실행 산출물은 `artifacts/`에 생성되며 새 체크아웃에는 포함되지 않을 수 있다. 아래 명령은 별도로 승인된 샘플 Simulator 실행을 위한 절차이며, 이 문서 수정에서 재실행하지 않았다.
 
 ## 준비
 
@@ -83,11 +83,11 @@ python3 scripts/ios-smoke.py --simulator <SIMULATOR_UUID> \
 
 증거 등급은 설치 영수증과 실행 build ID를 연결한 Simulator 증거다. Android의 설치 APK 직접 hash 확인이나 실기기의 강한 attestation과 동등하다고 표현하지 않는다.
 
-원본 xcresult에는 Xcode가 자동 수집하는 부가 정보가 있을 수 있어 로컬에 보관한다. HTML과 AI에는 선택한 합성 필드만 전달한다. iOS SDK는 현재 UIKit 샘플에 소스로 통합되어 있으며 독립 Swift package 배포는 후속 범위다.
+원본 xcresult에는 Xcode가 자동 수집하는 부가 정보가 있을 수 있어 로컬에 보관한다. HTML과 AI에는 선택한 합성 필드만 전달한다. 현재 저장소에는 외부 의존성이 없는 로컬 Swift package [ReproofSDK](../ios/SDK/README.md)가 있으며 UIKit 샘플은 그 제품을 연결한다. 이는 원격 패키지 배포, 임의 앱의 SPM 의존성 해석·캐시 승인 또는 회사 앱 지원을 의미하지 않는다.
 
 ## 알려진 제한
 
-- iPhone 실기기 어댑터·pairing·서명 검증은 후속 I3 단계다.
+- 이 Simulator MVP 기록은 iPhone 실기기·pairing·서명 검증 근거가 아니다. 후속 실기기 경로와 별도 증거 요건은 [iOS 보호 서비스](IOS-PROTECTED-SERVICE.md)를 참고하며, 현재 배포 환경의 qualification을 대신하지 않는다.
 - SwiftUI, 일반 크래시 판정, 임의 앱의 입력 수집, 운영 데이터는 지원하지 않는다.
 - 초기 fixture는 샘플의 메모리 상태다. Keychain·iCloud·서버 데이터 초기화의 일반 구현은 포함하지 않는다.
 - 완료된 기록은 같은 앱 프로세스에서 자동으로 다시 시작하지 않는다. 새 QA 세션은 fixture부터 앱을 재시작한다.

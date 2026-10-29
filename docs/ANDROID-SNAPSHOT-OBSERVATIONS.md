@@ -103,6 +103,17 @@ coverage are not added. Dependency caches, build-generated disk usage and
 compiler memory are separate from the snapshot's bounded source budgets.
 The operator may select an existing dependency cache with an absolute
 `GRADLE_USER_HOME`; the profile cannot choose a cache path or raise budgets.
+This is operator environment selection, not a validated dependency-cache import
+or approval receipt. The current check only requires an absolute, bounded path
+string without C0 control characters (U+0000–U+001F); it does not authenticate
+cache contents,
+verify a resolved dependency graph, or exclude Gradle init scripts. `--offline`
+restricts Gradle dependency resolution, not arbitrary build-script networking or
+execution. Review the selected build code and cache independently; never treat
+cache presence as trust, permission to import credentials, or a reason to relax
+source, signing, snapshot or artifact boundaries. This does not authorize a
+cache import or download. [iOS has a separate package-reference
+boundary](IOS-SNAPSHOT-OBSERVATIONS.md#dependency-cache-boundary).
 Cancellation is checked before build dispatch and success publication; the
 existing bounded PSI subprocess may finish or reach its timeout before the
 next cancellation check. Cancellation is not proof that arbitrary build-script
