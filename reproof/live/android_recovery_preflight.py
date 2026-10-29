@@ -55,14 +55,24 @@ static int connected(const char *kind,const char *value) {
     }
     close(fd); return ok;
 }
+#define STAGE(name) do { \
+    static const char message[] = "REPRO_PREFLIGHT_STAGE " name "\n"; \
+    (void)write(STDERR_FILENO,message,sizeof(message)-1); \
+} while (0)
 int main(int argc,char **argv) {
+    STAGE("main-entered");
     if(argc!=9) return 64;
-    int ar=opened(argv[1],O_RDONLY),aw=opened(argv[2],O_WRONLY|O_CREAT|O_EXCL);
-    int dr=opened(argv[3],O_RDONLY),dw=opened(argv[4],O_WRONLY|O_CREAT|O_EXCL);
-    int an=connected(argv[5],argv[6]),dn=connected("tcp",argv[7]);
+    STAGE("allowed-read"); int ar=opened(argv[1],O_RDONLY);
+    STAGE("allowed-write"); int aw=opened(argv[2],O_WRONLY|O_CREAT|O_EXCL);
+    STAGE("outside-read"); int dr=opened(argv[3],O_RDONLY);
+    STAGE("outside-write"); int dw=opened(argv[4],O_WRONLY|O_CREAT|O_EXCL);
+    STAGE("allowed-network"); int an=connected(argv[5],argv[6]);
+    STAGE("outside-network"); int dn=connected("tcp",argv[7]);
+    STAGE("unlisted-exec");
     pid_t child=0; char *args[]={"/usr/bin/true",NULL};
     int spawned=posix_spawn(&child,args[0],NULL,NULL,args,environ)==0;
     if(spawned) waitpid(child,NULL,0);
+    STAGE("result");
     printf("{\"allowedRead\":%d,\"allowedWrite\":%d,\"allowedNetwork\":%d,"
            "\"outsideRead\":%d,\"outsideWrite\":%d,\"outsideNetwork\":%d,\"unlistedExec\":%d}\n",
            ar,aw,an,dr,dw,dn,spawned);
@@ -100,10 +110,63 @@ def _probe_policy(policy, probe):
     return policy + '(allow file-read* (literal '+literal+'))(allow process-exec (literal '+literal+'))'
 
 
+
+_PROBE_STAGES = ('main-entered', 'allowed-read', 'allowed-write', 'outside-read',
+                 'outside-write', 'allowed-network', 'outside-network',
+                 'unlisted-exec', 'result')
+
+
+def _probe_stages(raw):
+    prefix = b'REPRO_PREFLIGHT_STAGE '
+    selected = [line[len(prefix):] for line in raw.splitlines() if line.startswith(prefix)]
+    expected = [stage.encode('ascii') for stage in _PROBE_STAGES]
+    valid = len(selected) <= len(expected) and selected == expected[:len(selected)]
+    return {'stageMarkersValid': valid, 'mainEntryObserved': valid and bool(selected),
+            'lastProbeStage': _PROBE_STAGES[len(selected)-1] if valid and selected else None}
+
+
+def _diagnostic(child):
+    streams = []
+    raw_stderr = b''
+    complete = True
+    for index in range(2):
+        collectors = getattr(child, 'collectors', ())
+        collector = collectors[index] if index < len(collectors) else None
+        thread = getattr(collector, 'thread', None)
+        was_stopped = thread is not None and not thread.is_alive()
+        raw = bytes(collector.data[:65537]) if collector is not None else b''
+        complete = (complete and was_stopped and not thread.is_alive()
+                    and not bool(getattr(collector, 'oversized', False)))
+        streams.append({'bytesCaptured': len(raw), 'sha256': hashlib.sha256(raw).hexdigest(),
+                        'truncated': bool(getattr(collector, 'oversized', False))})
+        if index == 1:
+            raw_stderr = raw
+    process = getattr(child, 'process', None)
+    code = getattr(process, 'returncode', None)
+    code = code if type(code) is int and -4096 <= code <= 4096 else None
+    role = getattr(child, '_preflight_role', 'unknown')
+    stage = getattr(child, '_preflight_stage', 'start')
+    failure = getattr(child, '_preflight_failure', None)
+    stage = stage if stage in ('start', 'wait', 'collect', 'validate', 'complete') else 'unknown'
+    failure = failure if failure in ('cancelled', 'timeout', 'output-limit', 'collection-incomplete',
+        'process-exit', 'start-failure', 'interrupted', 'malformed-output', 'sentinel-mismatch') else None
+    restricted = getattr(child, '_preflight_restricted', None)
+    restricted = restricted if type(restricted) is bool else None
+    return {'role': role if role in ('server', 'emulator', 'client') else 'unknown',
+            'restricted': restricted,
+            'hostStage': stage, 'failure': failure, 'returncode': code,
+            'signal': -code if type(code) is int and code < 0 else None,
+            'streamsComplete': bool(complete and code is not None),
+            'stdout': streams[0], 'stderr': streams[1], **_probe_stages(raw_stderr)}
+
 class PreflightIncomplete(ContractError):
     def __init__(self, owner):
         super().__init__('Private sandbox preflight incomplete; owned evidence retained')
         self.owner = owner
+        self.report = {'schemaVersion': 1, 'kind': 'reproof-private-sandbox-preflight-failure',
+                       'checks': [_diagnostic(child) for child in owner.children[:6]],
+                       'cleanupIncomplete': bool(owner.cleanup_uncertain),
+                       'privateDataRetained': True, 'causeConfirmed': False}
 
 
 class _Owner:
@@ -151,22 +214,55 @@ def _listener(owner, family, endpoint):
 def _run(owner, argv, environment):
     owner.check()
     child = _Child();owner.children.append(child)  # retained before Popen
-    child.start(argv, environment, owner.root)
-    until = min(owner.deadline, time.monotonic()+5)
-    while child.process.poll() is None:
+    child._preflight_role = getattr(owner, '_preflight_role', 'unknown')
+    child._preflight_restricted = getattr(owner, '_preflight_restricted', None)
+    child._preflight_stage, child._preflight_failure = 'start', None
+    try:
+        child.start(argv, environment, owner.root)
+        child._preflight_stage = 'wait'
+        until = min(owner.deadline, time.monotonic()+5)
+        while child.process.poll() is None:
+            if owner.cancellation.is_set():
+                child._preflight_failure = 'cancelled'
+            elif time.monotonic() >= until:
+                child._preflight_failure = 'timeout'
+            elif not child.bounded():
+                child._preflight_failure = 'output-limit'
+            _require(child._preflight_failure is None)
+            owner.check()
+            owner.cancellation.wait(.01)
+        child._preflight_stage = 'collect'
+        if not child.collect(min(owner.deadline, time.monotonic()+2)):
+            child._preflight_failure = 'collection-incomplete'
+            _require(False)
         owner.check()
-        _require(child.bounded() and time.monotonic() < until)
-        owner.cancellation.wait(.01)
-    _require(child.collect(min(owner.deadline, time.monotonic()+2)))
-    owner.check()
-    _require(child.process.returncode == 0 and child.bounded())
-    raw = bytes(child.collectors[0].data)
-    _require(len(raw) <= 2048)
-    try: value = json.loads(raw)
-    except (ValueError, UnicodeError): raise ContractError('Invalid sandbox probe output') from None
-    _require(type(value) is dict and set(value) == set(_EXPECTED)
-             and all(type(x) is int and x in (0, 1) for x in value.values()))
-    return value
+        child._preflight_stage = 'validate'
+        if child.process.returncode != 0:
+            child._preflight_failure = 'process-exit'
+            _require(False)
+        if not child.bounded():
+            child._preflight_failure = 'output-limit'
+            _require(False)
+        raw = bytes(child.collectors[0].data)
+        _require(len(raw) <= 2048)
+        try: value = json.loads(raw)
+        except (ValueError, UnicodeError):
+            raise ContractError('Invalid sandbox probe output') from None
+        _require(type(value) is dict and set(value) == set(_EXPECTED)
+                 and all(type(x) is int and x in (0, 1) for x in value.values()))
+        child._preflight_stage = 'complete'
+        return value
+    except BaseException:
+        if child._preflight_failure is None:
+            if owner.cancellation.is_set():
+                child._preflight_failure = 'cancelled'
+            elif time.monotonic() >= owner.deadline:
+                child._preflight_failure = 'timeout'
+            else:
+                child._preflight_failure = {'start': 'start-failure', 'wait': 'interrupted',
+                    'collect': 'collection-incomplete', 'validate': 'malformed-output'}.get(
+                        child._preflight_stage, 'interrupted')
+        raise
 
 
 def run_sandbox_preflight(plan, sandbox_probe, *, cancellation):
@@ -228,8 +324,11 @@ def run_sandbox_preflight(plan, sandbox_probe, *, cancellation):
                 sandbox_probe.verify(cancellation=cancellation, deadline=deadline)
                 plan.sandbox.verify(cancellation=cancellation, deadline=deadline)
                 if restricted: args = [plan.sandbox.path, '-p', policy, *args]
+                owner._preflight_role, owner._preflight_restricted = role, restricted
                 result = _run(owner, args, environment)
                 expected = _EXPECTED if restricted else dict.fromkeys(_EXPECTED, 1)
+                if result != expected and owner.children:
+                    owner.children[-1]._preflight_failure = 'sentinel-mismatch'
                 _require(result == expected, 'Sandbox sentinel result did not match policy')
         owner.check()
         report = {'schemaVersion': 1, 'kind': 'reproof-private-sandbox-preflight', 'passed': True,

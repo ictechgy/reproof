@@ -384,3 +384,19 @@ handles. Its private namespace is retained, not recursively deleted. A failed
 or uncertain collection is not a pass. Cloud synthetic tests validate the
 control flow only; actual Darwin enforcement and the real recovery trial have
 not been run by this source change. No system-wide security setting is changed.
+
+### Bounded preflight failure diagnostics
+
+The public probe writes fixed stage markers to its existing stderr pipe before
+each sentinel action. A marker establishes only that this probe reached that
+stage, not the cause of a later failure. No observed marker means entry was not
+observed; it does not by itself prove that main was never entered.
+
+PreflightIncomplete.report contains at most six fixed-role records with host
+phase, failure category, return code/signal, bounded stream byte counts/digests,
+collector completion/truncation and the last valid ordered probe marker. It
+contains no raw stdout/stderr, argv, environment, filesystem path or policy
+text. Raw bounded collectors remain private on the retained owner. Diagnostic
+evidence does not bypass any success check or authorize a retry. A SIGABRT
+during loader initialization is not an identified denied path or a recovery
+result.

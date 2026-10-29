@@ -175,19 +175,20 @@ class SandboxPreflightTests(unittest.TestCase):
 
     def test_native_boundary_failures_keep_registered_child_for_collection(self):
         root = Path(self.plan.output).parent
-        for failure in ('returncode', 'oversized', 'collect', 'cancel', 'partial-start'):
+        for failure in ('returncode', 'oversized', 'collect', 'cancel', 'timeout', 'partial-start'):
             with self.subTest(failure=failure):
                 cancel = threading.Event()
                 fd = os.open(root, os.O_RDONLY|os.O_DIRECTORY)
                 owner = preflight._Owner(root, fd, cancel, time.monotonic()+10)
                 class Child:
                     def __init__(self):
-                        self.process = SimpleNamespace(poll=lambda: None if failure == 'cancel' else 0,
+                        self.process = SimpleNamespace(poll=lambda: None if failure in ('cancel', 'timeout') else 0,
                                                        returncode=1 if failure == 'returncode' else 0)
                         self.collectors = [SimpleNamespace(data=json.dumps(dict(preflight._EXPECTED)).encode())]
                         self.collected = 0
                     def start(self, *args):
                         if failure == 'cancel':cancel.set()
+                        if failure == 'timeout':owner.deadline = time.monotonic()-1
                         if failure == 'partial-start':raise OSError('synthetic partial Popen failure')
                     def bounded(self):return failure != 'oversized'
                     def collect(self, _):
@@ -199,6 +200,77 @@ class SandboxPreflightTests(unittest.TestCase):
                     self.assertEqual(len(owner.children), 1)
                     owner.collect()
                     self.assertGreaterEqual(owner.children[0].collected, 1)
+                    self.assertEqual(owner.children[0]._preflight_failure, {
+                        'returncode':'process-exit', 'oversized':'output-limit',
+                        'collect':'collection-incomplete', 'cancel':'cancelled',
+                        'timeout':'timeout', 'partial-start':'start-failure'}[failure])
                 finally:
                     if owner.fd is not None:
                         os.close(owner.fd);owner.fd = None
+
+    def test_stage_markers_are_fixed_ordered_observations_not_cause_proof(self):
+        marker = lambda name: b'REPRO_PREFLIGHT_STAGE '+name.encode()+b'\n'
+        self.assertEqual(preflight._probe_stages(b''), {
+            'stageMarkersValid': True, 'mainEntryObserved': False, 'lastProbeStage': None})
+        raw = b''.join(marker(name) for name in preflight._PROBE_STAGES[:4])
+        self.assertEqual(preflight._probe_stages(raw)['lastProbeStage'], 'outside-read')
+        self.assertTrue(preflight._probe_stages(raw)['mainEntryObserved'])
+        for raw in (marker('unknown'), marker('allowed-read'),
+                    marker('main-entered')+marker('main-entered')):
+            result = preflight._probe_stages(raw)
+            self.assertFalse(result['stageMarkersValid'])
+            self.assertFalse(result['mainEntryObserved'])
+            self.assertIsNone(result['lastProbeStage'])
+
+    def test_failure_report_has_only_bounded_structured_evidence(self):
+        raw = b'private/path/not-for-publication\n'
+        stopped = SimpleNamespace(is_alive=lambda:False)
+        child = SimpleNamespace(process=SimpleNamespace(returncode=-6),
+            collectors=[SimpleNamespace(data=b'', oversized=False, thread=stopped),
+                        SimpleNamespace(data=raw, oversized=False, thread=stopped)],
+            _preflight_role='server', _preflight_restricted=True,
+            _preflight_stage='validate', _preflight_failure='process-exit')
+        owner = SimpleNamespace(children=[child], cleanup_uncertain=False)
+        error = preflight.PreflightIncomplete(owner)
+        check = error.report['checks'][0]
+        self.assertEqual(check['signal'], 6)
+        self.assertEqual(check['stderr']['bytesCaptured'], len(raw))
+        self.assertEqual(check['stderr']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertTrue(check['streamsComplete'])
+        self.assertFalse(check['mainEntryObserved'])
+        self.assertFalse(error.report['causeConfirmed'])
+        self.assertNotIn('private/path', json.dumps(error.report))
+        self.assertNotIn('private/path', str(error))
+        child.collectors[1].data = b'x'*70000
+        child.collectors[1].oversized = True
+        child.collectors[1].thread = SimpleNamespace(is_alive=lambda:True)
+        check = preflight._diagnostic(child)
+        self.assertEqual(check['stderr']['bytesCaptured'], 65537)
+        self.assertTrue(check['stderr']['truncated'])
+        self.assertFalse(check['streamsComplete'])
+        child.collectors[1].thread = stopped
+        self.assertFalse(preflight._diagnostic(child)['streamsComplete'])
+
+    def test_nonzero_process_exit_retains_phase_before_generic_failure(self):
+        root = Path(self.plan.output).parent
+        fd = os.open(root, os.O_RDONLY|os.O_DIRECTORY)
+        owner = preflight._Owner(root, fd, self.cancel, time.monotonic()+10)
+        self.addCleanup(owner.collect)
+        owner._preflight_role, owner._preflight_restricted = 'server', True
+        class Child:
+            def __init__(self):
+                self.process = SimpleNamespace(poll=lambda:-6, returncode=-6)
+                stopped = SimpleNamespace(is_alive=lambda:False)
+                self.collectors = [SimpleNamespace(data=b'', oversized=False, thread=stopped)
+                                   for _ in range(2)]
+            def start(self, *args):pass
+            def bounded(self):return True
+            def collect(self, _):return True
+        with patch.object(preflight, '_Child', Child), self.assertRaises(ContractError):
+            preflight._run(owner, ['fixed-probe'], {})
+        report = preflight.PreflightIncomplete(owner).report['checks'][0]
+        self.assertEqual(report['role'], 'server')
+        self.assertTrue(report['restricted'])
+        self.assertEqual(report['failure'], 'process-exit')
+        self.assertEqual(report['returncode'], -6)
+        self.assertIsNone(report['lastProbeStage'])
