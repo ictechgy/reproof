@@ -630,3 +630,33 @@ is not ruled out by host tests and must be excluded before runtime
 qualification. Sandbox read,
 write, executable and network rules, input uncertainty, and recovery authority
 are unchanged. No runtime retry is authorized by this source change.
+
+### Fixed offline emulator options without DNS permission
+
+The private emulator argv now supplies standalone `-no-metrics` and
+`-dns-server 127.0.0.1`. The ADB server argv and environment are unchanged.
+The numeric DNS option avoids ambient host resolver enumeration; it does **not**
+disable DNS, networking, or every telemetry path. Loopback is not a black hole:
+a host DNS service could listen there. The unchanged sandbox denies `network*`
+and grants only the owned callback and notification endpoints, not outbound
+TCP or UDP port 53. Notification ports must be integers in 1024–65535 and
+must differ from the default ADB and selected console/transport ports, before
+any child starts. Host tests enumerate every network rule and exercise rejected
+port 53, invalid/privileged ports, collisions, and accepted range boundaries.
+These are source-policy contracts, not live Darwin enforcement evidence.
+
+Official QEMU source at commit
+[`ae9d18d2b6261179fbd57fffec720a04f7bfb053`](https://android.googlesource.com/platform/external/qemu/+/ae9d18d2b6261179fbd57fffec720a04f7bfb053/)
+declares the flag and parameter in
+[`cmdline-options.h`](https://android.googlesource.com/platform/external/qemu/+/ae9d18d2b6261179fbd57fffec720a04f7bfb053/android/emu/cmdline/include/android/cmdline-options.h)
+(blob `11e58aa4e71e2413d479c3b5fb5c2432305d7cc8`).
+[`main-common.c`](https://android.googlesource.com/platform/external/qemu/+/ae9d18d2b6261179fbd57fffec720a04f7bfb053/android/android-emu/android/main-common.c)
+(blob `9e9e7b528f7b83431d03a231df4c3121b6b25d43`) skips QEMU2 host DNS
+auto-enumeration when a DNS list is supplied;
+[`qemu-setup-dns-servers.cpp`](https://android.googlesource.com/platform/external/qemu/+/ae9d18d2b6261179fbd57fffec720a04f7bfb053/android-qemu2-glue/qemu-setup-dns-servers.cpp)
+(blob `3c50ccf62e076a0fb11fd8abfedec2ec6814830f`) parses the custom list.
+That source snapshot is not a verified mapping to the selected emulator
+36.1.9/build 13823996 binary. Acceptance of these options and actual DNS denial
+remain unverified in that binary. Native warnings and errors, including Vulkan
+compatibility warnings, still stop the trial. No warning exception, sandbox
+permission expansion, runtime retry, or normal recovery activation is introduced.
