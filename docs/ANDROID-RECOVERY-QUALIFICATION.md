@@ -593,3 +593,40 @@ are not silently migrated to raw persistence. Public diagnostics remain finite
 stage/classification/count/hash fields, and input uncertainty/recovery authority
 semantics are unchanged. No new executable, network or sandbox permission is
 added by this evidence retention.
+
+### Disable the optional native crash reporter
+
+A subsequent trial retained a crash-reporter missing-directory error followed
+by a short-pipe read. Its reported database was in a host temporary area, not
+the already-created private HOME/TMPDIR. ENOENT alone does not distinguish
+absence from a sandbox boundary; the short-pipe error is not independent root
+cause proof. Boot, installation, input and recovery were not reached.
+
+The private emulator environment now fixes
+`ANDROID_EMU_ENABLE_CRASH_REPORTING=0`, ignoring ambient values. The ADB server
+and normal providers are unchanged. No crash-database override, new database,
+host temporary-area permission or extra process collection mechanism is added.
+Existing raw private stdout/stderr retention and warning fail-fast remain active;
+this is not diagnostic suppression or permission to ignore native errors.
+
+Official QEMU source
+[`System.cpp`](https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android/android-emu-base/android/base/system/System.cpp)
+(blob `335c2d9e2539548dc6940f713fbaca1014549c51`) reads this setting in
+`getEnableCrashReporting()`. Its parser recognizes `0` as false; the string
+`false` is not an accepted false value and must not be substituted.
+[`CrashSytemInit.cpp`](https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android/emu/crashreport/src/android/crashreport/CrashSytemInit.cpp)
+(blob `b0ffd4ce7b5e2473ea028d9250d67120efb1801d`) returns before initialization
+and `StartHandler` when that value is false. Disabling the optional reporter is
+preferable to merely redirecting its database: upstream Crashpad's macOS launch
+uses `SpawnSubprocess`, which can create a separate session/process group, so
+collecting the emulator's original process group alone would not establish
+handler collection.
+
+This is source-supported configuration, not a source/binary identity attestation
+for emulator 36.1.9 or proof of runtime success. A separately approved trial must
+check that the setting is accepted and no detached crash handler is started;
+any native warning/error output still aborts. Silent ignoring of the setting
+is not ruled out by host tests and must be excluded before runtime
+qualification. Sandbox read,
+write, executable and network rules, input uncertainty, and recovery authority
+are unchanged. No runtime retry is authorized by this source change.

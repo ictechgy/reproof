@@ -712,6 +712,10 @@ def _emulator_environment(owner):
                                root/'client', owner.notification_port)
     # A fresh, empty SDK anchor, never the host SDK or an inherited setting.
     environment.update(ANDROID_HOME=str(root/'sdk'), ANDROID_SDK_ROOT=str(root/'sdk'))
+    # Optional native crash reporting can spawn a detached handler outside our
+    # owned process group. Disable it before crashhandler_init, not by granting
+    # host temporary-directory access or suppressing diagnostics.
+    environment['ANDROID_EMU_ENABLE_CRASH_REPORTING'] = '0'
     return environment
 
 
