@@ -545,6 +545,11 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
                 if self.fail:raise ContractError('synthetic install interruption')
             def bounded(self):return True
             def collect(self, deadline):return True
+        with patch.object(birth, '_assert_avd'), \
+             patch.object(birth, '_new_private_child', side_effect=OSError('synthetic disk full')):
+            with self.assertRaises(OSError):birth._provision(owner, 'io.reproof.sample', plan.sample_apk)
+        client.finish_gateway.assert_called_once()
+        client.finish_gateway.reset_mock();commands.clear()
         with patch.object(birth, '_assert_avd') as identity, patch.object(birth, '_Child', InstallChild), \
              patch.object(birth._ProcessOwner, '_group_empty', return_value=True):
             birth._provision(owner, 'io.reproof.sample', plan.sample_apk)

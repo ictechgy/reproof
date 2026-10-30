@@ -548,3 +548,48 @@ Actual compatibility and recovery remain subject to a separately approved trial.
 
 Absence of a warning classification is not proof of the absence of denied operations: a native
 process can suppress or buffer its own diagnostics before the host receives them.
+
+### Local-only private birth evidence
+
+A later trial stopped promptly on a generic error, but its 411-byte stderr
+existed only in memory. The finite report could not identify the cause after
+that process ended. Those old bytes cannot be recovered by this change.
+Future birth attempts retain a bounded local prefix independently of the public
+report; this does not authorize another runtime attempt.
+
+The fresh birth root contains a fixed `credentials/` directory (0700), outside
+the native writable subtrees. For server, emulator and the two initial-install
+children, fixed slot names `0-stdout.bin` through `3-stderr.bin` are created
+exclusively as 0600 regular files with no-follow opens. There are at most eight
+files, each at most 65,537 bytes (524,296 bytes total). Files may contain public
+ADB keys or other sensitive diagnostics: treat **all their contents as private**.
+They are not report fields, API responses, build/distribution artifacts or
+upload inputs. Existing source snapshot/BlobSet/transfer rules reject the
+`credentials` path; no global exception is introduced. Do not rename/copy these
+files into an upload or paste raw contents into chat, PRs, CI or tool responses.
+Any later local inspection must follow the separately applicable authorization
+and disclose only the minimal non-sensitive finding, not raw lines.
+
+Retained root, directory and file descriptors fence the writes. The implementation
+checks bound identities, regular-file type, single link, mode, size and stamps;
+replacements are preserved and reported incomplete, never removed. Only the
+capped stream prefix is stored; bytes beyond the cap are drained and discarded,
+not recoverable. A `privateEvidence.complete` result means that this **prefix**
+was stored and the writer finished, not that an oversized full stream survived.
+There is no encryption, hostile same-UID isolation or power-loss durability claim.
+
+Warning classification/latching occurs before disk I/O. Partial writes are
+handled; disk/read/fsync failures latch an alert and finite incomplete status,
+without returning paths or OS error text. Final fsync/close happens at collector
+exit. Parent cleanup may finish an unstarted sink but never closes a live
+collector's descriptor. A possibly consumed close is never retried by its old
+numeric FD. Popen failure and abort retain the private files; no recursive
+cleanup or automatic evidence export occurs. A stalled writer can leave cleanup
+incomplete rather than permitting unsafe descriptor reuse.
+
+This sink covers the four private birth subprocesses only. Normal providers,
+the shared signing collector, sandbox-probe output and helper instrumentation
+are not silently migrated to raw persistence. Public diagnostics remain finite
+stage/classification/count/hash fields, and input uncertainty/recovery authority
+semantics are unchanged. No new executable, network or sandbox permission is
+added by this evidence retention.

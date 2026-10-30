@@ -1855,6 +1855,7 @@
             "tests.test_android_recovery_birth",
             "tests.test_android_recovery_public_ca",
             "tests.test_android_recovery_diagnostics",
+            "tests.test_android_recovery_private_evidence",
             "tests.test_android_recovery_preflight",
             "tests.test_android_recovery_fixture_artifacts",
             "tests.test_android_recovery_trial",

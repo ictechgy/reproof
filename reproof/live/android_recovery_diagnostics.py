@@ -15,8 +15,10 @@ _PATTERNS = (
 
 class IncrementalCollector:
     """Read available pipe bytes, not a buffered request for a full 8 KiB."""
-    def __init__(self, stream, maximum=65536):
+    def __init__(self, stream, maximum=65536, *, evidence=None):
         self.stream, self.maximum = stream, maximum
+        self._evidence = evidence
+        self.evidence_failed = False
         self.data = bytearray()
         self.oversized = False
         self.read_failed = False
@@ -44,11 +46,19 @@ class IncrementalCollector:
                     self._tail = scan[-64:]
                     if self._codes or self.oversized:
                         self.alert.set()
+                # Classify/alert before disk I/O so a slow filesystem cannot
+                # delay observation of a warning. Only the bounded prefix persists.
+                if self._evidence is not None and not self._evidence.append(chunk):
+                    self.evidence_failed = True
+                    self.alert.set()
         except (OSError, ValueError, AttributeError):
             with self._lock:
                 self.read_failed = self.oversized = True
                 self.alert.set()
         finally:
+            if self._evidence is not None and not self._evidence.finish():
+                self.evidence_failed = True
+                self.alert.set()
             try:
                 self.stream.close()
             except (OSError, ValueError):
@@ -59,9 +69,10 @@ class IncrementalCollector:
             raw = bytes(self.data)
             return {'bytesCaptured': len(raw), 'sha256': hashlib.sha256(raw).hexdigest(),
                     'truncated': self.oversized, 'readFailed': self.read_failed,
+                    'privateEvidence': self._evidence.summary() if self._evidence is not None else None,
                     'classifications': sorted(self._codes),
                     'complete': (self.thread.ident is not None and not self.thread.is_alive()
-                                 and not self.read_failed and not self.oversized)}
+                                 and not self.read_failed and not self.oversized and not self.evidence_failed)}
 
 
 def child_summary(child):

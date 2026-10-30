@@ -32,6 +32,7 @@ from reproof.repair_android_signing import _ProcessOwner
 from .android_recovery_diagnostics import (IncrementalCollector, OutputCancellation,
     output_alert, inventory_state, birth_summary)
 from .android_recovery_authority import _directory
+from .android_recovery_private_evidence import _EvidenceSink
 from .android_recovery_tool_pin import ADB_DARWIN_SHA256, require_pinned_adb
 
 _MAX_APK = 32 * 1024 * 1024
@@ -289,13 +290,15 @@ class _Child:
     def __init__(self):
         self.process = None
         self.collectors = []
+        self._evidence = []
 
     def start(self, argv, environment, work, *, stdin=subprocess.DEVNULL):
         _require(self.process is None)
         self.process = subprocess.Popen(argv, cwd=work, env=environment, stdin=stdin,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, start_new_session=True)
-        for stream in (self.process.stdout, self.process.stderr):
-            collector = IncrementalCollector(stream, 65536)
+        for index, stream in enumerate((self.process.stdout, self.process.stderr)):
+            evidence = self._evidence[index] if self._evidence else None
+            collector = IncrementalCollector(stream, 65536, evidence=evidence)
             self.collectors.append(collector)
             collector.thread.start()
 
@@ -352,6 +355,7 @@ class OwnedBirth:
             clean = child.collect(deadline) and clean
         for listener in self._listeners:
             listener.close()
+        clean = _finish_private_evidence(self) and clean
         if clean:
             clean = self._close_retained_fds()
         if clean and self._context is not None:
@@ -444,6 +448,7 @@ class OwnedBirth:
                 listener.close()
             except OSError:
                 clean = False
+        clean = _finish_private_evidence(self) and clean
         if clean:
             try:
                 clean = self._close_retained_fds()
@@ -565,10 +570,8 @@ def _provision(owner, package, artifact):
     # No -r: this is an initial install on a fresh userdata image, never repair.
     command = 'cmd package install -t -S '+str(artifact.size)
     argv, gateway = context._client.prepare_fixed(command)
-    child = _Child()
-    child._diagnostic_role = 'initial-install'
-    owner._children.append(child)  # Retain before launch or collector creation.
     try:
+        child = _new_private_child(owner, 'initial-install')
         # The fixed birth-only install may read only this selected stdin APK.
         _require(argv[:2] == ('/usr/bin/sandbox-exec', '-p'))
         argv = argv[:2] + (argv[2]+'(allow file-read* (literal '+json.dumps(artifact.path)+'))',) + argv[3:]
@@ -742,6 +745,32 @@ def _require_launch_layout(owner):
     _root_matches(owner)
 
 
+def _new_private_child(owner, role):
+    _require(role in ('server', 'emulator', 'initial-install') and len(owner._children) < 4)
+    child = _Child()
+    child._diagnostic_role = role
+    child._evidence = []
+    slot = len(owner._children)
+    owner._children.append(child)  # Retain partial creation before any Popen.
+    for stream in ('stdout', 'stderr'):
+        child._evidence.append(_EvidenceSink(owner.root, owner._evidence_root_fd,
+            owner._evidence_directory_fd, str(slot)+'-'+stream+'.bin'))
+    return child
+
+
+def _finish_private_evidence(owner):
+    clean = True
+    for child in owner._children:
+        for sink in getattr(child, '_evidence', ()):
+            writers = [item for item in getattr(child, 'collectors', ())
+                       if getattr(item, '_evidence', None) is sink]
+            if any(item.thread.is_alive() for item in writers):
+                clean = False  # Never close/reuse a live writer's descriptor.
+            else:
+                clean = sink.finish() and clean
+    return clean
+
+
 def _prepare_directories(owner):
     root = owner.root
     parent = _directory(root.parent)
@@ -760,6 +789,10 @@ def _prepare_directories(owner):
     _root_matches(owner)
     for name in ('client', 'server-work', 'home', 'android', 'gateways', 'avd', 'sdk'):
         os.mkdir(name, 0o700, dir_fd=fd)
+    os.mkdir('credentials', 0o700, dir_fd=fd)
+    evidence = os.open('credentials', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+    owner._fds.append(evidence)
+    owner._evidence_root_fd, owner._evidence_directory_fd = fd, evidence
     owner._sdk_fds = {}
     sdk = os.open('sdk', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
     owner._fds.append(sdk)
@@ -854,7 +887,7 @@ def launch_qualification_birth(plan, *, cancellation):
         owner._listeners.append(report)
         report.bind(str(root/'report.sock'));report.listen(1);report.settimeout(.1)
         environment = _environment(root/'home', root/'android', root/'avd', root/'client', owner.notification_port)
-        server = _Child();server._diagnostic_role = 'server';owner._children.append(server)
+        server = _new_private_child(owner, 'server')
         server_profile = _sandbox(plan, root, root/'server.sock', root/'report.sock', owner.notification_port, emulator=False)
         _active(cancellation, owner.deadline)
         require_pinned_adb(plan.adb.path)
@@ -865,7 +898,7 @@ def launch_qualification_birth(plan, *, cancellation):
         owner.server = server.process
         owner.server_pid = server.process.pid
         _require(not output_alert(owner._children), 'Private server output warning')
-        emulator = _Child();emulator._diagnostic_role = 'emulator';owner._children.append(emulator)
+        emulator = _new_private_child(owner, 'emulator')
         profile = _sandbox(plan, root, root/'server.sock', root/'report.sock', owner.notification_port, emulator=True)
         plan.emulator.verify(cancellation=OutputCancellation(cancellation, owner._children),
                              deadline=owner.deadline)
