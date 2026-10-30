@@ -289,6 +289,70 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         self.assertFalse((Path(plan.output)/'client/credentials').exists())
         self.assertTrue(owner.collect()['processesCollected'])
 
+    def test_offline_options_are_fixed_and_emulator_only(self):
+        owner, plan = self._launch()
+        emulator, server = _Child.calls[1][0], _Child.calls[0][0]
+        self.assertEqual(emulator.count('-no-metrics'), 1)
+        self.assertEqual(emulator.count('-dns-server'), 1)
+        self.assertEqual(emulator[emulator.index('-dns-server')+1], '127.0.0.1')
+        for option in ('-no-metrics', '-dns-server', '127.0.0.1'):
+            self.assertNotIn(option, server)
+        self.assertTrue(owner.collect()['processesCollected'])
+
+    def test_privileged_or_invalid_notification_port_stops_before_children(self):
+        original_root = self.root
+        for index, port in enumerate((53, 0, 1023, 65536, True, '45678', 5037, 5554, 5555)):
+            with self.subTest(port=port):
+                self.root = original_root/str(index);self.root.mkdir()
+                with patch.object(_Socket, 'getsockname', return_value=('127.0.0.1', port)):
+                    with self.assertRaises(birth.BirthIncomplete) as caught:
+                        self._launch()
+                self.assertEqual(_Child.calls, [])
+                self.assertEqual(caught.exception.owner._children, [])
+                self.assertTrue(caught.exception.owner.abort()['processesCollected'])
+        self.root = original_root
+
+    def test_unprivileged_notification_port_boundaries_are_accepted(self):
+        original_root = self.root
+        for port in (1024, 65535):
+            with self.subTest(port=port):
+                self.root = original_root/str(port);self.root.mkdir()
+                with patch.object(_Socket, 'getsockname', return_value=('127.0.0.1', port)):
+                    owner, _ = self._launch()
+                self.assertEqual(owner.notification_port, port)
+                self.assertTrue(owner.collect()['processesCollected'])
+        self.root = original_root
+
+    def test_offline_dns_has_no_tcp_udp_or_broad_network_allowance(self):
+        # Structural policy contract, not proof of Darwin sandbox enforcement.
+        # Enumerating every network rule catches broad allowances as well as
+        # an explicit port-53 exception. Loopback itself is not a black hole.
+        plan = self.plan();root = Path(plan.output)
+        for emulator in (False, True):
+            policy = birth._sandbox(plan, root, root/'server.sock',
+                                    root/'report.sock', 45678, emulator=emulator)
+            expected = ['(deny network*)']
+            if emulator:
+                expected.append('(allow network-outbound (literal '+
+                    birth.json.dumps(str(root/'report.sock'))+
+                    ') (remote ip "localhost:45678"))')
+                for port in (plan.console_port, plan.console_port+1):
+                    expected.append('(allow network-bind network-inbound '
+                                    '(local ip "localhost:'+str(port)+'"))')
+            else:
+                expected.extend([
+                    '(allow network-bind network-inbound (literal '+
+                    birth.json.dumps(str(root/'server.sock'))+'))',
+                    '(allow network-outbound (remote ip "localhost:'+
+                    str(plan.console_port+1)+'"))'])
+            for rule in expected:
+                self.assertEqual(policy.count(rule), 1)
+                policy = policy.replace(rule, '')
+            self.assertNotIn('network', policy)
+            self.assertNotIn(':53"', ''.join(expected))
+            self.assertNotIn('remote udp', ''.join(expected))
+            self.assertNotIn('remote tcp', ''.join(expected))
+
     def _reject_prepared_change_before_process(self, change):
         prepare = birth._prepare_directories
         def changed(owner):

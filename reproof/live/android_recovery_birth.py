@@ -886,7 +886,10 @@ def launch_qualification_birth(plan, *, cancellation):
         owner._listeners.append(notify)
         notify.bind(('127.0.0.1', 0));notify.listen(1);notify.settimeout(.1)
         owner.notification_port = notify.getsockname()[1]
-        _require(owner.notification_port not in {5037, plan.console_port, plan.console_port+1})
+        _require(type(owner.notification_port) is int
+                 and 1024 <= owner.notification_port <= 65535
+                 and owner.notification_port not in {5037, plan.console_port, plan.console_port+1},
+                 'Private notification port must be unprivileged and distinct')
         report = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         owner._listeners.append(report)
         report.bind(str(root/'report.sock'));report.listen(1);report.settimeout(.1)
@@ -914,6 +917,9 @@ def launch_qualification_birth(plan, *, cancellation):
                         '-avd', owner.avd_name, '-sysdir', plan.image.root, '-port', str(plan.console_port),
                         '-report-console', 'unix:'+str(root/'report.sock')+',max=10',
                         '-no-window', '-no-audio', '-no-snapshot', '-no-boot-anim',
+                        # Skip optional metrics and ambient host DNS discovery.
+                        # Loopback DNS is still denied by the unchanged sandbox.
+                        '-no-metrics', '-dns-server', '127.0.0.1',
                         '-feature', '-BluetoothEmulation,-Uwb,-WiFiPacketStream',
                         '-gpu', 'swiftshader_indirect'), _emulator_environment(owner), root/'client')
         owner.emulator = emulator.process
