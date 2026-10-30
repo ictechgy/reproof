@@ -275,6 +275,20 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         self.assertNotIn(str(sdk/'platform-tools'/'adb'), str(_Child.calls))
         self.assertTrue(owner.collect()['processesCollected'])
 
+    def test_optional_crash_reporter_disabled_only_for_emulator(self):
+        with patch.dict(birth.os.environ, {
+                'ANDROID_EMU_ENABLE_CRASH_REPORTING': '1',
+                'ANDROID_EMU_CRASH_REPORTING_DATABASE': '/foreign/crashes'}):
+            owner, plan = self._launch()
+        environment = _Child.calls[1][1]
+        self.assertEqual(environment['ANDROID_EMU_ENABLE_CRASH_REPORTING'], '0')
+        self.assertNotIn('ANDROID_EMU_ENABLE_CRASH_REPORTING', _Child.calls[0][1])
+        self.assertNotIn('ANDROID_EMU_CRASH_REPORTING_DATABASE', environment)
+        self.assertNotIn('/foreign/crashes', str(_Child.calls))
+        self.assertNotIn('CRASH_REPORTING', str(birth.birth_summary(owner)))
+        self.assertFalse((Path(plan.output)/'client/credentials').exists())
+        self.assertTrue(owner.collect()['processesCollected'])
+
     def _reject_prepared_change_before_process(self, change):
         prepare = birth._prepare_directories
         def changed(owner):
