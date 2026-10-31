@@ -336,7 +336,8 @@ class _Child:
         for index, stream in enumerate((self.process.stdout, self.process.stderr)):
             evidence = self._evidence[index] if self._evidence else None
             collector = IncrementalCollector(stream, 65536, evidence=evidence,
-                _vulkan_advisory=(index == 0 and getattr(self, '_vulkan_advisory', False)))
+                _vulkan_advisory=(index == 0 and getattr(self, '_vulkan_advisory', False)),
+                _jdwp_advisory=(index == 0 and getattr(self, '_jdwp_advisory', False)))
             self.collectors.append(collector)
             collector.thread.start()
 
@@ -792,6 +793,7 @@ def _new_private_child(owner, role):
     child = _Child()
     child._diagnostic_role = role
     child._vulkan_advisory = role == 'emulator' and getattr(owner, '_vulkan_advisory', False)
+    child._jdwp_advisory = role == 'emulator' and getattr(owner, '_jdwp_advisory', False)
     child._evidence = []
     slot = len(owner._children)
     owner._children.append(child)  # Retain partial creation before any Popen.
@@ -877,13 +879,15 @@ def _pin_server_socket(owner):
     return AdbEndpoint(owner.root/'server.sock', sandbox_sha256=owner.plan.sandbox.sha256)
 
 
-def launch_qualification_birth(plan, *, cancellation, allow_vulkan_virtual_queue_advisory=False):
+def launch_qualification_birth(plan, *, cancellation, allow_vulkan_virtual_queue_advisory=False,
+                               allow_jdwp_icebox_advisory=False):
     """Explicit effects; callers must separately authorize future runtime use.
 
     This API accepts no PID, endpoint, process, credentials, JSON approval flag,
     imported AVD, or command. Current implementation/tests do not qualify runtime.
     """
-    _require(type(allow_vulkan_virtual_queue_advisory) is bool)
+    _require(type(allow_vulkan_virtual_queue_advisory) is bool
+             and type(allow_jdwp_icebox_advisory) is bool)
     _require(type(plan) is BirthPlan and sys.platform == 'darwin'
              and callable(getattr(cancellation, 'is_set', None)) and not cancellation.is_set())
     root = Path(plan.output)
@@ -894,7 +898,7 @@ def launch_qualification_birth(plan, *, cancellation, allow_vulkan_virtual_queue
         selected.verify(cancellation=cancellation, deadline=deadline)
     plan.emulator.verify(cancellation=cancellation, deadline=deadline)
     plan.image.verify(cancellation=cancellation, deadline=deadline)
-    if allow_vulkan_virtual_queue_advisory:
+    if allow_vulkan_virtual_queue_advisory or allow_jdwp_icebox_advisory:
         _require_vulkan_advisory_selection(plan)
     properties = Path(plan.image.root)/'source.properties'
     with os.fdopen(open_regular(properties.parent, properties.name), 'rb') as stream:
@@ -914,6 +918,7 @@ def launch_qualification_birth(plan, *, cancellation, allow_vulkan_virtual_queue
     owner.plan, owner.root, owner.cancellation = plan, root, cancellation
     owner.deadline = deadline
     owner._vulkan_advisory = allow_vulkan_virtual_queue_advisory
+    owner._jdwp_advisory = allow_jdwp_icebox_advisory
     owner._pid, owner._closed, owner._ready = os.getpid(), False, False
     owner._children, owner._listeners, owner._fds = [], [], []
     owner._context = None

@@ -6,6 +6,7 @@ import time
 
 
 _PATTERNS = (
+    ('jdwp-unavailable', re.compile(re.escape(b'jdwp port creation fails, Icebox will not work.'))),
     ('unsupported-feature', re.compile(re.escape(
         b'Please update the emulator to one that supports the feature(s):'))),
     ('unsupported-option', re.compile(br'(?:unknown|unrecognized) (?:feature|option)', re.I)),
@@ -20,13 +21,14 @@ _PATTERNS = (
 # This identifies one advisory; it is not a claim of runtime compatibility.
 _VULKAN_ADVISORY = (b'WARNING      | Please update the emulator to one that supports '
                     b'the feature(s): VulkanVirtualQueue\n')
+_JDWP_ADVISORY = b'WARNING      | jdwp port creation fails, Icebox will not work.\n'
 _ADVISORY_PREFIX_SECONDS = 0.25
 
 
 class IncrementalCollector:
     """Read available pipe bytes, not a buffered request for a full 8 KiB."""
-    def __init__(self, stream, maximum=65536, *, evidence=None, _vulkan_advisory=False):
-        if type(_vulkan_advisory) is not bool:
+    def __init__(self, stream, maximum=65536, *, evidence=None, _vulkan_advisory=False, _jdwp_advisory=False):
+        if type(_vulkan_advisory) is not bool or type(_jdwp_advisory) is not bool:
             raise ValueError('Private advisory option must be boolean')
         self.stream, self.maximum = stream, maximum
         self._evidence = evidence
@@ -38,12 +40,14 @@ class IncrementalCollector:
         self._condition = threading.Condition(self._lock)
         self._advisory_enabled = _vulkan_advisory
         self._advisory_count = 0
+        self._jdwp_enabled = _jdwp_advisory
+        self._jdwp_count = 0
         self._candidate = b''
         self._candidate_deadline = None
         self._line_start = True
         self._watchdog_stop = False
         self._watchdog = (threading.Thread(target=self._watch_prefix,
-            name='reproof-private-advisory-deadline', daemon=True) if _vulkan_advisory else None)
+            name='reproof-private-advisory-deadline', daemon=True) if _vulkan_advisory or _jdwp_advisory else None)
         self._tail = b''
         self._codes = set()
         self.alert = threading.Event()
@@ -77,8 +81,14 @@ class IncrementalCollector:
                     else:
                         self._condition.wait(remaining)
 
+    def _remaining_advisories(self):
+        # Fixed, independently requested allowances; never caller-supplied text.
+        return tuple(line for line, enabled, count in (
+            (_VULKAN_ADVISORY, self._advisory_enabled, self._advisory_count),
+            (_JDWP_ADVISORY, self._jdwp_enabled, self._jdwp_count)) if enabled and not count)
+
     def _classify(self, chunk):
-        if not self._advisory_enabled or self.alert.is_set() or self._advisory_count:
+        if not self._remaining_advisories() or self.alert.is_set():
             self._scan(chunk)
             return
         # Only exact line-prefix candidates are held, never arbitrary output.
@@ -87,12 +97,12 @@ class IncrementalCollector:
             byte = bytes((value,))
             if self._candidate_deadline is not None and time.monotonic() >= self._candidate_deadline:
                 self._reject_candidate()
-            if self.alert.is_set() or self._advisory_count:
+            if self.alert.is_set() or not self._remaining_advisories():
                 self._scan(byte)
                 continue
             if self._candidate:
                 candidate = self._candidate+byte
-                if not _VULKAN_ADVISORY.startswith(candidate):
+                if not any(line.startswith(candidate) for line in self._remaining_advisories()):
                     if self._candidate.startswith(b'WARNING'):
                         self._codes.add('advisory-mismatch')
                         self.alert.set()
@@ -101,11 +111,14 @@ class IncrementalCollector:
                     self._condition.notify_all()
                     self._scan(candidate)
                     self._line_start = value == 10
-                elif candidate == _VULKAN_ADVISORY:
+                elif candidate in self._remaining_advisories():
                     self._candidate = b''
                     self._candidate_deadline = None
                     self._condition.notify_all()
-                    self._advisory_count = 1
+                    if candidate == _VULKAN_ADVISORY:
+                        self._advisory_count = 1
+                    else:
+                        self._jdwp_count = 1
                     # Preserve a token boundary without scanning the permitted
                     # warning again through the rolling tail on the next read.
                     self._scan(b'\n')
@@ -178,6 +191,8 @@ class IncrementalCollector:
                     'classifications': sorted(self._codes),
                     'vulkanAdvisoryEnabled': self._advisory_enabled,
                     'vulkanAdvisoriesAccepted': self._advisory_count,
+                    'jdwpAdvisoryEnabled': self._jdwp_enabled,
+                    'jdwpAdvisoriesAccepted': self._jdwp_count,
                     'complete': (self.thread.ident is not None and not self.thread.is_alive()
                                  and not self.read_failed and not self.oversized and not self.evidence_failed
                                  and not self.auxiliary_alive())}

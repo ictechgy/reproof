@@ -99,6 +99,27 @@ class PrivateEvidenceTests(unittest.TestCase):
         self.assertTrue(child.collectors[1].alert.is_set())
         self.assertTrue(all(not c.auxiliary_alive() for c in child.collectors))
 
+    def test_both_exact_advisories_retained_and_stdout_only(self):
+        from reproof.live.android_recovery_diagnostics import _VULKAN_ADVISORY, _JDWP_ADVISORY
+        raw = _VULKAN_ADVISORY+_JDWP_ADVISORY
+        sink = self.sink()
+        collector = IncrementalCollector(io.BytesIO(raw), evidence=sink,
+                                         _vulkan_advisory=True, _jdwp_advisory=True)
+        collector.thread.start();collector.thread.join(2)
+        self.assertEqual((self.root/'credentials/0-stderr.bin').read_bytes(), raw)
+        self.assertTrue(collector.snapshot()['privateEvidence']['complete'])
+        self.assertEqual(collector.snapshot()['jdwpAdvisoriesAccepted'], 1)
+        self.assertNotIn('Icebox will', json.dumps(collector.snapshot()))
+        process = SimpleNamespace(stdout=io.BytesIO(raw), stderr=io.BytesIO(raw), poll=lambda:0)
+        child = birth._Child();child._vulkan_advisory = child._jdwp_advisory = True
+        with patch.object(birth.subprocess, 'Popen', return_value=process):
+            child.start(('synthetic-not-run',), {}, self.root)
+        for item in child.collectors:item.thread.join(2)
+        self.assertEqual([c.snapshot()['jdwpAdvisoriesAccepted'] for c in child.collectors], [1, 0])
+        self.assertFalse(child.collectors[0].alert.is_set())
+        self.assertTrue(child.collectors[1].alert.is_set())
+        self.assertTrue(all(not c.auxiliary_alive() for c in child.collectors))
+
     def test_persistence_has_same_fixed_cap_while_reader_drains(self):
         sink = self.sink()
         collector = IncrementalCollector(io.BytesIO(b'x'*200000), evidence=sink)
