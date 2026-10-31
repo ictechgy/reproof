@@ -191,7 +191,7 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         self.assertIn(str(root/'report.sock'), emu)
         self.assertNotIn('remote ip "*', emu+server)
 
-    def _launch(self, fail=False, inventory_reply=None, cancel_after_inventory=False, fail_boot_query=False):
+    def _launch(self, fail=False, inventory_reply=None, cancel_after_inventory=False, fail_boot_query=False, allow_advisory=False):
         plan = self.plan();actual_verify = birth.PinnedFile.verify
         _Child.calls = [];_Child.fail_second = fail
         def verify(selected, **kwargs):
@@ -223,16 +223,63 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
              patch.object(birth,'_fixed_query',side_effect=shell), patch.object(birth,'_provision') as provision:
             if fail:
                 with self.assertRaises(birth.BirthIncomplete) as caught:
-                    birth.launch_qualification_birth(plan,cancellation=threading.Event())
+                    birth.launch_qualification_birth(plan,cancellation=threading.Event(),
+                        allow_vulkan_virtual_queue_advisory=allow_advisory)
                 owner = caught.exception.owner
                 self.assertFalse(owner._ready);provision.assert_not_called()
             else:
-                owner = birth.launch_qualification_birth(plan,cancellation=threading.Event())
+                owner = birth.launch_qualification_birth(plan,cancellation=threading.Event(),
+                        allow_vulkan_virtual_queue_advisory=allow_advisory)
                 self.assertTrue(owner._ready)
                 self.assertEqual([call.args[1] for call in provision.call_args_list], ['io.reproof.sample','io.reproof.live'])
                 self.assertEqual(callback.call_args_list[0].args[2], b'5554')
                 self.assertTrue(callback.call_args_list[1].kwargs['framed'])
         return owner, plan
+
+    def test_advisory_is_default_off_and_only_emulator_is_opted_in(self):
+        with patch.object(birth, '_require_vulkan_advisory_selection') as select:
+            owner, _ = self._launch()
+            select.assert_not_called()
+        self.assertTrue(all(not child._vulkan_advisory for child in owner._children))
+        self.assertTrue(owner.collect()['processesCollected'])
+        self.root = self.root/'opt-in';self.root.mkdir()
+        with patch.object(birth, '_require_vulkan_advisory_selection') as select:
+            owner, plan = self._launch(allow_advisory=True)
+            select.assert_called_once_with(plan)
+        self.assertEqual([child._vulkan_advisory for child in owner._children], [False, True])
+        self.assertTrue(owner.collect()['processesCollected'])
+
+    def test_advisory_identity_mismatch_rejects_before_any_effect(self):
+        plan = self.plan()
+        for option in (True, 1, 'yes', None):
+            with self.subTest(option=option), \
+                 patch.object(birth.sys, 'platform', 'darwin'), \
+                 patch.object(birth, 'require_pinned_adb'), \
+                 patch.object(birth.PinnedFile, 'verify'), \
+                 patch.object(birth.PinnedTree, 'verify'), \
+                 patch.object(birth.subprocess, 'Popen') as process, \
+                 patch.object(birth.socket, 'socket') as sock:
+                with self.assertRaises(ContractError):
+                    birth.launch_qualification_birth(plan, cancellation=threading.Event(),
+                        allow_vulkan_virtual_queue_advisory=option)
+                process.assert_not_called();sock.assert_not_called()
+                self.assertFalse(Path(plan.output).exists())
+
+    def test_advisory_selection_occurs_after_full_file_verification(self):
+        plan = self.plan();events = []
+        def check(_):
+            self.assertEqual(events, [plan.emulator, plan.image])
+            raise ContractError('synthetic stop after pins')
+        with patch.object(birth.sys, 'platform', 'darwin'), \
+             patch.object(birth, 'require_pinned_adb'), patch.object(birth.PinnedFile, 'verify'), \
+             patch.object(birth.PinnedTree, 'verify', lambda tree, **kwargs:events.append(tree)), \
+             patch.object(birth, '_require_vulkan_advisory_selection', side_effect=check), \
+             patch.object(birth.subprocess, 'Popen') as process:
+            with self.assertRaises(ContractError):
+                birth.launch_qualification_birth(plan, cancellation=threading.Event(),
+                    allow_vulkan_virtual_queue_advisory=True)
+            process.assert_not_called()
+        self.assertFalse(Path(plan.output).exists())
 
     def test_complete_synthetic_lifecycle_mints_context_only_after_provisioning(self):
         owner, plan = self._launch()
@@ -616,7 +663,7 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
             fail=False
             def __init__(self):
                 self.process=None
-                self.collectors=[SimpleNamespace(data=b'Success\n', thread=SimpleNamespace(join=Mock(), is_alive=lambda:False))]
+                self.collectors=[SimpleNamespace(data=b'Success\n', auxiliary_alive=lambda:False, thread=SimpleNamespace(join=Mock(), is_alive=lambda:False))]
             def start(self, argv, env, work, *, stdin):
                 starts.append((argv, env, stdin.read()))
                 self.process=SimpleNamespace(pid=3456, poll=lambda:0, returncode=0)
@@ -804,3 +851,58 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         self.assertIn('(deny network*)(deny mach-lookup)(deny process-fork)', client)
         self.assertIn(adb_endpoint._darwin_keychain_denials(), client)
         self.assertIn('(allow network-outbound (literal '+birth.json.dumps(str(endpoint))+'))', client)
+
+
+class VulkanSelectionTests(unittest.TestCase):
+    def plan(self):
+        def tree(root, count, total, executable_names=()):
+            names = list(executable_names)
+            names += ['file-'+str(i) for i in range(count-len(names))]
+            files = tuple(birth.PinnedFile(root+'/'+name, 'a'*64,
+                total-count+1 if i == 0 else 1) for i, name in enumerate(names))
+            return birth.PinnedTree(root, files, tuple(root+'/'+name for name in executable_names))
+        return SimpleNamespace(
+            emulator=tree('/synthetic/emulator', 324, 1_013_108_813, sorted(birth._VULKAN_EXECUTABLES)),
+            image=tree('/synthetic/image', 20, 2_039_419_809))
+
+    def test_exact_real_fingerprint_constants_and_roles(self):
+        self.assertEqual(birth._VULKAN_EMULATOR_SELECTION,
+                         '5bd23b580f0083fcbc4d4fda918781e1344cf8bd898e451adb53960e3db4d71c')
+        self.assertEqual(birth._VULKAN_IMAGE_SELECTION,
+                         'cad14ff4593c15c01d7c3eabd0920c85e2c041f1bfa89cd6a6caa28163abb329')
+        self.assertEqual(len(birth._VULKAN_EXECUTABLES), 16)
+        self.assertIn('qemu/darwin-aarch64/qemu-system-aarch64-headless', birth._VULKAN_EXECUTABLES)
+        with self.assertRaises(ContractError):birth._require_vulkan_advisory_selection(self.plan())
+
+    def test_fingerprint_is_root_independent_sorted_and_matches_canonical_format(self):
+        import json
+        plan = self.plan();tree = plan.emulator
+        expected = [{'path':Path(item.path).relative_to(tree.root).as_posix(),
+                     'sha256':item.sha256, 'bytes':item.size} for item in tree.files]
+        raw = json.dumps(sorted(expected, key=lambda item:item['path']), sort_keys=True,
+                         separators=(',', ':'), ensure_ascii=True).encode('utf-8')
+        self.assertEqual(birth._selection_digest(tree), hashlib.sha256(raw).hexdigest())
+        moved = replace(tree, root='/moved/emulator',
+            files=tuple(replace(item, path=item.path.replace('/synthetic', '/moved')) for item in reversed(tree.files)),
+            executables=tuple(name.replace('/synthetic', '/moved') for name in tree.executables))
+        self.assertEqual(birth._selection_digest(tree), birth._selection_digest(moved))
+
+    def test_identity_mutations_and_executable_capabilities_fail(self):
+        plan = self.plan()
+        with patch.object(birth, '_VULKAN_EMULATOR_SELECTION', birth._selection_digest(plan.emulator)), \
+             patch.object(birth, '_VULKAN_IMAGE_SELECTION', birth._selection_digest(plan.image)):
+            birth._require_vulkan_advisory_selection(plan)
+            emulator, image = plan.emulator, plan.image
+            changes = [replace(emulator, files=(replace(emulator.files[0], sha256='b'*64),)+emulator.files[1:]),
+                       replace(emulator, files=(replace(emulator.files[0], size=emulator.files[0].size+1),)+emulator.files[1:]),
+                       replace(emulator, files=emulator.files[:-1]),
+                       replace(emulator, executables=emulator.executables[:-1]),
+                       replace(emulator, executables=emulator.executables+(emulator.executables[0],)),
+                       replace(emulator, executables=emulator.executables[:-1]+(emulator.files[-1].path,))]
+            for changed in changes:
+                with self.subTest(changed=changed), self.assertRaises(ContractError):
+                    birth._require_vulkan_advisory_selection(SimpleNamespace(emulator=changed, image=image))
+            for changed in (replace(image, executables=(image.files[0].path,)),
+                            replace(image, files=(replace(image.files[0], sha256='b'*64),)+image.files[1:])):
+                with self.subTest(changed=changed), self.assertRaises(ContractError):
+                    birth._require_vulkan_advisory_selection(SimpleNamespace(emulator=emulator, image=changed))

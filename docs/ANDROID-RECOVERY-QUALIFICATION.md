@@ -657,6 +657,62 @@ auto-enumeration when a DNS list is supplied;
 (blob `3c50ccf62e076a0fb11fd8abfedec2ec6814830f`) parses the custom list.
 That source snapshot is not a verified mapping to the selected emulator
 36.1.9/build 13823996 binary. Acceptance of these options and actual DNS denial
-remain unverified in that binary. Native warnings and errors, including Vulkan
-compatibility warnings, still stop the trial. No warning exception, sandbox
-permission expansion, runtime retry, or normal recovery activation is introduced.
+remain unverified in that binary. The DNS/metrics-only change itself preserves
+the default stop on all native warnings and errors, including Vulkan compatibility
+warnings. It introduces no warning exception, sandbox permission expansion,
+runtime retry, or normal recovery activation. The separately gated diagnostic
+option below does not alter this default.
+
+### Default-off, exact VulkanVirtualQueue diagnostic allowance
+
+The private end-to-end `run_one_lost_ack(plan, runtime_profile, *, sandbox_probe,
+cancellation, allow_vulkan_virtual_queue_advisory=False)` API accepts an exact
+boolean opt-in, validated before profile parsing or preflight effects, and
+forwards it to `launch_qualification_birth`. A separately approved diagnostic
+run supplies `allow_vulkan_virtual_queue_advisory=True` to `run_one_lost_ack`;
+no monkeypatch or alternate runner is needed. Omission keeps both APIs disabled.
+Success and failure reports retain the requested choice and birth diagnostic
+counters. It is not exposed through ordinary
+Live commands, imported approval JSON, recovery authority, or environment
+variables. Enabling it requires a separately authorized diagnostic trial; it
+does not qualify the selected emulator/image combination or enable recovery.
+Default calls still reject the diagnostic. Sandbox rules and native argv are
+unchanged.
+
+After the existing complete content verification, opt-in requires the recorded
+324-file emulator and 20-file image selection fingerprints and the exact 16-path
+emulator executable set, with no image executables. Selection fingerprints use
+sorted relative POSIX path/size/SHA-256 objects, canonical JSON, and SHA-256;
+absolute local paths do not enter them. File verification is not replaced by
+metadata comparison. These operator-recorded identities are not vendor
+provenance attestation or a proof of harmlessness.
+
+Only the emulator's stdout collector may accept one exact 98-byte, LF-terminated
+public advisory line (SHA-256
+`0472c5345c5a3f062f21e1ddcf985991ad3f3b536c48efac97acbd9a2c442352`).
+Its full body is `Please update the emulator to one that supports the feature(s): VulkanVirtualQueue`;
+the fixed normal-log prefix and whitespace must also match. A read-only local
+comparison of complete retained output established one exact stdout occurrence
+and none on stderr. No raw private output is needed in public reports.
+
+The matcher is anchored at a physical line start and holds only an exact prefix,
+never arbitrary output. A single tracked watchdog bounds an incomplete prefix
+to 250 ms of monotonic time, subject to scheduling latency; EOF or expiration
+fails closed even while a writer remains open. Once the severity prefix is
+recognized, a mismatch explicitly alerts. The public advisory body also has a
+fail-closed classification when its severity prefix is malformed or absent.
+Duplicates, changed or truncated candidates, other warnings/errors, permission
+failures, identity mismatches and evidence failures remain stopping conditions.
+A previously latched alert is never cleared. Watchdog shutdown is part of
+collector completion and owned-child cleanup. Public reports add only a fixed
+boolean and a zero-or-one accepted counter; bounded private raw retention is
+unchanged, including the accepted line.
+
+The underlying source distinction is documented in
+[AEMU's host-feature addition](https://android.googlesource.com/platform/hardware/google/aemu/+/983aa431e8a068aa25d271d88c86a0baea3e7ab1)
+and the [QEMU guest-key validator](https://android.googlesource.com/platform/external/qemu/+/ae9d18d2b6261179fbd57fffec720a04f7bfb053/android/emu/feature/src/android/featurecontrol/FeatureControlImpl.cpp).
+The [normal log formatter](https://android.googlesource.com/platform/external/qemu/+/ae9d18d2b6261179fbd57fffec720a04f7bfb053/android/emu/base/logging/src/android/base/logging/ColorLogSink.cpp)
+provides the public line format. These sources are not a verified build mapping
+to emulator 36.1.9. Host tests cover exact matching, arbitrary split boundaries,
+single-byte mutations, stalled writers, identity/role mismatches and retained
+evidence, not live Darwin enforcement, boot, graphics or successful recovery.

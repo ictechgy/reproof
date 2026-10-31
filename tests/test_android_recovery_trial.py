@@ -205,6 +205,80 @@ class PrivateTrialTests(unittest.TestCase):
         self.assertEqual(harness._lab.devices[harness.device_id]['state'], 'quarantined')
         self.owner.collect.assert_called_once();self.owner.abort.assert_not_called()
 
+    def test_default_advisory_choice_is_forwarded_without_enabling_it(self):
+        cancel = threading.Event()
+        with patch.object(trial, 'launch_qualification_birth', return_value=self.owner) as launch:
+            report = trial.run_one_lost_ack(self.plan, self.profile,
+                sandbox_probe=self.plan.aapt, cancellation=cancel)
+        launch.assert_called_once_with(self.plan, cancellation=cancel,
+                                       allow_vulkan_virtual_queue_advisory=False)
+        self.assertFalse(report['vulkanAdvisoryRequested'])
+        self.assertTrue(report['trialPassed'])
+        self.assertFalse(report['birthDiagnostics']['outputAlert'])
+
+    def test_explicit_advisory_choice_reaches_birth_and_preserves_one_fault(self):
+        import io
+        from reproof.live.android_recovery_diagnostics import IncrementalCollector, _VULKAN_ADVISORY
+        collector = IncrementalCollector(io.BytesIO(_VULKAN_ADVISORY), _vulkan_advisory=True)
+        collector.thread.start();collector.thread.join(2)
+        self.owner._children = [SimpleNamespace(collectors=[collector], _diagnostic_role='emulator')]
+        cancel = threading.Event()
+        with patch.object(trial, 'launch_qualification_birth', return_value=self.owner) as launch:
+            report = trial.run_one_lost_ack(self.plan, self.profile,
+                sandbox_probe=self.plan.aapt, cancellation=cancel,
+                allow_vulkan_virtual_queue_advisory=True)
+        launch.assert_called_once_with(self.plan, cancellation=cancel,
+                                       allow_vulkan_virtual_queue_advisory=True)
+        self.assertTrue(report['vulkanAdvisoryRequested'])
+        self.assertTrue(report['trialPassed'])
+        self.assertEqual(report['deliberatelyOmittedResponses'], 1)
+        self.assertEqual(report['originalInputOutcome'], 'unknown')
+        self.assertFalse(report['normalRecoveryEnabled'])
+        stream = report['birthDiagnostics']['processes'][0]['streams'][0]
+        self.assertTrue(stream['vulkanAdvisoryEnabled'])
+        self.assertEqual(stream['vulkanAdvisoriesAccepted'], 1)
+        self.assertTrue(stream['complete'])
+        self.assertNotIn('Please update', str(report))
+        self.owner.collect.assert_called_once()
+        self.owner.abort.assert_not_called()
+
+    def test_nonboolean_advisory_choice_fails_before_preflight_or_profile_parse(self):
+        for option in (None, 0, 1, 'true', {}, []):
+            with self.subTest(option=option), \
+                 patch.object(trial, 'run_sandbox_preflight') as preflight, \
+                 patch.object(trial, 'launch_qualification_birth') as launch, \
+                 patch.object(trial, 'validate_android_runtime_profile') as profile:
+                with self.assertRaises(ContractError):
+                    trial.run_one_lost_ack(self.plan, {}, sandbox_probe=self.plan.aapt,
+                        cancellation=threading.Event(), allow_vulkan_virtual_queue_advisory=option)
+                preflight.assert_not_called();launch.assert_not_called();profile.assert_not_called()
+
+    def test_advisory_birth_failure_does_not_retry_or_lose_choice(self):
+        cancel = threading.Event()
+        with patch.object(trial, 'launch_qualification_birth',
+                          side_effect=trial.BirthIncomplete(self.owner)) as launch:
+            with self.assertRaises(trial.TrialIncomplete) as caught:
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt,
+                    cancellation=cancel, allow_vulkan_virtual_queue_advisory=True)
+        launch.assert_called_once_with(self.plan, cancellation=cancel,
+                                       allow_vulkan_virtual_queue_advisory=True)
+        self.assertTrue(caught.exception.report['vulkanAdvisoryRequested'])
+        self.assertFalse(caught.exception.report['trialPassed'])
+        self.owner.abort.assert_called_once()
+        self.assertIn('birthDiagnostics', caught.exception.report)
+
+    def test_success_summary_failure_cannot_leave_passed_report(self):
+        with patch.object(trial, 'birth_summary', side_effect=[
+                RuntimeError('synthetic summary failure'), {'schemaVersion': 1}]) as summary:
+            with self.assertRaises(trial.TrialIncomplete) as caught:
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt,
+                    cancellation=threading.Event(), allow_vulkan_virtual_queue_advisory=True)
+        self.assertFalse(caught.exception.report['trialPassed'])
+        self.assertEqual(caught.exception.report['phase'], 'collection')
+        self.assertEqual(summary.call_count, 2)
+        self.owner.collect.assert_called_once()
+        self.owner.abort.assert_called_once()
+
     def test_native_recovery_failure_uses_only_abort_and_preserves_unknown(self):
         with patch.object(FakeProbe, 'start', side_effect=ContractError('synthetic probe failure')):
             with self.assertRaises(trial.TrialIncomplete) as caught:

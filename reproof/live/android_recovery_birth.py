@@ -62,6 +62,18 @@ _AOSP_R2_FILE_SIZES = {
     'system.img': 1898971136,
     'vendor.img': 99614720,
 }
+# Operator-recorded complete selections. Content verification remains mandatory;
+# these fingerprints are not publisher provenance or runtime qualification.
+_VULKAN_EMULATOR_SELECTION = '5bd23b580f0083fcbc4d4fda918781e1344cf8bd898e451adb53960e3db4d71c'
+_VULKAN_IMAGE_SELECTION = 'cad14ff4593c15c01d7c3eabd0920c85e2c041f1bfa89cd6a6caa28163abb329'
+_VULKAN_EXECUTABLES = frozenset((
+    'emulator', 'emulator-check', 'qemu-img', 'mksdcard', 'crashreport',
+    'crashpad_handler', 'netsimd', 'qsn', 'nimble_bridge', 'bin64/mkfs.ext4',
+    'bin64/e2fsck', 'bin64/fsck.ext4', 'bin64/resize2fs', 'bin64/tune2fs',
+    'qemu/darwin-aarch64/qemu-system-aarch64',
+    'qemu/darwin-aarch64/qemu-system-aarch64-headless'))
+
+
 _OWNERS = {}
 _MINT = object()
 
@@ -245,6 +257,31 @@ class BirthPlan:
                 'offline-only', 'private-data-retained')
 
 
+def _selection_digest(tree):
+    selected = sorted(({'path': Path(item.path).relative_to(tree.root).as_posix(),
+                        'sha256': item.sha256, 'bytes': item.size} for item in tree.files),
+                      key=lambda item: item['path'])
+    return hashlib.sha256(json.dumps(selected, sort_keys=True, separators=(',', ':'),
+                                    ensure_ascii=True).encode('utf-8')).hexdigest()
+
+
+def _require_vulkan_advisory_selection(plan):
+    # Pure metadata binding, called only after both complete file verifications.
+    # The executable set is a separate capability boundary, not in the file digest.
+    executables = tuple(Path(name).relative_to(plan.emulator.root).as_posix()
+                        for name in plan.emulator.executables)
+    _require(len(plan.emulator.files) == 324
+             and sum(item.size for item in plan.emulator.files) == 1_013_108_813
+             and len(plan.image.files) == 20
+             and sum(item.size for item in plan.image.files) == 2_039_419_809
+             and _selection_digest(plan.emulator) == _VULKAN_EMULATOR_SELECTION
+             and _selection_digest(plan.image) == _VULKAN_IMAGE_SELECTION
+             and len(executables) == len(_VULKAN_EXECUTABLES)
+             and frozenset(executables) == _VULKAN_EXECUTABLES
+             and not plan.image.executables,
+             'Exact private Vulkan advisory selection required')
+
+
 def _environment(home, android, avd, work, notification_port):
     return {'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C', 'HOME': str(home),
             'ANDROID_USER_HOME': str(android), 'ANDROID_AVD_HOME': str(avd), 'TMPDIR': str(work),
@@ -298,7 +335,8 @@ class _Child:
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, start_new_session=True)
         for index, stream in enumerate((self.process.stdout, self.process.stderr)):
             evidence = self._evidence[index] if self._evidence else None
-            collector = IncrementalCollector(stream, 65536, evidence=evidence)
+            collector = IncrementalCollector(stream, 65536, evidence=evidence,
+                _vulkan_advisory=(index == 0 and getattr(self, '_vulkan_advisory', False)))
             self.collectors.append(collector)
             collector.thread.start()
 
@@ -311,7 +349,7 @@ class _Child:
         clean = _ProcessOwner._terminate(self.process, deadline_monotonic=deadline)
         for collector in self.collectors:
             collector.thread.join(max(0, deadline-time.monotonic()))
-            clean = clean and not collector.thread.is_alive()
+            clean = clean and not collector.thread.is_alive() and not collector.auxiliary_alive()
         return clean and self.bounded() and self.process.poll() is not None
 
 
@@ -598,7 +636,7 @@ def _provision(owner, package, artifact):
         for collector in child.collectors:
             collector.thread.join(2)
         _require(child.process.returncode == 0 and child.bounded()
-                 and all(not c.thread.is_alive() for c in child.collectors)
+                 and all(not c.thread.is_alive() and not c.auxiliary_alive() for c in child.collectors)
                  and bytes(child.collectors[0].data).strip() == b'Success'
                  and _ProcessOwner._group_empty(child.process.pid))
         artifact.verify(cancellation=owner.cancellation, deadline=owner.deadline)
@@ -753,6 +791,7 @@ def _new_private_child(owner, role):
     _require(role in ('server', 'emulator', 'initial-install') and len(owner._children) < 4)
     child = _Child()
     child._diagnostic_role = role
+    child._vulkan_advisory = role == 'emulator' and getattr(owner, '_vulkan_advisory', False)
     child._evidence = []
     slot = len(owner._children)
     owner._children.append(child)  # Retain partial creation before any Popen.
@@ -768,7 +807,7 @@ def _finish_private_evidence(owner):
         for sink in getattr(child, '_evidence', ()):
             writers = [item for item in getattr(child, 'collectors', ())
                        if getattr(item, '_evidence', None) is sink]
-            if any(item.thread.is_alive() for item in writers):
+            if any(item.thread.is_alive() or item.auxiliary_alive() for item in writers):
                 clean = False  # Never close/reuse a live writer's descriptor.
             else:
                 clean = sink.finish() and clean
@@ -838,12 +877,13 @@ def _pin_server_socket(owner):
     return AdbEndpoint(owner.root/'server.sock', sandbox_sha256=owner.plan.sandbox.sha256)
 
 
-def launch_qualification_birth(plan, *, cancellation):
+def launch_qualification_birth(plan, *, cancellation, allow_vulkan_virtual_queue_advisory=False):
     """Explicit effects; callers must separately authorize future runtime use.
 
     This API accepts no PID, endpoint, process, credentials, JSON approval flag,
     imported AVD, or command. Current implementation/tests do not qualify runtime.
     """
+    _require(type(allow_vulkan_virtual_queue_advisory) is bool)
     _require(type(plan) is BirthPlan and sys.platform == 'darwin'
              and callable(getattr(cancellation, 'is_set', None)) and not cancellation.is_set())
     root = Path(plan.output)
@@ -854,6 +894,8 @@ def launch_qualification_birth(plan, *, cancellation):
         selected.verify(cancellation=cancellation, deadline=deadline)
     plan.emulator.verify(cancellation=cancellation, deadline=deadline)
     plan.image.verify(cancellation=cancellation, deadline=deadline)
+    if allow_vulkan_virtual_queue_advisory:
+        _require_vulkan_advisory_selection(plan)
     properties = Path(plan.image.root)/'source.properties'
     with os.fdopen(open_regular(properties.parent, properties.name), 'rb') as stream:
         raw = stream.read(65537)
@@ -871,6 +913,7 @@ def launch_qualification_birth(plan, *, cancellation):
     owner = OwnedBirth(_MINT)
     owner.plan, owner.root, owner.cancellation = plan, root, cancellation
     owner.deadline = deadline
+    owner._vulkan_advisory = allow_vulkan_virtual_queue_advisory
     owner._pid, owner._closed, owner._ready = os.getpid(), False, False
     owner._children, owner._listeners, owner._fds = [], [], []
     owner._context = None
