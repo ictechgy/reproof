@@ -97,12 +97,19 @@ class DiagnosticsTests(unittest.TestCase):
 
 class VulkanAdvisoryTests(unittest.TestCase):
     """One public line, synthetic pipes only; no native execution."""
+    flag = '_vulkan_advisory'
+    counter = 'vulkanAdvisoriesAccepted'
+    feature = b'VulkanVirtualQueue'
+    marker = b'Please update the emulator to one that supports the feature(s):'
+    length = 98
+    digest = '0472c5345c5a3f062f21e1ddcf985991ad3f3b536c48efac97acbd9a2c442352'
+
     def collect(self, chunks, *, enabled=True, maximum=65536):
         class Stream:
             def __init__(self):self.chunks = iter(chunks)
             def read1(self, _):return next(self.chunks, b'')
             def close(self):pass
-        collector = IncrementalCollector(Stream(), maximum, _vulkan_advisory=enabled)
+        collector = IncrementalCollector(Stream(), maximum, **{self.flag: enabled})
         collector.thread.start();collector.thread.join(2)
         self.assertFalse(collector.thread.is_alive())
         self.assertFalse(collector.auxiliary_alive())
@@ -115,20 +122,20 @@ class VulkanAdvisoryTests(unittest.TestCase):
     def test_default_still_rejects_exact_advisory(self):
         collector = self.collect([self.line()], enabled=False)
         self.assertTrue(collector.alert.is_set())
-        self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 0)
+        self.assertEqual(collector.snapshot()[self.counter], 0)
         self.assertIsNone(collector._watchdog)
 
     def test_exact_public_line_pin_and_every_two_chunk_boundary(self):
         import hashlib
         line = self.line()
-        self.assertEqual(len(line), 98)
+        self.assertEqual(len(line), self.length)
         self.assertEqual(hashlib.sha256(line).hexdigest(),
-                         '0472c5345c5a3f062f21e1ddcf985991ad3f3b536c48efac97acbd9a2c442352')
+                         self.digest)
         for index in range(1, len(line)):
             with self.subTest(index=index):
                 collector = self.collect([line[:index], line[index:], b'INFO: ready\n'])
                 self.assertFalse(collector.alert.is_set())
-                self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 1)
+                self.assertEqual(collector.snapshot()[self.counter], 1)
                 self.assertEqual(bytes(collector.data), line+b'INFO: ready\n')
                 self.assertTrue(collector.snapshot()['complete'])
 
@@ -136,7 +143,7 @@ class VulkanAdvisoryTests(unittest.TestCase):
         raw = b'INFO: prior\n'+self.line()+b'INFO: after\n'
         collector = self.collect([bytes((byte,)) for byte in raw])
         self.assertFalse(collector.alert.is_set())
-        self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 1)
+        self.assertEqual(collector.snapshot()[self.counter], 1)
         self.assertEqual(bytes(collector.data), raw)
 
     def test_embedded_advisory_is_not_a_line(self):
@@ -144,18 +151,18 @@ class VulkanAdvisoryTests(unittest.TestCase):
             with self.subTest(prefix=prefix):
                 collector = self.collect([prefix+self.line()])
                 self.assertTrue(collector.alert.is_set())
-                self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 0)
+                self.assertEqual(collector.snapshot()[self.counter], 0)
 
     def test_changed_line_or_extra_feature_never_matches(self):
         line = self.line()
         for raw in (line.replace(b'WARNING', b'Warning'), line.replace(b'      |', b'     |'),
                     line[:-1]+b'\r\n', line[:-1]+b' extra\n',
-                    line.replace(b'VulkanVirtualQueue', b'VulkanVirtualQueue, Other'),
-                    line.replace(b'VulkanVirtualQueue', b'Other')):
+                    line.replace(self.feature, self.feature+b', Other'),
+                    line.replace(self.feature, b'Other')):
             with self.subTest(raw=raw):
                 collector = self.collect([raw])
                 self.assertTrue(collector.alert.is_set())
-                self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 0)
+                self.assertEqual(collector.snapshot()[self.counter], 0)
 
     def test_every_single_byte_advisory_mutation_rejects(self):
         line = self.line()
@@ -167,10 +174,10 @@ class VulkanAdvisoryTests(unittest.TestCase):
                 with self.subTest(index=index, variant=variant):
                     collector = self.collect([variant])
                     self.assertTrue(collector.alert.is_set())
-                    self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 0)
+                    self.assertEqual(collector.snapshot()[self.counter], 0)
 
     def test_body_marker_alone_rejects_in_default_mode_across_splits(self):
-        marker = b'Please update the emulator to one that supports the feature(s):'
+        marker = self.marker
         self.assertLessEqual(len(marker), 65)
         for index in range(1, len(marker)):
             with self.subTest(index=index):
@@ -187,12 +194,12 @@ class VulkanAdvisoryTests(unittest.TestCase):
                 with self.subTest(raw=raw):
                     collector = self.collect([raw])
                     self.assertTrue(collector.alert.is_set())
-                    self.assertLessEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 1)
+                    self.assertLessEqual(collector.snapshot()[self.counter], 1)
 
     def test_prior_latched_alert_never_clears_or_accepts_later_line(self):
         collector = self.collect([b'ERROR: before\n', self.line()])
         self.assertTrue(collector.alert.is_set())
-        self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 0)
+        self.assertEqual(collector.snapshot()[self.counter], 0)
 
     def test_every_incomplete_prefix_fails_at_eof(self):
         for index in range(1, len(self.line())):
@@ -200,11 +207,11 @@ class VulkanAdvisoryTests(unittest.TestCase):
                 collector = self.collect([self.line()[:index]])
                 self.assertTrue(collector.alert.is_set())
                 self.assertIn('advisory-incomplete', collector.snapshot()['classifications'])
-                self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 0)
+                self.assertEqual(collector.snapshot()[self.counter], 0)
 
     def test_stalled_writer_alerts_without_another_read_or_eof(self):
         read, write = os.pipe()
-        collector = IncrementalCollector(os.fdopen(read, 'rb'), _vulkan_advisory=True)
+        collector = IncrementalCollector(os.fdopen(read, 'rb'), **{self.flag: True})
         collector.thread.start()
         try:
             os.write(write, self.line()[:18])
@@ -214,13 +221,13 @@ class VulkanAdvisoryTests(unittest.TestCase):
         finally:
             os.close(write);collector.thread.join(2)
         self.assertFalse(collector.auxiliary_alive())
-        self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 0)
+        self.assertEqual(collector.snapshot()[self.counter], 0)
         self.assertIn('advisory-incomplete', collector.snapshot()['classifications'])
 
     def test_near_prefix_lines_use_one_watchdog_and_no_unbounded_state(self):
         collector = self.collect([b'Wow\n'*10000, self.line()])
         self.assertFalse(collector.alert.is_set())
-        self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 1)
+        self.assertEqual(collector.snapshot()[self.counter], 1)
         self.assertEqual(collector._candidate, b'')
         self.assertFalse(collector.auxiliary_alive())
 
@@ -228,11 +235,11 @@ class VulkanAdvisoryTests(unittest.TestCase):
         collector = self.collect([self.line()], maximum=20)
         self.assertTrue(collector.alert.is_set())
         self.assertFalse(collector.snapshot()['complete'])
-        self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 0)
+        self.assertEqual(collector.snapshot()[self.counter], 0)
 
     def test_watchdog_start_failure_is_incomplete(self):
         from unittest.mock import patch
-        collector = IncrementalCollector(io.BytesIO(self.line()), _vulkan_advisory=True)
+        collector = IncrementalCollector(io.BytesIO(self.line()), **{self.flag: True})
         with patch.object(collector._watchdog, 'start', side_effect=RuntimeError('synthetic')):
             collector.thread.start();collector.thread.join(2)
         self.assertTrue(collector.alert.is_set())
@@ -242,7 +249,7 @@ class VulkanAdvisoryTests(unittest.TestCase):
 
     def test_watchdog_partial_start_failure_is_owned_and_joined(self):
         from unittest.mock import patch
-        collector = IncrementalCollector(io.BytesIO(self.line()), _vulkan_advisory=True)
+        collector = IncrementalCollector(io.BytesIO(self.line()), **{self.flag: True})
         start = collector._watchdog.start
         def start_then_fail():
             start()
@@ -264,13 +271,13 @@ class VulkanAdvisoryTests(unittest.TestCase):
                     return prefix
                 raise OSError('synthetic private path')
             def close(self):pass
-        collector = IncrementalCollector(Broken(), _vulkan_advisory=True)
+        collector = IncrementalCollector(Broken(), **{self.flag: True})
         collector.thread.start();collector.thread.join(2)
         self.assertTrue(collector.alert.is_set())
         self.assertTrue(collector.snapshot()['readFailed'])
         self.assertFalse(collector.snapshot()['complete'])
         self.assertFalse(collector.auxiliary_alive())
-        self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 0)
+        self.assertEqual(collector.snapshot()[self.counter], 0)
         self.assertNotIn('private path', json.dumps(collector.snapshot()))
 
     def test_live_watchdog_blocks_complete_snapshot(self):
@@ -278,3 +285,97 @@ class VulkanAdvisoryTests(unittest.TestCase):
         collector = self.collect([self.line()])
         with patch.object(collector._watchdog, 'is_alive', return_value=True):
             self.assertFalse(collector.snapshot()['complete'])
+
+
+class JdwpAdvisoryTests(VulkanAdvisoryTests):
+    flag = '_jdwp_advisory'
+    counter = 'jdwpAdvisoriesAccepted'
+    feature = b'Icebox'
+    marker = b'jdwp port creation fails, Icebox will not work.'
+    length = 63
+    digest = '3a0f13374207f4a7277eda7f39f91dbc1679058167ccb525df85eee81b1805bb'
+
+    def line(self):
+        from reproof.live.android_recovery_diagnostics import _JDWP_ADVISORY
+        return _JDWP_ADVISORY
+
+    def test_body_marker_alone_rejects_in_default_mode_across_splits(self):
+        for index in range(1, len(self.marker)):
+            collector = self.collect([self.marker[:index], self.marker[index:]], enabled=False)
+            self.assertTrue(collector.alert.is_set())
+            self.assertIn('jdwp-unavailable', collector.snapshot()['classifications'])
+
+
+class TwoAdvisoryTests(unittest.TestCase):
+    def collect(self, chunks, *, vulkan=True, jdwp=True):
+        class Stream:
+            def __init__(self):self.chunks = iter(chunks)
+            def read1(self, _):return next(self.chunks, b'')
+            def close(self):pass
+        collector = IncrementalCollector(Stream(), _vulkan_advisory=vulkan, _jdwp_advisory=jdwp)
+        collector.thread.start();collector.thread.join(2)
+        self.assertFalse(collector.thread.is_alive())
+        self.assertFalse(collector.auxiliary_alive())
+        return collector
+
+    def lines(self):
+        from reproof.live.android_recovery_diagnostics import _VULKAN_ADVISORY, _JDWP_ADVISORY
+        return _VULKAN_ADVISORY, _JDWP_ADVISORY
+
+    def test_each_order_and_every_split_accepts_each_once(self):
+        vulkan, jdwp = self.lines()
+        for raw in (vulkan+jdwp, jdwp+vulkan):
+            for split in range(1, len(raw)):
+                collector = self.collect([raw[:split], raw[split:]])
+                self.assertFalse(collector.alert.is_set())
+                self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 1)
+                self.assertEqual(collector.snapshot()['jdwpAdvisoriesAccepted'], 1)
+                self.assertEqual(bytes(collector.data), raw)
+
+    def test_independent_flags_do_not_enable_other_line(self):
+        vulkan, jdwp = self.lines()
+        for v, j, line, allowed in ((False, False, vulkan, False), (False, False, jdwp, False),
+                (True, False, vulkan, True), (True, False, jdwp, False),
+                (False, True, vulkan, False), (False, True, jdwp, True)):
+            collector = self.collect([line], vulkan=v, jdwp=j)
+            self.assertEqual(collector.alert.is_set(), not allowed)
+            self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], int(allowed and line == vulkan))
+            self.assertEqual(collector.snapshot()['jdwpAdvisoriesAccepted'], int(allowed and line == jdwp))
+
+    def test_duplicate_before_and_after_other_line_fails(self):
+        v, j = self.lines()
+        for raw in (v+v+j, j+j+v, v+j+v, j+v+j):
+            collector = self.collect([bytes((byte,)) for byte in raw])
+            self.assertTrue(collector.alert.is_set())
+            self.assertLessEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 1)
+            self.assertLessEqual(collector.snapshot()['jdwpAdvisoriesAccepted'], 1)
+
+    def test_other_diagnostics_before_between_and_after_are_fatal(self):
+        v, j = self.lines()
+        for bad in (b'WARNING: other\n', b'ERROR: normal ADB failure\n', b'EACCES\n',
+                    b'Permission denied\n', b'Unknown option x\n', b'FATAL\n'):
+            for raw in (bad+v+j, v+bad+j, v+j+bad):
+                for split in range(1, len(raw)):
+                    self.assertTrue(self.collect([raw[:split], raw[split:]]).alert.is_set())
+
+    def test_shared_prefix_does_not_extend_deadline_or_add_watchdogs(self):
+        from unittest.mock import patch
+        from reproof.live import android_recovery_diagnostics as diagnostics
+        collector = IncrementalCollector(io.BytesIO(), _vulkan_advisory=True, _jdwp_advisory=True)
+        watchdog = collector._watchdog
+        with collector._lock, patch.object(diagnostics.time, 'monotonic', return_value=10):
+            collector._classify(b'WARNING      | ')
+            deadline = collector._candidate_deadline
+        with collector._lock, patch.object(diagnostics.time, 'monotonic', return_value=10.2):
+            collector._classify(b'j')
+            self.assertEqual(collector._candidate_deadline, deadline)
+        with collector._lock, patch.object(diagnostics.time, 'monotonic', return_value=10.3):
+            collector._classify(b'd')
+        self.assertTrue(collector.alert.is_set())
+        self.assertIs(collector._watchdog, watchdog)
+        self.assertEqual(collector.snapshot()['jdwpAdvisoriesAccepted'], 0)
+
+    def test_non_boolean_private_flags_reject(self):
+        for key in ('_vulkan_advisory', '_jdwp_advisory'):
+            for value in (None, 1, 0, 'true', [], {}):
+                with self.assertRaises(ValueError):IncrementalCollector(io.BytesIO(), **{key: value})

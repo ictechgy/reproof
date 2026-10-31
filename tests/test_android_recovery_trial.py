@@ -211,8 +211,9 @@ class PrivateTrialTests(unittest.TestCase):
             report = trial.run_one_lost_ack(self.plan, self.profile,
                 sandbox_probe=self.plan.aapt, cancellation=cancel)
         launch.assert_called_once_with(self.plan, cancellation=cancel,
-                                       allow_vulkan_virtual_queue_advisory=False)
+                                       allow_vulkan_virtual_queue_advisory=False, allow_jdwp_icebox_advisory=False)
         self.assertFalse(report['vulkanAdvisoryRequested'])
+        self.assertFalse(report['jdwpAdvisoryRequested'])
         self.assertTrue(report['trialPassed'])
         self.assertFalse(report['birthDiagnostics']['outputAlert'])
 
@@ -228,7 +229,7 @@ class PrivateTrialTests(unittest.TestCase):
                 sandbox_probe=self.plan.aapt, cancellation=cancel,
                 allow_vulkan_virtual_queue_advisory=True)
         launch.assert_called_once_with(self.plan, cancellation=cancel,
-                                       allow_vulkan_virtual_queue_advisory=True)
+                                       allow_vulkan_virtual_queue_advisory=True, allow_jdwp_icebox_advisory=False)
         self.assertTrue(report['vulkanAdvisoryRequested'])
         self.assertTrue(report['trialPassed'])
         self.assertEqual(report['deliberatelyOmittedResponses'], 1)
@@ -241,6 +242,53 @@ class PrivateTrialTests(unittest.TestCase):
         self.assertNotIn('Please update', str(report))
         self.owner.collect.assert_called_once()
         self.owner.abort.assert_not_called()
+
+    def test_both_advisory_choices_and_counters_reach_success_report(self):
+        import io
+        from reproof.live.android_recovery_diagnostics import IncrementalCollector, _VULKAN_ADVISORY, _JDWP_ADVISORY
+        collector = IncrementalCollector(io.BytesIO(_JDWP_ADVISORY+_VULKAN_ADVISORY),
+                                         _vulkan_advisory=True, _jdwp_advisory=True)
+        collector.thread.start();collector.thread.join(2)
+        self.owner._children = [SimpleNamespace(collectors=[collector], _diagnostic_role='emulator')]
+        cancel = threading.Event()
+        with patch.object(trial, 'launch_qualification_birth', return_value=self.owner) as launch:
+            report = trial.run_one_lost_ack(self.plan, self.profile,
+                sandbox_probe=self.plan.aapt, cancellation=cancel,
+                allow_vulkan_virtual_queue_advisory=True, allow_jdwp_icebox_advisory=True)
+        launch.assert_called_once_with(self.plan, cancellation=cancel,
+            allow_vulkan_virtual_queue_advisory=True, allow_jdwp_icebox_advisory=True)
+        self.assertTrue(report['trialPassed'])
+        self.assertTrue(report['vulkanAdvisoryRequested']);self.assertTrue(report['jdwpAdvisoryRequested'])
+        stream = report['birthDiagnostics']['processes'][0]['streams'][0]
+        self.assertEqual(stream['vulkanAdvisoriesAccepted'], 1)
+        self.assertEqual(stream['jdwpAdvisoriesAccepted'], 1)
+        self.assertNotIn('Icebox will', str(report))
+        self.assertEqual(report['deliberatelyOmittedResponses'], 1)
+        self.assertFalse(report['normalRecoveryEnabled'])
+
+    def test_jdwp_choice_alone_is_forwarded_on_failure_without_retry(self):
+        cancel = threading.Event()
+        with patch.object(trial, 'launch_qualification_birth',
+                          side_effect=trial.BirthIncomplete(self.owner)) as launch:
+            with self.assertRaises(trial.TrialIncomplete) as caught:
+                trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt,
+                    cancellation=cancel, allow_jdwp_icebox_advisory=True)
+        launch.assert_called_once_with(self.plan, cancellation=cancel,
+            allow_vulkan_virtual_queue_advisory=False, allow_jdwp_icebox_advisory=True)
+        self.assertFalse(caught.exception.report['vulkanAdvisoryRequested'])
+        self.assertTrue(caught.exception.report['jdwpAdvisoryRequested'])
+        self.assertFalse(caught.exception.report['trialPassed'])
+        self.owner.abort.assert_called_once()
+
+    def test_nonboolean_jdwp_option_fails_before_profile_and_preflight(self):
+        for option in (None, 0, 1, 'true', {}, []):
+            with patch.object(trial, 'run_sandbox_preflight') as preflight, \
+                 patch.object(trial, 'launch_qualification_birth') as launch, \
+                 patch.object(trial, 'validate_android_runtime_profile') as profile:
+                with self.assertRaises(ContractError):
+                    trial.run_one_lost_ack(self.plan, {}, sandbox_probe=self.plan.aapt,
+                        cancellation=threading.Event(), allow_jdwp_icebox_advisory=option)
+                preflight.assert_not_called();launch.assert_not_called();profile.assert_not_called()
 
     def test_nonboolean_advisory_choice_fails_before_preflight_or_profile_parse(self):
         for option in (None, 0, 1, 'true', {}, []):
@@ -261,7 +309,7 @@ class PrivateTrialTests(unittest.TestCase):
                 trial.run_one_lost_ack(self.plan, self.profile, sandbox_probe=self.plan.aapt,
                     cancellation=cancel, allow_vulkan_virtual_queue_advisory=True)
         launch.assert_called_once_with(self.plan, cancellation=cancel,
-                                       allow_vulkan_virtual_queue_advisory=True)
+                                       allow_vulkan_virtual_queue_advisory=True, allow_jdwp_icebox_advisory=False)
         self.assertTrue(caught.exception.report['vulkanAdvisoryRequested'])
         self.assertFalse(caught.exception.report['trialPassed'])
         self.owner.abort.assert_called_once()

@@ -716,3 +716,46 @@ provides the public line format. These sources are not a verified build mapping
 to emulator 36.1.9. Host tests cover exact matching, arbitrary split boundaries,
 single-byte mutations, stalled writers, identity/role mismatches and retained
 evidence, not live Darwin enforcement, boot, graphics or successful recovery.
+
+
+### Independently gated JDWP/Icebox diagnostic allowance
+
+The same private trial and birth APIs additionally accept
+`allow_jdwp_icebox_advisory=False`. Both options are exact booleans, checked
+before profile parsing or preflight. They are independent: the JDWP option does
+not enable the Vulkan option or vice versa. A separately authorized diagnostic
+of both lines explicitly passes both options as `True` to `run_one_lost_ack`.
+Neither is an ordinary Live command, environment switch, imported approval, or
+runtime qualification. The existing private preflight remains before birth's
+full file verification; either allowance requires the same exact verified
+emulator/image selections and executable set before birth children start.
+
+Only the emulator's stdout may accept the exact 63-byte LF-terminated line with
+body `jdwp port creation fails, Icebox will not work.` and the fixed normal-log
+prefix. Its SHA-256 is
+`3a0f13374207f4a7277eda7f39f91dbc1679058167ccb525df85eee81b1805bb`. A read-only
+comparison against complete retained output found one exact stdout occurrence,
+none on stderr, with a preceding LF and no extra bytes on the line. That
+observation does not establish the failed syscall or prove harmlessness.
+
+Each requested line may be accepted once, in either order. Both use one owned
+watchdog; narrowing their shared prefix does not restart or extend the original
+250 ms deadline. An already consumed or disabled line is not an available
+candidate. Repetition, malformed severity or body, wrong stream, truncation,
+other warnings, normal ADB failures, and permission errors remain fatal. The
+JDWP public body has an additional fail-closed classifier, not a broad exemption.
+Raw evidence remains retained privately, including both accepted lines. Fixed
+reports distinguish each requested boolean from each actually accepted count,
+including on success and failure; summary collection precedes success marking.
+
+The inspected [official 36.1 source listener](https://android.googlesource.com/platform/external/qemu/+/9f0811e72acfc46edc39d3d0baedd796f7d03309/android/android-emu/android/emulation/AdbHostListener.cpp)
+attempts a separate JDWP loopback listener on a kernel-selected port and emits
+this warning if that optional listener is unavailable. The regular ADB listener
+has an independent failure path. No supported configuration-only disabling flag
+was identified; snapshot options do not guard this creation site. This source
+revision is not verified provenance for selected emulator build 13823996.
+The [Icebox source](https://android.googlesource.com/platform/external/qemu/+/ae9d18d2b6261179fbd57fffec720a04f7bfb053/android/android-emu/android/snapshot/Icebox.cpp)
+uses JDWP for exception-driven VM snapshots. The diagnostic allowance neither
+starts that feature nor opens a port. Sandbox/network rules and native argv
+are unchanged. It cannot establish working ordinary ADB, isolation, boot,
+helper transport, or recovery; separately approved runtime evidence is required.

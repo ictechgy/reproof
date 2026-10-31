@@ -168,14 +168,15 @@ def _stop_pollers(harness):
 
 
 def run_one_lost_ack(plan, runtime_profile, *, sandbox_probe, cancellation,
-                     allow_vulkan_virtual_queue_advisory=False):
+                     allow_vulkan_virtual_queue_advisory=False, allow_jdwp_icebox_advisory=False):
     """Birth, one real tap with deliberately omitted ACK, recovery, collection.
 
     Source/synthetic validation does not authorize invoking this function. It
     can create temporary authentication data, boot a new AVD, and first-install
     two selected public APKs. No existing AVD or production Lab is accepted.
     """
-    _require(type(allow_vulkan_virtual_queue_advisory) is bool,
+    _require(type(allow_vulkan_virtual_queue_advisory) is bool
+             and type(allow_jdwp_icebox_advisory) is bool,
              'Private advisory option must be boolean')
     _require(type(plan) is BirthPlan and plan.lifetime_seconds <= 900
              and type(cancellation) is threading.Event and not cancellation.is_set())
@@ -194,6 +195,7 @@ def run_one_lost_ack(plan, runtime_profile, *, sandbox_probe, cancellation,
     report = {'schemaVersion': 1, 'kind': 'reproof-private-ack-omission-trial',
               'trialPassed': False, 'normalRecoveryEnabled': False,
               'vulkanAdvisoryRequested': allow_vulkan_virtual_queue_advisory,
+              'jdwpAdvisoryRequested': allow_jdwp_icebox_advisory,
               'runtimeQualificationGeneralized': False, 'startingStatePromoted': False,
               'privateDataRetained': True, 'diagnosticStateRetained': True,
               'cleanupScope': 'local-processes-and-pollers-only',
@@ -202,7 +204,8 @@ def run_one_lost_ack(plan, runtime_profile, *, sandbox_probe, cancellation,
               'helperArtifactDigest': plan.helper_apk.sha256, 'adbDigest': plan.adb.sha256}
     try:
         owner = launch_qualification_birth(plan, cancellation=cancellation,
-            allow_vulkan_virtual_queue_advisory=allow_vulkan_virtual_queue_advisory)
+            allow_vulkan_virtual_queue_advisory=allow_vulkan_virtual_queue_advisory,
+            allow_jdwp_icebox_advisory=allow_jdwp_icebox_advisory)
         _live(owner, cancellation)
         report['phase'] = 'session'
         harness = QualificationHarness.create(owner.root,

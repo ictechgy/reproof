@@ -191,7 +191,7 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
         self.assertIn(str(root/'report.sock'), emu)
         self.assertNotIn('remote ip "*', emu+server)
 
-    def _launch(self, fail=False, inventory_reply=None, cancel_after_inventory=False, fail_boot_query=False, allow_advisory=False):
+    def _launch(self, fail=False, inventory_reply=None, cancel_after_inventory=False, fail_boot_query=False, allow_advisory=False, allow_jdwp=False):
         plan = self.plan();actual_verify = birth.PinnedFile.verify
         _Child.calls = [];_Child.fail_second = fail
         def verify(selected, **kwargs):
@@ -224,12 +224,14 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
             if fail:
                 with self.assertRaises(birth.BirthIncomplete) as caught:
                     birth.launch_qualification_birth(plan,cancellation=threading.Event(),
-                        allow_vulkan_virtual_queue_advisory=allow_advisory)
+                        allow_vulkan_virtual_queue_advisory=allow_advisory,
+                        allow_jdwp_icebox_advisory=allow_jdwp)
                 owner = caught.exception.owner
                 self.assertFalse(owner._ready);provision.assert_not_called()
             else:
                 owner = birth.launch_qualification_birth(plan,cancellation=threading.Event(),
-                        allow_vulkan_virtual_queue_advisory=allow_advisory)
+                        allow_vulkan_virtual_queue_advisory=allow_advisory,
+                        allow_jdwp_icebox_advisory=allow_jdwp)
                 self.assertTrue(owner._ready)
                 self.assertEqual([call.args[1] for call in provision.call_args_list], ['io.reproof.sample','io.reproof.live'])
                 self.assertEqual(callback.call_args_list[0].args[2], b'5554')
@@ -248,6 +250,33 @@ class AndroidRecoveryBirthTests(unittest.TestCase):
             select.assert_called_once_with(plan)
         self.assertEqual([child._vulkan_advisory for child in owner._children], [False, True])
         self.assertTrue(owner.collect()['processesCollected'])
+
+    def test_jdwp_option_is_independent_emulator_only_and_bound_to_selection(self):
+        original_root = self.root
+        for vulkan in (False, True):
+            self.root = original_root/str(vulkan);self.root.mkdir()
+            with patch.object(birth, '_require_vulkan_advisory_selection') as select:
+                owner, plan = self._launch(allow_advisory=vulkan, allow_jdwp=True)
+                select.assert_called_once_with(plan)
+            self.assertEqual([child._jdwp_advisory for child in owner._children], [False, True])
+            self.assertEqual([child._vulkan_advisory for child in owner._children], [False, vulkan])
+            self.assertTrue(owner.collect()['processesCollected'])
+        self.root = original_root
+
+    def test_jdwp_identity_and_invalid_types_reject_before_birth(self):
+        plan = self.plan()
+        for option in (True, 1, 'yes', None):
+            with patch.object(birth.sys, 'platform', 'darwin'), \
+                 patch.object(birth, 'require_pinned_adb'), \
+                 patch.object(birth.PinnedFile, 'verify'), \
+                 patch.object(birth.PinnedTree, 'verify'), \
+                 patch.object(birth.subprocess, 'Popen') as process, \
+                 patch.object(birth.socket, 'socket') as sock:
+                with self.assertRaises(ContractError):
+                    birth.launch_qualification_birth(plan, cancellation=threading.Event(),
+                        allow_jdwp_icebox_advisory=option)
+                process.assert_not_called();sock.assert_not_called()
+                self.assertFalse(Path(plan.output).exists())
 
     def test_advisory_identity_mismatch_rejects_before_any_effect(self):
         plan = self.plan()
