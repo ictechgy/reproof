@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -72,8 +73,11 @@ class PrivateEvidenceTests(unittest.TestCase):
         child.collectors = [collector]
         child.process = SimpleNamespace(poll=lambda:0)
         with patch.object(collector._watchdog, 'is_alive', return_value=True), \
-             patch.object(birth._ProcessOwner, '_terminate', return_value=True):
-            self.assertFalse(child.collect(10**12))
+             patch.object(birth._ProcessOwner, '_terminate', return_value=True), \
+             patch.object(collector.thread, 'join', wraps=collector.thread.join) as join:
+            self.assertFalse(child.collect(time.monotonic()+2))
+            self.assertGreaterEqual(join.call_args.args[0], 0)
+            self.assertLessEqual(join.call_args.args[0], 2)
         sink = self.sink()
         collector._evidence = sink
         child._evidence = [sink]
