@@ -151,7 +151,11 @@ from reproof.live.android_recovery_tool_pin import ADB_RELEASE, ADB_DARWIN_SHA25
 from reproof.live.android_recovery_tool_ca import _APPROVED_CA
 from reproof.live.android_recovery_private_evidence import _MAXIMUM, _DIRECTORY
 assert _MAXIMUM == 65537 and _DIRECTORY == "credentials"
-from reproof.live.android_recovery_diagnostics import inventory_state
+from reproof.live.android_recovery_diagnostics import inventory_state, _VULKAN_ADVISORY
+import inspect, hashlib
+assert inspect.signature(launch_qualification_birth).parameters['allow_vulkan_virtual_queue_advisory'].default is False
+assert inspect.signature(run_one_lost_ack).parameters['allow_vulkan_virtual_queue_advisory'].default is False
+assert hashlib.sha256(_VULKAN_ADVISORY).hexdigest() == '0472c5345c5a3f062f21e1ddcf985991ad3f3b536c48efac97acbd9a2c442352'
 assert inventory_state(b'foreign\\tdevice\\n', 'emulator-5554') == 'unexpected'
 from reproof.execution.wire import safe_transfer_path
 from reproof.core import ContractError

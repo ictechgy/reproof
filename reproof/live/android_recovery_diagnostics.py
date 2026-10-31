@@ -2,9 +2,12 @@
 import hashlib
 import re
 import threading
+import time
 
 
 _PATTERNS = (
+    ('unsupported-feature', re.compile(re.escape(
+        b'Please update the emulator to one that supports the feature(s):'))),
     ('unsupported-option', re.compile(br'(?:unknown|unrecognized) (?:feature|option)', re.I)),
     ('permission-denied', re.compile(br'operation not permitted|permission denied|\b(?:EPERM|EACCES)\b', re.I)),
     ('fatal', re.compile(br'\b(?:panic|fatal)\b', re.I)),
@@ -13,9 +16,18 @@ _PATTERNS = (
 )
 
 
+# Exact public SDK diagnostic, matched locally against complete retained output.
+# This identifies one advisory; it is not a claim of runtime compatibility.
+_VULKAN_ADVISORY = (b'WARNING      | Please update the emulator to one that supports '
+                    b'the feature(s): VulkanVirtualQueue\n')
+_ADVISORY_PREFIX_SECONDS = 0.25
+
+
 class IncrementalCollector:
     """Read available pipe bytes, not a buffered request for a full 8 KiB."""
-    def __init__(self, stream, maximum=65536, *, evidence=None):
+    def __init__(self, stream, maximum=65536, *, evidence=None, _vulkan_advisory=False):
+        if type(_vulkan_advisory) is not bool:
+            raise ValueError('Private advisory option must be boolean')
         self.stream, self.maximum = stream, maximum
         self._evidence = evidence
         self.evidence_failed = False
@@ -23,13 +35,99 @@ class IncrementalCollector:
         self.oversized = False
         self.read_failed = False
         self._lock = threading.Lock()
+        self._condition = threading.Condition(self._lock)
+        self._advisory_enabled = _vulkan_advisory
+        self._advisory_count = 0
+        self._candidate = b''
+        self._candidate_deadline = None
+        self._line_start = True
+        self._watchdog_stop = False
+        self._watchdog = (threading.Thread(target=self._watch_prefix,
+            name='reproof-private-advisory-deadline', daemon=True) if _vulkan_advisory else None)
         self._tail = b''
         self._codes = set()
         self.alert = threading.Event()
         self.thread = threading.Thread(target=self._read, name='reproof-private-output', daemon=True)
 
+    def _scan(self, chunk):
+        scan = self._tail+chunk
+        self._codes.update(code for code, pattern in _PATTERNS if pattern.search(scan))
+        self._tail = scan[-64:]
+        if self._codes or self.oversized:
+            self.alert.set()
+
+    def _reject_candidate(self):
+        # Called with the collector lock held. Never clear an existing alert.
+        self._scan(self._candidate)
+        self._codes.add('advisory-incomplete')
+        self.alert.set()
+        self._candidate = b''
+        self._candidate_deadline = None
+        self._condition.notify_all()
+
+    def _watch_prefix(self):
+        with self._condition:
+            while not self._watchdog_stop:
+                if self._candidate_deadline is None:
+                    self._condition.wait()
+                else:
+                    remaining = self._candidate_deadline-time.monotonic()
+                    if remaining <= 0:
+                        self._reject_candidate()
+                    else:
+                        self._condition.wait(remaining)
+
+    def _classify(self, chunk):
+        if not self._advisory_enabled or self.alert.is_set() or self._advisory_count:
+            self._scan(chunk)
+            return
+        # Only exact line-prefix candidates are held, never arbitrary output.
+        # Other bytes are scanned immediately. A watchdog bounds a stalled writer.
+        for value in chunk:
+            byte = bytes((value,))
+            if self._candidate_deadline is not None and time.monotonic() >= self._candidate_deadline:
+                self._reject_candidate()
+            if self.alert.is_set() or self._advisory_count:
+                self._scan(byte)
+                continue
+            if self._candidate:
+                candidate = self._candidate+byte
+                if not _VULKAN_ADVISORY.startswith(candidate):
+                    if self._candidate.startswith(b'WARNING'):
+                        self._codes.add('advisory-mismatch')
+                        self.alert.set()
+                    self._candidate = b''
+                    self._candidate_deadline = None
+                    self._condition.notify_all()
+                    self._scan(candidate)
+                    self._line_start = value == 10
+                elif candidate == _VULKAN_ADVISORY:
+                    self._candidate = b''
+                    self._candidate_deadline = None
+                    self._condition.notify_all()
+                    self._advisory_count = 1
+                    # Preserve a token boundary without scanning the permitted
+                    # warning again through the rolling tail on the next read.
+                    self._scan(b'\n')
+                    self._line_start = True
+                else:
+                    self._candidate = candidate
+            elif self._line_start and byte == _VULKAN_ADVISORY[:1]:
+                self._candidate = byte
+                self._candidate_deadline = time.monotonic()+_ADVISORY_PREFIX_SECONDS
+                self._line_start = False
+                self._condition.notify_all()
+            else:
+                self._scan(byte)
+                self._line_start = value == 10
+
+    def auxiliary_alive(self):
+        return self._watchdog is not None and self._watchdog.is_alive()
+
     def _read(self):
         try:
+            if self._watchdog is not None:
+                self._watchdog.start()
             # Popen PIPE is a BufferedReader. read1 performs at most one raw
             # read, so a short warning is visible while its writer stays alive.
             reader = self.stream.read1
@@ -41,21 +139,28 @@ class IncrementalCollector:
                     if len(self.data) < self.maximum+1:
                         self.data.extend(chunk[:self.maximum+1-len(self.data)])
                     self.oversized = len(self.data) > self.maximum
-                    scan = self._tail+chunk
-                    self._codes.update(code for code, pattern in _PATTERNS if pattern.search(scan))
-                    self._tail = scan[-64:]
-                    if self._codes or self.oversized:
+                    if self.oversized:
                         self.alert.set()
+                    self._classify(chunk)
                 # Classify/alert before disk I/O so a slow filesystem cannot
                 # delay observation of a warning. Only the bounded prefix persists.
                 if self._evidence is not None and not self._evidence.append(chunk):
                     self.evidence_failed = True
                     self.alert.set()
-        except (OSError, ValueError, AttributeError):
+        except (OSError, ValueError, AttributeError, RuntimeError):
             with self._lock:
                 self.read_failed = self.oversized = True
                 self.alert.set()
         finally:
+            with self._condition:
+                if self._candidate:
+                    self._reject_candidate()
+                self._watchdog_stop = True
+                self._condition.notify_all()
+            if self._watchdog is not None and self._watchdog.ident is not None:
+                self._watchdog.join(1)
+                if self._watchdog.is_alive():
+                    self.alert.set()
             if self._evidence is not None and not self._evidence.finish():
                 self.evidence_failed = True
                 self.alert.set()
@@ -71,8 +176,11 @@ class IncrementalCollector:
                     'truncated': self.oversized, 'readFailed': self.read_failed,
                     'privateEvidence': self._evidence.summary() if self._evidence is not None else None,
                     'classifications': sorted(self._codes),
+                    'vulkanAdvisoryEnabled': self._advisory_enabled,
+                    'vulkanAdvisoriesAccepted': self._advisory_count,
                     'complete': (self.thread.ident is not None and not self.thread.is_alive()
-                                 and not self.read_failed and not self.oversized and not self.evidence_failed)}
+                                 and not self.read_failed and not self.oversized and not self.evidence_failed
+                                 and not self.auxiliary_alive())}
 
 
 def child_summary(child):

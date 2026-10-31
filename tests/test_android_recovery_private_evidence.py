@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -51,6 +52,52 @@ class PrivateEvidenceTests(unittest.TestCase):
         encoded = json.dumps(report)
         for value in ('synthetic-public-key','/private/example','0-stderr.bin',str(self.root)):
             self.assertNotIn(value, encoded)
+
+    def test_permitted_advisory_is_retained_without_raw_report(self):
+        from reproof.live.android_recovery_diagnostics import _VULKAN_ADVISORY
+        sink = self.sink()
+        collector = IncrementalCollector(io.BytesIO(_VULKAN_ADVISORY), evidence=sink,
+                                         _vulkan_advisory=True)
+        collector.thread.start();collector.thread.join(2)
+        self.assertEqual((self.root/'credentials/0-stderr.bin').read_bytes(), _VULKAN_ADVISORY)
+        self.assertFalse(collector.alert.is_set())
+        self.assertTrue(collector.snapshot()['privateEvidence']['complete'])
+        self.assertEqual(collector.snapshot()['vulkanAdvisoriesAccepted'], 1)
+        self.assertNotIn('Please update', json.dumps(collector.snapshot()))
+        self.assertFalse(collector.auxiliary_alive())
+
+    def test_advisory_watchdog_blocks_child_and_evidence_collection(self):
+        collector = IncrementalCollector(io.BytesIO(b''), _vulkan_advisory=True)
+        collector.thread.start();collector.thread.join(2)
+        child = birth._Child()
+        child.collectors = [collector]
+        child.process = SimpleNamespace(poll=lambda:0)
+        with patch.object(collector._watchdog, 'is_alive', return_value=True), \
+             patch.object(birth._ProcessOwner, '_terminate', return_value=True), \
+             patch.object(collector.thread, 'join', wraps=collector.thread.join) as join:
+            self.assertFalse(child.collect(time.monotonic()+2))
+            self.assertGreaterEqual(join.call_args.args[0], 0)
+            self.assertLessEqual(join.call_args.args[0], 2)
+        sink = self.sink()
+        collector._evidence = sink
+        child._evidence = [sink]
+        with patch.object(collector._watchdog, 'is_alive', return_value=True):
+            self.assertFalse(birth._finish_private_evidence(SimpleNamespace(_children=[child])))
+            self.assertIsNotNone(sink.fd)
+        self.assertTrue(birth._finish_private_evidence(SimpleNamespace(_children=[child])))
+
+    def test_real_child_opt_in_is_stdout_only(self):
+        from reproof.live.android_recovery_diagnostics import _VULKAN_ADVISORY
+        process = SimpleNamespace(stdout=io.BytesIO(_VULKAN_ADVISORY),
+                                  stderr=io.BytesIO(_VULKAN_ADVISORY), poll=lambda:0)
+        child = birth._Child();child._vulkan_advisory = True
+        with patch.object(birth.subprocess, 'Popen', return_value=process):
+            child.start(('synthetic-not-run',), {}, self.root)
+        for collector in child.collectors:collector.thread.join(2)
+        self.assertEqual([c.snapshot()['vulkanAdvisoriesAccepted'] for c in child.collectors], [1, 0])
+        self.assertFalse(child.collectors[0].alert.is_set())
+        self.assertTrue(child.collectors[1].alert.is_set())
+        self.assertTrue(all(not c.auxiliary_alive() for c in child.collectors))
 
     def test_persistence_has_same_fixed_cap_while_reader_drains(self):
         sink = self.sink()
