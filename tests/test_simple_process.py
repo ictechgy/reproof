@@ -13,7 +13,7 @@ import reproof.cli
 from reproof import repair
 from reproof.repair import run_command
 from reproof.simple.errors import SimpleError, ToolFailure
-from reproof.simple.process import HostToolRunner
+from reproof.simple.process import HostToolRunner, summarize_tool_output
 from tests.simple_support import FakeToolRunner, spawn_zombie_group
 
 
@@ -113,6 +113,64 @@ class SimpleProcessTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("문제:", err.getvalue())
 
+
+
+class ToolOutputMaskingTests(unittest.TestCase):
+    """안내문에 싣는 마지막 출력(summary)에서 자격 증명으로 보이는 값을 가리는지 확인한다(보안 검토 지시)."""
+
+    def assertMasked(self, line, secret, kept=()):
+        """line을 요약하면 secret이 사라지고 ***가 생기며, kept의 글자는 그대로 남는지 확인한다."""
+        summary = summarize_tool_output(line)
+        self.assertNotIn(secret, summary)
+        self.assertIn("***", summary)
+        for text in kept:
+            self.assertIn(text, summary)
+
+    def test_credential_query_values_are_masked(self):
+        """token·key·sig·password·secret·auth·X-Amz-* 같은 이름의 쿼리 값은 가리고 다른 값은 둔다."""
+        self.assertMasked("fetch https://cdn.example.com/a.zip?X-Amz-Signature=abcd1234&X-Amz-Credential=AKIAXY%2F1&page=2",
+                          "abcd1234", kept=("X-Amz-Signature=***", "page=2", "cdn.example.com/a.zip"))
+        self.assertMasked("GET /api?Token=s3cr3t&lang=ko", "s3cr3t", kept=("Token=***", "lang=ko"))
+        for name in ("access_token", "key", "apikey", "api_key", "sig", "signature", "password", "passwd",
+                     "secret", "auth"):
+            with self.subTest(name=name):
+                self.assertMasked(f"url https://h.example/p?{name}=hunter2", "hunter2", kept=(f"{name}=***",))
+
+    def test_authorization_header_and_auth_scheme_values_are_masked(self):
+        """Authorization 헤더 값 전체와 Bearer·Basic 뒤의 값을 가린다."""
+        self.assertMasked("> Authorization: token abc123", "abc123", kept=("Authorization: ***",))
+        self.assertMasked("header Bearer eyJhbGciOiJIUzI1NiJ9.payload", "eyJhbGciOiJIUzI1NiJ9", kept=("Bearer ***",))
+        self.assertMasked("sent Basic dXNlcjpwYXNzd29yZA==", "dXNlcjpwYXNzd29yZA", kept=("Basic ***",))
+
+    def test_long_high_entropy_runs_are_masked(self):
+        """32자 이상 무작위 토큰(GitHub 토큰, base64 비밀, 16진 키, '/'가 섞인 키)을 가린다."""
+        for token in ("ghp_WHwzdV3GOOeTcsPksgWmfW82W1OzM9K7dRn6", "17VD4hk5e_oJJwYv1CSbEA1H3Lmd2cAZ7ZQFDZxsNs4",
+                      "7276a711f33fc88eff7217122b731c57a19ebff671a94dcc0c09d9eb9d86e26f",
+                      "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"):
+            with self.subTest(token=token):
+                self.assertMasked(f"fatal: bad credential {token} rejected", token, kept=("fatal: bad credential",))
+
+    def test_ordinary_paths_error_words_and_numbers_are_not_masked(self):
+        """일반 경로·DerivedData 폴더 이름·UUID·오류 문장·짧은 숫자는 그대로 둔다."""
+        lines = ["/Users/me/Library/Developer/Xcode/DerivedData/MixedShop-gbhzqfzkcyrbqvdjxzwkxvqzglky/Build/Products",
+                 "Sources/Feature2/LoginViewController.swift:12:5: error: cannot find 'Kit' in scope",
+                 "Invalid device: DC1C6A87-3B2F-4E5A-9C1D-0123456789AB",
+                 "error: authorization failed; basic configuration missing (exit code 65)",
+                 "~/.reproof/projects/my-app/builds/7276a711f33fc88eff7217122b731c57a19ebff671a94dcc0c09d9eb9d86e26f/logs"]
+        for line in lines[:4]:
+            with self.subTest(line=line):
+                self.assertEqual(summarize_tool_output(line), line)
+        self.assertEqual(summarize_tool_output(lines[4]), "~/.reproof/projects/my-app/builds/***/logs")
+
+    def test_host_runner_summary_masks_secrets_end_to_end(self):
+        """실제 실행 실패의 안내문에서도 토큰이 가려지는지 본다(URL 사용자 정보 가리기와 함께)."""
+        script = ("echo 'curl -H \"Authorization: Bearer ghp_WHwzdV3GOOeTcsPksgWmfW82W1OzM9K7dRn6\" "
+                  "https://bot:pw@git.corp/x.git?token=abc' >&2; exit 1")
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ToolFailure) as caught:
+            HostToolRunner().run(["/bin/sh", "-c", script], cwd=Path(tmp), timeout=10)
+        message = caught.exception.user_message()
+        for secret in ("ghp_WHwzdV3GOOeTcsPksgWmfW82W1OzM9K7dRn6", "bot:pw", "token=abc"):
+            self.assertNotIn(secret, message)
 
 
 class RunCommandGroupCleanupTests(unittest.TestCase):

@@ -11,6 +11,7 @@ from typing import Protocol
 
 from ..repair import CommandError, run_command
 from .errors import ToolFailure
+from .redaction import mask_secrets
 
 # 실패 시 오류에 싣는 로그 끝부분 크기(바이트).
 _TAIL_BYTES = 4096
@@ -97,14 +98,15 @@ def _clean_line(line: str) -> str:
 def summarize_tool_output(log_text: str) -> str:
     """로그 끝부분에서 마지막 비어 있지 않은 줄 몇 개(stderr 우선, 없으면 stdout)를 안내문용 한 줄로 만든다.
 
-    제어 문자를 지우고 URL의 사용자 정보를 redact_url로 가린 뒤, 끝쪽 300자만 남긴다. 왜 가린 다음에 자르나:
-    먼저 자르면 `://`가 잘려 나가 토큰 조각이 가려지지 않은 채 남을 수 있기 때문이다.
+    제어 문자를 지우고, 줄마다 mask_secrets로 토큰·서명·Authorization 값을 가리고, URL의 사용자 정보를 redact_url로
+    가린 뒤, 끝쪽 300자만 남긴다. 왜 가린 다음에 자르나: 먼저 자르면 `://`나 `token=`이 잘려 나가 비밀 조각이 가려지지
+    않은 채 남을 수 있기 때문이다.
     """
     from .packages import redact_url  # packages가 이 모듈을 import하므로 순환을 피해 여기서 가져온다.
 
     stdout, _, stderr = log_text.rpartition(_STDERR_MARKER)
     for part in (stderr, stdout):
-        lines = [cleaned for cleaned in map(_clean_line, part.splitlines()) if cleaned]
+        lines = [mask_secrets(cleaned) for cleaned in map(_clean_line, part.splitlines()) if cleaned]
         if lines:
             text = redact_url(" | ".join(lines[-_SUMMARY_LINES:]))
             return text if len(text) <= _SUMMARY_LIMIT else "…" + text[-(_SUMMARY_LIMIT - 1):]
