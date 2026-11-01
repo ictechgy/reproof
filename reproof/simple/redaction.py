@@ -14,7 +14,9 @@ MASK = "***"
 """가린 값 자리에 넣는 표시."""
 
 # 쿼리 인자 하나(구분자, 이름, 값). 이름이 자격 증명처럼 보이면 값을 가린다(_is_credential_key). '#' 뒤 조각도 같은 형식이다.
-_QUERY_PARAMETER = re.compile(r"([?&;#])([A-Za-z0-9_.~-]{1,64})=([^&#\s'\"]*)")
+# 값에는 구분자(& # ? ;)를 넣지 않는다: 일반 인자의 값이 뒤따르는 `?token=`·`;token=`을 삼켜 검사를 건너뛰지 않게 하려는 것이다.
+# 글자 묶음이 서로 겹치지 않아 되돌아감이 없다(선형 시간).
+_QUERY_PARAMETER = re.compile(r"([?&;#])([A-Za-z0-9_.~-]{1,64})=([^&#?;\s'\"]*)")
 # 이름이 정확히 이것이면 자격 증명으로 본다(소문자 비교). 접미·부분 일치 규칙은 _is_credential_key에 있다.
 _CREDENTIAL_KEYS = frozenset({"key", "apikey", "sig", "signature", "auth", "token"})
 _CREDENTIAL_KEY_SUFFIXES = ("token", "_key", "-key")

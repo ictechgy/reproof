@@ -239,6 +239,15 @@ class ToolOutputMaskingTests(unittest.TestCase):
                                   kept=(f"{name}=***", "mode=1", "lang=ko"))
         self.assertEqual(summarize_tool_output("GET /p?page=2&monkey=banana"), "GET /p?page=2&monkey=banana")
 
+    def test_every_query_key_is_examined_even_after_nested_separators(self):
+        """일반 인자의 값이 뒤따르는 `?`·`;`를 삼켜 다음 `token=`이 검사되지 않는 일이 없어야 한다(가리기 우회 방지)."""
+        for line, kept in (("GET https://h.example/p?a=x;token=hunter2", ("a=x", "token=***")),
+                           ("GET https://h.example/p?a=x?access_token=hunter2&lang=ko", ("a=x", "access_token=***",
+                                                                                        "lang=ko")),
+                           ("GET /p;mode=dev;client_secret=hunter2;v=1", ("mode=dev", "client_secret=***", "v=1"))):
+            with self.subTest(line=line):
+                self.assertMasked(line, "hunter2", kept=kept)
+
     def test_base64_secret_with_slashes_is_judged_as_a_whole(self):
         """'/'가 섞인 base64 비밀은 낱말 같은 조각(info, abc)이 끼어 있어도 조각마다가 아니라 전체로 판단해 가린다."""
         secret = "info/Zx9Kq2Lm8Pw3Ds/abc/Rt5Yh7Uj1Ok4Nb6VcX"
