@@ -52,25 +52,44 @@ def sample_config():
     )
 
 
-def spawn_zombie_group(timeout=5.0):
-    """리더가 끝났지만 아직 회수(wait)되지 않은 프로세스 그룹을 만들고 그 Popen을 돌려준다.
+def wait_until_zombie(process, timeout=5.0):
+    """process(새 세션 그룹의 리더)가 끝나 좀비가 될 때까지(회수하지 않고) 기다린다. timeout초를 넘기면 AssertionError.
 
-    왜: macOS는 좀비만 남은 그룹에 killpg하면 EPERM(PermissionError)을 내므로, 정리 코드가 이 경우를 견디는지
-    실제 커널 동작으로 확인하려는 것이다. 신호 0으로 그룹을 살펴 PermissionError가 나오면 좀비 상태다
-    (Python 3.11의 macOS 빌드에는 os.waitid가 없어 이 방법을 쓴다).
-    주의: 호출자가 끝에 wait()로 회수해야 한다. timeout초 안에 좀비가 되지 않으면 AssertionError.
+    왜 운영체제마다 다른가: macOS는 좀비만 남은 그룹에 killpg하면 EPERM(PermissionError)을 내므로 신호 0으로 살펴 그
+    상태를 확인한다(Python 3.11의 macOS 빌드에는 os.waitid가 없다). Linux는 좀비 그룹에도 신호가 성공하므로 같은 방법이
+    통하지 않아, os.waitid(WNOWAIT)로 회수하지 않고 종료만 기다린다.
     """
     import os
-    import subprocess
+    import sys
     import time
 
-    process = subprocess.Popen(["/bin/sh", "-c", "exit 0"], start_new_session=True)
+    if sys.platform != "darwin" and hasattr(os, "waitid"):
+        os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT)  # 종료할 때까지 기다리되 회수하지 않는다.
+        return
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             os.killpg(process.pid, 0)
         except PermissionError:
-            return process
+            return
         time.sleep(0.01)
-    process.wait()
     raise AssertionError("테스트용 프로세스가 제한 시간 안에 좀비 상태가 되지 않았습니다.")
+
+
+def spawn_zombie_group(timeout=5.0):
+    """리더가 끝났지만 아직 회수(wait)되지 않은 프로세스 그룹을 만들고 그 Popen을 돌려준다.
+
+    왜: macOS는 좀비만 남은 그룹에 killpg하면 EPERM(PermissionError)을 내므로, 정리 코드가 이 경우를 견디는지
+    실제 커널 동작으로 확인하려는 것이다. Linux에서는 같은 그룹에 신호가 성공하므로 EPERM 없이 정리되는 경로를 확인한다
+    (어느 운영체제에서도 건너뛰지 않는다: release-check는 건너뛴 테스트가 있으면 check를 실패로 본다).
+    주의: 호출자가 끝에 wait()로 회수해야 한다. timeout초 안에 좀비가 되지 않으면 AssertionError(회수 후).
+    """
+    import subprocess
+
+    process = subprocess.Popen(["/bin/sh", "-c", "exit 0"], start_new_session=True)
+    try:
+        wait_until_zombie(process, timeout)
+    except AssertionError:
+        process.wait()
+        raise
+    return process

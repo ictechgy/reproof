@@ -26,7 +26,7 @@ from reproof.simple.hierarchy import INTERACTIVE_TYPES
 from reproof.simple.runner_client import (
     RUNNER_FILES, RunnerClient, RunnerProducts, RunnerSession, build_runner, free_loopback_port,
 )
-from tests.simple_support import FakeToolRunner, spawn_zombie_group
+from tests.simple_support import FakeToolRunner, wait_until_zombie
 
 BUNDLE = "io.reproof.example.mixedshop"
 TOKEN = "test-session-token"
@@ -86,11 +86,16 @@ class _FakeRunnerHandler(BaseHTTPRequestHandler):
         status, document = self.server.respond(body, token, self.server.session_env())
         time.sleep(self.server.delay)
         raw = json.dumps(document).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(raw)))
-        self.end_headers()
-        self.wfile.write(raw)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+        except (BrokenPipeError, ConnectionResetError):
+            # 시간 초과·연결 끊김 테스트에서는 클라이언트가 먼저 떠나는 것이 예상된 결과다. 트레이스백으로 출력을 어지럽히지
+            # 않고, 응답을 보내지 못한 사실은 기록해 테스트가 필요하면 확인할 수 있게 한다.
+            self.server.requests[-1]["is_reply_lost"] = True
 
     def log_message(self, format, *args):
         """요청마다 stderr에 찍히는 접근 로그를 끈다. 오류가 아니라 테스트 출력을 깨끗하게 두려는 것이다."""
@@ -127,9 +132,12 @@ class _HostileStatusLineHandler(socketserver.BaseRequestHandler):
     """HTTP 대신 ESC·제어 문자가 섞인 긴 상태 줄을 돌려주는 가짜 상대(http.client BadStatusLine을 일으킨다)."""
 
     def handle(self):
-        """요청을 읽고 적대적인 상태 줄을 보낸 뒤 닫는다."""
-        self.request.recv(65536)
-        self.request.sendall(b"\x1b[31mEVIL\x07" + b"A" * 5000 + b"\r\n\r\n")
+        """요청을 읽고 적대적인 상태 줄을 보낸 뒤 닫는다. 클라이언트가 먼저 끊으면(예상된 경우) 조용히 끝낸다."""
+        try:
+            self.request.recv(65536)
+            self.request.sendall(b"\x1b[31mEVIL\x07" + b"A" * 5000 + b"\r\n\r\n")
+        except (BrokenPipeError, ConnectionResetError):
+            return  # 클라이언트가 상태 줄을 다 받기 전에 끊는 것은 이 테스트가 확인하려는 동작의 일부다.
 
 
 def _fake_process(pid=4321, *, exit_code=None, exits_after_stop=False):
@@ -659,13 +667,7 @@ class RunnerClientTests(unittest.TestCase):
                 mock.patch.object(runner_client, "build_default_environment", return_value={}):
             with self.assertRaises(SimpleError) as raised:
                 with self.session(server.server_address[1]):
-                    zombie_deadline = time.monotonic() + 5
-                    while time.monotonic() < zombie_deadline:  # 리더가 끝나 좀비가 될 때까지 기다린다(회수하지 않음).
-                        try:
-                            os.killpg(spawned[0].pid, 0)
-                        except PermissionError:
-                            break
-                        time.sleep(0.01)
+                    wait_until_zombie(spawned[0])  # 리더가 끝나 좀비가 될 때까지 기다린다(회수하지 않음, OS별 방법).
         self.assertEqual(raised.exception.code, "runner_stop_failed")
         self.assertIsNotNone(spawned[0].returncode)
 

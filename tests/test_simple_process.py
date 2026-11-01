@@ -297,7 +297,9 @@ class RunCommandGroupCleanupTests(unittest.TestCase):
     """repair.run_command가 끝난 뒤 프로세스 그룹을 정리할 때 macOS의 일시적 EPERM을 견디는지 확인한다."""
 
     def test_successful_command_survives_zombie_only_group_until_reaped(self):
-        """좀비만 남은 그룹(실제 커널 EPERM)이 100 ms 뒤 회수되면 성공한 명령이 그대로 성공으로 끝나는지 본다.
+        """좀비만 남은 그룹(macOS는 실제 커널 EPERM)이 100 ms 뒤 회수되면 성공한 명령이 그대로 성공으로 끝나는지 본다.
+
+        Linux는 좀비 그룹에도 신호가 성공해 EPERM 재시도 없이 끝나는 경로를 확인한다(건너뛰지 않는다).
 
         왜: 예전에는 ProcessLookupError만 잡아, 성공한 명령도 PermissionError 트레이스백으로 실패했다.
         killpg를 좀비 그룹으로 돌려 보내 실제 EPERM을 받게 하고, 첫 killpg 호출 100 ms 뒤 다른 스레드가 좀비를 회수한다.
