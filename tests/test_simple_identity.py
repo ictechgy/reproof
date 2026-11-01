@@ -1,4 +1,5 @@
 """빌드 식별: 진짜 git 저장소로 commit·작업 중 변경·미확인 상태를 확인한다."""
+import hashlib
 import tempfile
 import unittest
 from dataclasses import replace
@@ -95,6 +96,63 @@ class SimpleIdentityTests(unittest.TestCase):
             self.assertEqual(len(first.build_id()), 16)
             self.assertNotEqual(first.build_id(), second.build_id())
             self.assertEqual(first.build_id(), replace(first).build_id())
+
+    def make_nested(self, tmp: str) -> tuple[Path, Path]:
+        """a.swift는 app/ 안, o는 other/ 안에 커밋된 저장소를 만들고 (루트, app)을 돌려준다."""
+        repo = Path(tmp) / "repo"
+        (repo / "app").mkdir(parents=True)
+        (repo / "other").mkdir()
+        git(repo, "init", "-q")
+        (repo / "app" / "a.swift").write_text("a\n")
+        (repo / "other" / "o").write_text("o\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "init")
+        return repo, repo / "app"
+
+    def test_changes_outside_subfolder_are_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, app = self.make_nested(tmp)
+            (repo / "other" / "o").write_text("changed")
+            (repo / "other" / "new").write_text("x")
+            out = Path(tmp) / "out"
+            identity = self.capture(app, out)
+            self.assertFalse(identity.is_dirty)
+            self.assertEqual(identity.untracked_paths, ())
+            self.assertFalse((out / "dirty.patch").exists())
+
+    def test_subfolder_changes_are_relative_to_subfolder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, app = self.make_nested(tmp)
+            (app / "a.swift").write_text("changed\n")
+            (app / "sub").mkdir()
+            (app / "sub" / "u").write_text("x")
+            (repo / "other" / "o").write_text("changed")
+            out = Path(tmp) / "out"
+            identity = self.capture(app, out)
+            self.assertTrue(identity.is_dirty)
+            self.assertEqual(identity.untracked_paths, ("sub/u",))
+            patch = (out / "dirty.patch").read_text()
+            self.assertIn("a/a.swift", patch)
+            self.assertNotIn("other", patch)
+
+    def test_untracked_folder_inside_parent_repository_is_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, _ = self.make_nested(tmp)
+            plain = repo / "plain"
+            plain.mkdir()
+            (plain / "x.swift").write_text("x")
+            identity = self.capture(plain, Path(tmp) / "out")
+            self.assertIsNone(identity.commit_sha)
+            self.assertEqual(identity.source_label(), "소스 버전 미확인")
+
+    def test_non_utf8_change_is_preserved_in_patch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, out = make_repository(Path(tmp)), Path(tmp) / "out"
+            (repo / "a.swift").write_bytes(b"caf\xe9\n")
+            identity = self.capture(repo, out)
+            patch_bytes = (out / "dirty.patch").read_bytes()
+            self.assertIn(b"caf\xe9", patch_bytes)
+            self.assertEqual(identity.dirty_patch_digest, hashlib.sha256(patch_bytes).hexdigest())
 
     def test_rename_entry_skips_source_path(self):
         changed, untracked = parse_porcelain_status("R  new name.swift\0old.swift\0?? z.swift\0?? b.swift\0")

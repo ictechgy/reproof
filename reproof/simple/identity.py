@@ -79,41 +79,61 @@ def _run_git(runner: ToolRunner, source_root: Path, arguments: list[str]) -> str
 
 
 def _read_head_commit(runner: ToolRunner, source_root: Path) -> str | None:
-    """HEAD 커밋 SHA를 읽는다. git 저장소가 아니거나 커밋이 없으면 None.
+    """source_root가 git 추적 내용일 때만 HEAD 커밋 SHA를 읽는다. 아니면 None.
 
-    왜: 이런 소스도 빌드는 되어야 하므로 실패를 오류가 아니라 '미확인'으로 취급한다.
+    git 저장소가 아니거나, 커밋이 없거나, 상위 저장소 안에 있지만 추적 파일이 하나도 없는 폴더는
+    '미확인'이다. 왜: 이런 소스도 빌드는 되어야 하고, 상위 저장소의 commit을 잘못 붙이면 안 된다.
     """
     try:
-        return _run_git(runner, source_root, ["rev-parse", "--verify", "HEAD"]).strip() or None
+        sha = _run_git(runner, source_root, ["rev-parse", "--verify", "HEAD"]).strip()
+        tracked = _run_git(runner, source_root, ["ls-files", "-z", "--", "."])
     except ToolFailure:
         return None
+    return sha if sha and tracked else None
+
+
+def _read_repository_prefix(runner: ToolRunner, source_root: Path) -> str:
+    """저장소 루트에서 source_root까지의 상대 경로(끝에 '/', 루트면 빈 문자열)를 돌려준다."""
+    return _run_git(runner, source_root, ["rev-parse", "--show-prefix"]).strip("\n")
+
+
+def _relative_to_source_root(paths: list[str], prefix: str) -> list[str]:
+    """저장소 루트 기준 경로에서 source_root 접두사를 떼어 source_root 기준으로 바꾼다."""
+    return [path[len(prefix):] if path.startswith(prefix) else path for path in paths]
 
 
 def _write_dirty_patch(runner: ToolRunner, source_root: Path, output_dir: Path) -> str | None:
-    """추적 파일 변경을 dirty.patch로 쓰고 sha256을 돌려준다. 변경이 없으면 쓰지 않고 None."""
-    patch = _run_git(runner, source_root, ["diff", "--binary", "HEAD"])
-    if not patch:
-        return None
+    """추적 파일 변경을 dirty.patch로 쓰고 파일 바이트의 sha256을 돌려준다. 변경이 없으면 None.
+
+    왜: 러너 stdout은 UTF-8로 복호화되며 손실되므로(EUC-KR 등) git이 파일에 직접 쓰게 한다.
+    --relative와 '-- .'로 source_root 밖의 변경은 제외하고 경로를 source_root 기준으로 만든다.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
-    patch_bytes = patch.encode("utf-8")
-    (output_dir / "dirty.patch").write_bytes(patch_bytes)
+    patch_path = output_dir / "dirty.patch"
+    _run_git(runner, source_root, ["diff", "--binary", "--relative", f"--output={patch_path}", "HEAD", "--", "."])
+    patch_bytes = patch_path.read_bytes()
+    if not patch_bytes:
+        patch_path.unlink()
+        return None
     return hashlib.sha256(patch_bytes).hexdigest()
 
 
 def capture_build_identity(source_root: Path, *, config_digest: str, source_manifest_digest: str,
                            output_dir: Path, runner: ToolRunner) -> BuildIdentity:
-    """소스의 git 상태를 읽어 BuildIdentity를 만든다. 작업 중 변경이 있으면 output_dir/dirty.patch를 쓴다.
+    """source_root 범위의 git 상태를 읽어 BuildIdentity를 만든다. 추적 파일 변경이 있으면 dirty.patch를 쓴다.
 
-    git 저장소가 아니거나 커밋이 없으면 commit_sha=None, 변경 없음으로 돌려준다(오류 아님).
-    삭제된 추적 파일도 변경으로 센다.
+    git 저장소가 아니거나 커밋이 없거나 추적 내용이 아니면 commit_sha=None, 변경 없음(오류 아님).
+    상위 저장소의 source_root 밖 변경은 무시하고 경로는 source_root 기준이다. 삭제된 추적 파일도 변경이다.
     """
     commit_sha = _read_head_commit(runner, source_root)
     changed: list[str] = []
     untracked: list[str] = []
     patch_digest = None
     if commit_sha is not None:
-        status = _run_git(runner, source_root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+        status = _run_git(runner, source_root, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."])
         changed, untracked = parse_porcelain_status(status)
+        prefix = _read_repository_prefix(runner, source_root)
+        untracked = _relative_to_source_root(untracked, prefix)
         patch_digest = _write_dirty_patch(runner, source_root, output_dir) if changed else None
     return BuildIdentity(commit_sha, bool(changed or untracked), patch_digest, tuple(sorted(untracked)),
                          config_digest, source_manifest_digest)
