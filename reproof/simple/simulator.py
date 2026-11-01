@@ -156,8 +156,8 @@ class SimulatorManager:
     def _shutdown_if_running(self, udid: str, state: str) -> None:
         """Shutdown 상태면 건너뛰고, 아니면 끈다.
 
-        왜 state를 보나: HostToolRunner는 log_path 없이는 출력 꼬리를 싣지 않아 문구 매칭만으로는
-        새로 만든 기기(항상 Shutdown)의 shutdown 실패를 구분할 수 없다. 문구 매칭은 보조 수단이다.
+        왜 state를 먼저 보나: simctl 문구는 Xcode 버전마다 바뀔 수 있어, 새로 만든 기기(항상 Shutdown)는 문구에
+        기대지 않고 건너뛴다. 출력 꼬리(HostToolRunner가 임시 로그로 받는다)의 문구 매칭은 보조 수단이다.
         """
         if state == "Shutdown":
             return

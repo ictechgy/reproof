@@ -1,6 +1,11 @@
 """외부 명령 실행기. 기존 repair.run_command를 감싸 간편 모드용 환경과 오류 형식을 맞춘다."""
+import contextlib
 import os
+import re
 import subprocess
+import tempfile
+import unicodedata
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol
 
@@ -9,6 +14,18 @@ from .errors import ToolFailure
 
 # 실패 시 오류에 싣는 로그 끝부분 크기(바이트).
 _TAIL_BYTES = 4096
+# run_command가 로그에서 stdout과 stderr 사이에 넣는 구분 줄.
+_STDERR_MARKER = "\n--- stderr ---\n"
+# 안내문에 싣는 마지막 출력 줄 수와 최대 글자 수.
+_SUMMARY_LINES = 3
+_SUMMARY_LIMIT = 300
+# 터미널 색·커서를 바꾸는 ANSI escape 순서.
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-_]")
+# repair.run_command의 실패 문구. 실패 방식을 구분해 안내하려고 읽는다.
+_EXIT_CODE_MESSAGE = re.compile(r"Command failed with exit code (-?[0-9]+)")
+_TIMEOUT_MESSAGE = "Command time budget exhausted"
+_NOT_STARTED_MESSAGE = "Command could not start"
+_OUTPUT_LIMIT_MESSAGE = "Command output limit exceeded"
 # 도구 출력 상한. xcodebuild 로그가 커질 수 있어 기본값보다 크게 둔다.
 _MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 # xcode-select 조회 결과 캐시. 프로세스당 한 번만 조회한다.
@@ -71,6 +88,70 @@ def read_log_tail(log_path: Path | None) -> str:
     return data[-_TAIL_BYTES:].decode("utf-8", "replace")
 
 
+def _clean_line(line: str) -> str:
+    """한 줄에서 ANSI escape를 지우고 탭은 공백으로, 나머지 제어 문자(유니코드 C 분류)는 지운다."""
+    text = _ANSI_ESCAPE.sub("", line).replace("\t", " ")
+    return "".join(character for character in text if not unicodedata.category(character).startswith("C")).strip()
+
+
+def summarize_tool_output(log_text: str) -> str:
+    """로그 끝부분에서 마지막 비어 있지 않은 줄 몇 개(stderr 우선, 없으면 stdout)를 안내문용 한 줄로 만든다.
+
+    제어 문자를 지우고 URL의 사용자 정보를 redact_url로 가린 뒤, 끝쪽 300자만 남긴다. 왜 가린 다음에 자르나:
+    먼저 자르면 `://`가 잘려 나가 토큰 조각이 가려지지 않은 채 남을 수 있기 때문이다.
+    """
+    from .packages import redact_url  # packages가 이 모듈을 import하므로 순환을 피해 여기서 가져온다.
+
+    stdout, _, stderr = log_text.rpartition(_STDERR_MARKER)
+    for part in (stderr, stdout):
+        lines = [cleaned for cleaned in map(_clean_line, part.splitlines()) if cleaned]
+        if lines:
+            text = redact_url(" | ".join(lines[-_SUMMARY_LINES:]))
+            return text if len(text) <= _SUMMARY_LIMIT else "…" + text[-(_SUMMARY_LIMIT - 1):]
+    return ""
+
+
+def _failure_reason(error: CommandError, timeout: int) -> tuple[str, int | None]:
+    """run_command 실패 문구를 (안내 문장, 시간 초과면 제한 초)로 바꾼다. 모르는 문구면 일반 실패로 본다."""
+    message = str(error)
+    exit_code = _EXIT_CODE_MESSAGE.fullmatch(message)
+    if exit_code:
+        return f"실행이 실패했습니다(종료 코드 {exit_code.group(1)}).", None
+    if message == _TIMEOUT_MESSAGE:
+        return f"실행이 시간 제한 {timeout}초를 넘겼습니다.", timeout
+    if message == _NOT_STARTED_MESSAGE:
+        return "실행 파일을 시작하지 못했습니다(설치돼 있지 않거나 실행 권한이 없습니다).", None
+    if message == _OUTPUT_LIMIT_MESSAGE:
+        return f"출력이 상한({_MAX_OUTPUT_BYTES // (1024 * 1024)} MiB)을 넘었습니다.", None
+    return "실행이 실패했습니다.", None
+
+
+def _tool_failure(argv: list[str], error: CommandError, timeout: int, log_path: Path | None,
+                  output_log: Path) -> ToolFailure:
+    """실패한 실행을 ToolFailure로 만든다. output_log는 실제 출력이 담긴 로그(호출자 로그 또는 임시 로그)다."""
+    tail = read_log_tail(output_log)
+    reason, timeout_seconds = _failure_reason(error, timeout)
+    return ToolFailure(Path(argv[0]).name, log_path=log_path, output_tail=tail, reason=reason,
+                       summary=summarize_tool_output(tail), timeout_seconds=timeout_seconds)
+
+
+@contextlib.contextmanager
+def _output_log(log_path: Path | None) -> Iterator[Path]:
+    """호출자 로그가 있으면 그것을, 없으면 시스템 임시 폴더의 0600 임시 로그를 주고 끝나면 지운다.
+
+    왜 임시 로그인가: simctl·git처럼 로그 없이 부르는 명령도 실패 원인 줄을 안내문에 실으려는 것이다.
+    """
+    if log_path is not None:
+        yield log_path
+        return
+    handle, name = tempfile.mkstemp(prefix="reproof-tool-", suffix=".log")
+    os.close(handle)
+    try:
+        yield Path(name)
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
 class HostToolRunner:
     """개발자 Mac에서 실제 명령을 실행하는 ToolRunner 구현."""
 
@@ -78,13 +159,14 @@ class HostToolRunner:
             env_extra: dict[str, str] | None = None) -> str:
         """기본 환경에 호출자의 env_extra를 덮어써 실행한다.
 
-        반환: stdout. 실패·시간 초과 시 ToolFailure(로그 끝부분 포함). 왜: 호출자가 CommandError의
-        일반 문구 대신 도구 이름과 로그 위치를 담은 사용자용 오류를 받게 하려는 것이다.
+        반환: stdout. 실패·시간 초과 시 ToolFailure(실패 방식, 다듬은 마지막 출력, 로그 끝부분 포함). 왜: 호출자가
+        CommandError의 일반 문구 대신 도구 이름·원인 줄·로그 위치를 담은 사용자용 오류를 받게 하려는 것이다.
+        log_path가 없으면 임시 로그로 출력을 받고, 오류의 log_path는 None으로 둔다(임시 로그는 지워지므로).
         """
         environment = {**build_default_environment(), **(env_extra or {})}
-        try:
-            return run_command(argv, str(cwd), timeout=timeout, max_output=_MAX_OUTPUT_BYTES,
-                               env_extra=environment, log_path=log_path)
-        except CommandError as error:
-            raise ToolFailure(Path(argv[0]).name, log_path=log_path,
-                              output_tail=read_log_tail(log_path)) from error
+        with _output_log(log_path) as output_log:
+            try:
+                return run_command(argv, str(cwd), timeout=timeout, max_output=_MAX_OUTPUT_BYTES,
+                                   env_extra=environment, log_path=output_log)
+            except CommandError as error:
+                raise _tool_failure(argv, error, timeout, log_path, output_log) from error

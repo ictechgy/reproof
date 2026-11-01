@@ -25,20 +25,40 @@ class SimpleError(Exception):
         return "\n".join(lines)
 
 
+CONFIG_TIMEOUT_REMEDY = ("시간이 더 필요하면 reproof.toml의 [build] timeout_seconds를 늘린 뒤 다시 실행하세요. "
+                         "네트워크(패키지 받기)가 멈춰 있지 않은지도 확인하세요.")
+"""빌드·패키지 해석처럼 설정의 build.timeout_seconds를 쓰는 단계가 시간 초과로 끝났을 때의 해결 방법."""
+
+_TOOL_TIMEOUT_REMEDY = "도구가 멈춘 원인(네트워크, Simulator 상태 등)을 확인한 뒤 다시 실행하세요."
+_LOG_REMEDY = "로그를 확인해 원인을 해결한 뒤 다시 실행하세요."
+_OUTPUT_REMEDY = "위의 마지막 출력을 보고 원인을 해결한 뒤 다시 실행하세요."
+_NO_OUTPUT_REMEDY = "도구가 아무것도 출력하지 않았습니다. `reproof app doctor`로 환경을 점검한 뒤 다시 실행하세요."
+
+
+def _tool_failure_remedy(timeout_seconds: int | None, log_path: Path | None, summary: str) -> str:
+    """시간 초과면 도구 정지 원인, 로그가 있으면 로그, 출력만 있으면 그 출력, 아무것도 없으면 환경 점검을 안내한다."""
+    if timeout_seconds is not None:
+        return _TOOL_TIMEOUT_REMEDY
+    if log_path is not None:
+        return _LOG_REMEDY
+    return _OUTPUT_REMEDY if summary else _NO_OUTPUT_REMEDY
+
+
 class ToolFailure(SimpleError):
     """외부 도구(xcodebuild, git 등)가 실패했을 때의 오류.
 
-    command_name: 실행 파일 이름(전체 경로는 노출하지 않는다). log_path: 전체 출력 로그.
-    output_tail: 로그 끝부분. 원인 파악용으로 호출자가 참고한다.
+    command_name: 실행 파일 이름(전체 경로는 노출하지 않는다). log_path: 전체 출력 로그(임시 로그였으면 None).
+    output_tail: 로그 끝부분(다듬지 않은 원문). 원인 파악용으로 호출자가 참고한다.
+    reason: 실패 방식(종료 코드, 시간 초과 등)을 밝힌 문장. summary: 안내문에 넣을 마지막 출력(이미 다듬은 글).
+    timeout_seconds: 시간 초과로 끝났을 때의 제한 시간(초), 아니면 None. 호출자가 설정 안내로 바꿀 때 쓴다.
     """
 
-    def __init__(self, command_name: str, *, log_path: Path | None, output_tail: str):
-        """도구 이름으로 안내문을 만들고 출력 끝부분을 보관한다."""
-        super().__init__(
-            "tool_failed",
-            f"{command_name} 실행이 실패했습니다.",
-            "로그를 확인해 원인을 해결한 뒤 다시 실행하세요.",
-            log_path=log_path,
-        )
+    def __init__(self, command_name: str, *, log_path: Path | None, output_tail: str,
+                 reason: str = "실행이 실패했습니다.", summary: str = "", timeout_seconds: int | None = None):
+        """도구 이름·실패 방식·마지막 출력으로 안내문을 만들고 출력 끝부분을 보관한다."""
+        cause = f"{command_name} {reason}" + (f" 마지막 출력: {summary}" if summary else "")
+        super().__init__("tool_failed", cause, _tool_failure_remedy(timeout_seconds, log_path, summary),
+                         log_path=log_path)
         self.command_name = command_name
         self.output_tail = output_tail
+        self.timeout_seconds = timeout_seconds

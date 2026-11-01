@@ -193,6 +193,18 @@ class SimpleBuildTests(unittest.TestCase):
                           runner=self._runner(raise_failure), progress=lambda _: None)
         self.assertEqual(raised.exception.code, "package_validation_required")
 
+    def test_build_timeout_points_to_build_timeout_setting(self):
+        """빌드가 시간 제한을 넘기면 reproof.toml의 [build] timeout_seconds를 늘리라고 안내하는지 본다."""
+        failure = ToolFailure("xcodebuild", log_path=None, output_tail="", reason="실행이 시간 제한 3600초를 넘겼습니다.",
+                              timeout_seconds=3600)
+        def raise_failure(argv, cwd, env_extra):
+            raise failure
+        with self.assertRaises(ToolFailure) as raised:
+            prepare_build(self.source, self.config, workspace_root=self.workspace,
+                          runner=self._runner(raise_failure), progress=lambda _: None)
+        self.assertIn("시간 제한 3600초", raised.exception.cause)
+        self.assertIn("timeout_seconds", raised.exception.remedy)
+
     def test_corrupt_products_json_triggers_rebuild(self):
         first = prepare_build(self.source, self.config, workspace_root=self.workspace, runner=self._runner(),
                               progress=lambda _: None)

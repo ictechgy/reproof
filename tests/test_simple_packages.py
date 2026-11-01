@@ -86,6 +86,15 @@ class SimplePackagesTests(unittest.TestCase):
                                                          output_tail="Package.swift: syntax error"))
             self.assertEqual(other.code, "package_resolution_failed")
 
+    def test_package_timeout_points_to_build_timeout_setting(self):
+        """패키지 해석이 시간 제한을 넘기면 원인에 그 사실을, 해결에 [build] timeout_seconds를 싣는지 본다."""
+        failure = ToolFailure("xcodebuild", log_path=None, output_tail="Fetching https://git.corp/x/Kit.git",
+                              reason="실행이 시간 제한 3600초를 넘겼습니다.", timeout_seconds=3600)
+        error = classify_package_failure(failure)
+        self.assertEqual(error.code, "package_resolution_failed")
+        self.assertIn("시간 제한 3600초", error.cause)
+        self.assertIn("timeout_seconds", error.remedy)
+
     def test_resolve_converts_tool_failure_to_classified_error(self):
         failure = ToolFailure("xcodebuild", log_path=None, output_tail="terminal prompts disabled")
         with tempfile.TemporaryDirectory() as tmp, self.assertRaises(SimpleError) as caught:

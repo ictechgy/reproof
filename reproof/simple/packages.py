@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from .config import ProjectConfig, config_digest
-from .errors import SimpleError, ToolFailure
+from .errors import CONFIG_TIMEOUT_REMEDY, SimpleError, ToolFailure
 from .process import ToolRunner
 
 # 인증 실패를 뜻하는 출력 문구(소문자 비교).
@@ -122,6 +122,9 @@ def classify_package_failure(failure: ToolFailure) -> SimpleError:
     """
     text = _failure_text(failure)
     if not any(marker in text.lower() for marker in _AUTH_MARKERS):
+        if failure.timeout_seconds is not None:  # 이 단계의 제한 시간은 설정의 build.timeout_seconds다.
+            return SimpleError("package_resolution_failed", f"Swift 패키지를 해석하지 못했습니다: {failure.cause}",
+                               CONFIG_TIMEOUT_REMEDY, log_path=failure.log_path)
         return SimpleError("package_resolution_failed", "Swift 패키지를 해석하지 못했습니다.",
                            "로그에서 실패한 패키지를 확인하고 의존성 설정을 고친 뒤 다시 실행하세요.",
                            log_path=failure.log_path)

@@ -33,10 +33,55 @@ class SimpleProcessTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "tool_failed")
         self.assertIn("boom", caught.exception.output_tail)
 
-    def test_tool_failure_without_log_has_empty_tail(self):
-        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ToolFailure) as caught:
-            HostToolRunner().run(["/bin/sh", "-c", "exit 3"], cwd=Path(tmp), timeout=10)
-        self.assertEqual(caught.exception.output_tail, "")
+    def run_failing(self, script, *, timeout=10, argv=None):
+        """로그 경로 없이 실패하는 명령을 HostToolRunner로 실행해 ToolFailure를 돌려준다.
+
+        임시 폴더를 시스템 임시 위치로 바꿔, 끝난 뒤 임시 로그가 남지 않았는지도 확인한다.
+        """
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(tempfile, "tempdir", tmp):
+            with self.assertRaises(ToolFailure) as caught:
+                HostToolRunner().run(argv or ["/bin/sh", "-c", script], cwd=Path(tmp), timeout=timeout)
+            self.assertEqual(os.listdir(tmp), [])
+        self.assertIsNone(caught.exception.log_path)
+        return caught.exception
+
+    def test_failure_without_log_path_shows_last_output_lines_and_exit_code(self):
+        """log_path 없이 실패해도 임시 로그로 출력을 받아 원인에 마지막 줄과 종료 코드를 싣고, 임시 로그는 지우는지 본다.
+
+        왜: simctl·git·init의 xcodebuild 조회는 log_path가 없어, 예전에는 "실행이 실패했습니다"만 보여 원인을 알 수 없었다.
+        """
+        failure = self.run_failing("echo 진행 중; echo 'error: 기기를 찾을 수 없음' >&2; exit 3")
+        self.assertIn("error: 기기를 찾을 수 없음", failure.cause)
+        self.assertIn("종료 코드 3", failure.cause)
+        self.assertIn("error: 기기를 찾을 수 없음", failure.output_tail)
+        self.assertNotIn("로그를 확인", failure.remedy)
+
+    def test_failure_cause_removes_control_characters_and_redacts_url_userinfo(self):
+        """출력의 ANSI escape·제어 문자를 지우고 URL의 사용자 정보(토큰)를 가린 뒤 원인에 싣는지 본다."""
+        failure = self.run_failing(r"printf '\033[31mfatal: https://bot:s3cret@git.corp/x/Kit.git\a\n' >&2; exit 1")
+        self.assertIn("https://git.corp/x/Kit.git", failure.cause)
+        self.assertNotIn("s3cret", failure.cause)
+        self.assertFalse(any(ord(character) < 32 or ord(character) == 127 for character in failure.cause),
+                         repr(failure.cause))
+
+    def test_failure_cause_output_is_limited_to_300_characters(self):
+        """아주 긴 출력도 원인에는 300자까지만 싣는지 본다(안내문 도배 방지)."""
+        failure = self.run_failing("printf 'x%.0s' $(seq 1 1000) >&2; exit 1")
+        self.assertIn("xxx", failure.cause)
+        self.assertLessEqual(failure.cause.count("x"), 300)
+
+    def test_timeout_is_reported_with_limit_and_distinct_remedy(self):
+        """시간 초과는 종료 코드 실패와 구분해 "시간 제한 N초"로 알리고, timeout_seconds에 제한 값을 남기는지 본다."""
+        failure = self.run_failing("sleep 5", timeout=1)
+        self.assertIn("시간 제한 1초를 넘겼습니다", failure.cause)
+        self.assertEqual(failure.timeout_seconds, 1)
+        self.assertNotIn("종료 코드", failure.cause)
+
+    def test_missing_executable_is_reported_as_not_started(self):
+        """실행 파일이 없으면 시작하지 못했다고 알리는지 본다."""
+        failure = self.run_failing("", argv=["/없는/도구/simctl"])
+        self.assertIn("simctl", failure.cause)
+        self.assertIn("시작하지 못했습니다", failure.cause)
 
     def test_host_runner_passes_git_terminal_prompt_zero(self):
         with tempfile.TemporaryDirectory() as tmp:

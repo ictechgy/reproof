@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import ProjectConfig
-from .errors import SimpleError, ToolFailure
+from .errors import CONFIG_TIMEOUT_REMEDY, SimpleError, ToolFailure
 from .packages import PackageResolution
 from .process import ToolRunner
 from .workcopy import tree_digest
@@ -147,6 +147,8 @@ def build_for_simulator(working_copy: Path, config: ProjectConfig, *, derived_da
     except ToolFailure as failure:
         if not packages.is_pinned and is_validation_failure(failure):
             raise validation_required_error(failure) from failure
+        if failure.timeout_seconds is not None:
+            failure.remedy = CONFIG_TIMEOUT_REMEDY  # 이 단계의 제한 시간은 설정의 build.timeout_seconds다.
         raise
     app_path = find_app_bundle(derived_data / PRODUCTS_SUBPATH, config.bundle_id)
     return BuildProducts(app_path, config.bundle_id, derived_data, tree_digest(app_path))
