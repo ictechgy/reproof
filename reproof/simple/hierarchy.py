@@ -155,20 +155,47 @@ def _is_better_hit(candidate: Element, best: Element | None) -> bool:
     return (candidate.element_type in INTERACTIVE_TYPES) >= (best.element_type in INTERACTIVE_TYPES)
 
 
-def element_at(root: Element, x: float, y: float) -> Element | None:
-    """좌표 (x, y)에 해당하는 요소를 돌려준다. 없으면 None.
-
-    가장 깊은 요소를 고른다. 그 요소가 interactive면 그대로 돌려주고(셀 안의 버튼은 셀이 아니라 버튼),
-    아니면 조상 중 가장 가까운 interactive를 돌려준다.
-    왜: 버튼 안쪽 Text를 눌러도 녹화 대상은 버튼이어야 재생이 안정적이다.
-    """
+def _deepest_hit(root: Element, x: float, y: float) -> Element | None:
+    """좌표를 포함하는 가장 깊은 요소(_is_better_hit 순서). 크기가 0인 frame은 포함하지 않는다."""
     best: Element | None = None
     for element in iter_elements(root):
         if element.frame.contains(x, y) and _is_better_hit(element, best):
             best = element
+    return best
+
+
+def _is_decorative(element: Element) -> bool:
+    """interactive가 아니고 label·identifier·value가 모두 빈 요소(겹쳐 그린 장식용 view 등)면 True."""
+    return element.element_type not in INTERACTIVE_TYPES and not (element.label or element.identifier or element.value)
+
+
+def _deepest_interactive_at(root: Element, x: float, y: float) -> Element | None:
+    """좌표를 포함하는 interactive 요소 중 가장 깊은 것. 같은 깊이면 pre-order 뒤쪽(위에 그려짐). 없으면 None."""
+    best: Element | None = None
+    for element in iter_elements(root):
+        is_deeper = best is None or len(element.path) >= len(best.path)
+        if element.element_type in INTERACTIVE_TYPES and element.frame.contains(x, y) and is_deeper:
+            best = element
+    return best
+
+
+def _nearest_interactive_ancestor(root: Element, element: Element) -> Element | None:
+    """element의 조상 중 가장 가까운 interactive. 없으면 None."""
+    return next((ancestor for ancestor in ancestors_of(root, element)
+                 if ancestor.element_type in INTERACTIVE_TYPES), None)
+
+
+def element_at(root: Element, x: float, y: float) -> Element | None:
+    """좌표 (x, y)에 해당하는 요소를 돌려준다. 없으면 None.
+
+    가장 깊은 요소를 고른다. 그 요소가 interactive면 그대로 돌려주고(셀 안의 버튼은 셀이 아니라 버튼),
+    장식용(label·identifier·value가 빈 비interactive)이면 좌표를 포함하는 가장 깊은 interactive를,
+    아니면 조상 중 가장 가까운 interactive를 돌려준다. 어느 쪽도 없으면 가장 깊은 요소 그대로다.
+    왜: 버튼 안쪽 Text를 눌러도 녹화 대상은 버튼이어야 재생이 안정적이다. iOS 27 탭 바처럼 선택 표시용
+    빈 view가 버튼의 형제 가지에서 버튼보다 깊게 겹치면, 조상을 따라 올라가도 버튼을 만나지 못한다.
+    """
+    best = _deepest_hit(root, x, y)
     if best is None or best.element_type in INTERACTIVE_TYPES:
         return best
-    for ancestor in ancestors_of(root, best):
-        if ancestor.element_type in INTERACTIVE_TYPES:
-            return ancestor
-    return best
+    covered = _deepest_interactive_at(root, x, y) if _is_decorative(best) else None
+    return covered or _nearest_interactive_ancestor(root, best) or best

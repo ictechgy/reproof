@@ -9,6 +9,8 @@ from reproof.simple.hierarchy import element_at, iter_elements, parse_hierarchy
 from reproof.simple.locator import LocatorEvidence, capture_evidence, resolve
 
 FIXTURE = Path(__file__).parent / "fixtures" / "simple" / "hierarchy-mixed.json"
+# iOS 27 탭 바 구조를 줄인 픽스처: 선택 표시·하단 영역의 label 없는 other가 탭 버튼의 형제 쪽 가지에서 버튼보다 깊다.
+TAB_BAR_FIXTURE = Path(__file__).parent / "fixtures" / "simple" / "hierarchy-tabbar-ios27.json"
 
 
 def load_document() -> dict:
@@ -161,6 +163,34 @@ class LocatorTests(unittest.TestCase):
             with self.assertRaises(SimpleError) as caught:
                 LocatorEvidence.from_document(bad)
             self.assertEqual(caught.exception.code, "locator_evidence_invalid")
+
+
+class TabBarHitTests(unittest.TestCase):
+    """iOS 27 탭 바: 버튼보다 깊은 장식용 other가 있어도 탭 버튼을 골라야 한다(Spike S2에서 발견)."""
+
+    def setUp(self):
+        self.document = json.loads(TAB_BAR_FIXTURE.read_text(encoding="utf-8"))
+
+    def hit(self, x, y, document=None):
+        """좌표의 element_at 결과를 (종류, label)로 돌려준다."""
+        element = element_at(parse_hierarchy(document or self.document), x, y)
+        return element.element_type, element.label
+
+    def test_selected_tab_overlay_does_not_hide_tab_button(self):
+        self.assertEqual(self.hit(239.67, 800), ("button", "요약"))
+
+    def test_bottom_region_overlay_does_not_hide_tab_button(self):
+        self.assertEqual(self.hit(153.67, 800), ("button", "장바구니"))
+
+    def test_decorative_hit_without_interactive_keeps_deepest(self):
+        self.assertEqual(self.hit(50, 800), ("other", ""))
+
+    def test_zero_size_interactive_is_never_chosen(self):
+        overlay = self.document["children"][0]["children"][0]["children"][0]["children"][0]["children"][0]
+        overlay["children"][2]["children"][0]["children"] = [{
+            "type": "button", "identifier": "", "label": "가짜", "value": "", "placeholder": "",
+            "frame": [239.67, 800, 0, 0], "enabled": True, "selected": False, "children": []}]
+        self.assertEqual(self.hit(239.67, 800, self.document), ("button", "요약"))
 
 
 if __name__ == "__main__":

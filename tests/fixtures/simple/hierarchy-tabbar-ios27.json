@@ -1,0 +1,369 @@
+{
+ "type": "application",
+ "identifier": "",
+ "label": "MixedShop",
+ "value": "",
+ "placeholder": "",
+ "frame": [
+  0,
+  0,
+  393,
+  852
+ ],
+ "enabled": true,
+ "selected": false,
+ "children": [
+  {
+   "type": "window",
+   "identifier": "",
+   "label": "",
+   "value": "",
+   "placeholder": "",
+   "frame": [
+    0,
+    0,
+    393,
+    852
+   ],
+   "enabled": true,
+   "selected": false,
+   "children": [
+    {
+     "type": "other",
+     "identifier": "",
+     "label": "",
+     "value": "",
+     "placeholder": "",
+     "frame": [
+      0,
+      769,
+      393,
+      83
+     ],
+     "enabled": true,
+     "selected": false,
+     "children": [
+      {
+       "type": "other",
+       "identifier": "",
+       "label": "",
+       "value": "",
+       "placeholder": "",
+       "frame": [
+        0,
+        769,
+        393,
+        83
+       ],
+       "enabled": true,
+       "selected": false,
+       "children": [
+        {
+         "type": "tabBar",
+         "identifier": "",
+         "label": "탭 막대",
+         "value": "",
+         "placeholder": "",
+         "frame": [
+          0,
+          769,
+          393,
+          83
+         ],
+         "enabled": true,
+         "selected": false,
+         "children": [
+          {
+           "type": "other",
+           "identifier": "",
+           "label": "",
+           "value": "",
+           "placeholder": "",
+           "frame": [
+            102.67,
+            769,
+            188,
+            62
+           ],
+           "enabled": true,
+           "selected": false,
+           "children": [
+            {
+             "type": "other",
+             "identifier": "",
+             "label": "",
+             "value": "",
+             "placeholder": "",
+             "frame": [
+              102.67,
+              769,
+              94,
+              54
+             ],
+             "enabled": true,
+             "selected": false,
+             "children": []
+            },
+            {
+             "type": "other",
+             "identifier": "",
+             "label": "",
+             "value": "",
+             "placeholder": "",
+             "frame": [
+              102.67,
+              769,
+              188,
+              62
+             ],
+             "enabled": true,
+             "selected": false,
+             "children": [
+              {
+               "type": "button",
+               "identifier": "",
+               "label": "장바구니",
+               "value": "",
+               "placeholder": "",
+               "frame": [
+                106.67,
+                773,
+                94,
+                54
+               ],
+               "enabled": true,
+               "selected": false,
+               "children": [
+                {
+                 "type": "image",
+                 "identifier": "cart",
+                 "label": "쇼핑 카트",
+                 "value": "",
+                 "placeholder": "",
+                 "frame": [
+                  138,
+                  780.33,
+                  31.67,
+                  26.67
+                 ],
+                 "enabled": true,
+                 "selected": false,
+                 "children": []
+                }
+               ]
+              },
+              {
+               "type": "button",
+               "identifier": "",
+               "label": "요약",
+               "value": "",
+               "placeholder": "",
+               "frame": [
+                192.67,
+                773,
+                94,
+                54
+               ],
+               "enabled": true,
+               "selected": true,
+               "children": [
+                {
+                 "type": "image",
+                 "identifier": "list.bullet",
+                 "label": "목록",
+                 "value": "",
+                 "placeholder": "",
+                 "frame": [
+                  225,
+                  782.33,
+                  29.33,
+                  21
+                 ],
+                 "enabled": true,
+                 "selected": false,
+                 "children": []
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "type": "other",
+             "identifier": "",
+             "label": "",
+             "value": "",
+             "placeholder": "",
+             "frame": [
+              192.67,
+              773,
+              94,
+              54
+             ],
+             "enabled": true,
+             "selected": false,
+             "children": [
+              {
+               "type": "other",
+               "identifier": "",
+               "label": "",
+               "value": "",
+               "placeholder": "",
+               "frame": [
+                192.67,
+                773,
+                94,
+                54
+               ],
+               "enabled": true,
+               "selected": false,
+               "children": [
+                {
+                 "type": "other",
+                 "identifier": "",
+                 "label": "",
+                 "value": "",
+                 "placeholder": "",
+                 "frame": [
+                  192.67,
+                  773,
+                  94,
+                  54
+                 ],
+                 "enabled": true,
+                 "selected": false,
+                 "children": [
+                  {
+                   "type": "other",
+                   "identifier": "",
+                   "label": "",
+                   "value": "",
+                   "placeholder": "",
+                   "frame": [
+                    192.67,
+                    773,
+                    94,
+                    54
+                   ],
+                   "enabled": true,
+                   "selected": false,
+                   "children": []
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "other",
+       "identifier": "",
+       "label": "",
+       "value": "",
+       "placeholder": "",
+       "frame": [
+        0,
+        769,
+        393,
+        83
+       ],
+       "enabled": true,
+       "selected": false,
+       "children": [
+        {
+         "type": "other",
+         "identifier": "",
+         "label": "",
+         "value": "",
+         "placeholder": "",
+         "frame": [
+          0,
+          769,
+          393,
+          83
+         ],
+         "enabled": true,
+         "selected": false,
+         "children": [
+          {
+           "type": "other",
+           "identifier": "",
+           "label": "",
+           "value": "",
+           "placeholder": "",
+           "frame": [
+            0,
+            769,
+            393,
+            83
+           ],
+           "enabled": true,
+           "selected": false,
+           "children": [
+            {
+             "type": "other",
+             "identifier": "",
+             "label": "",
+             "value": "",
+             "placeholder": "",
+             "frame": [
+              0,
+              769,
+              393,
+              83
+             ],
+             "enabled": true,
+             "selected": false,
+             "children": [
+              {
+               "type": "other",
+               "identifier": "",
+               "label": "",
+               "value": "",
+               "placeholder": "",
+               "frame": [
+                0,
+                769,
+                393,
+                83
+               ],
+               "enabled": true,
+               "selected": false,
+               "children": [
+                {
+                 "type": "other",
+                 "identifier": "",
+                 "label": "",
+                 "value": "",
+                 "placeholder": "",
+                 "frame": [
+                  0,
+                  769,
+                  393,
+                  83
+                 ],
+                 "enabled": true,
+                 "selected": false,
+                 "children": []
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
