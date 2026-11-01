@@ -15,6 +15,7 @@
 - macOS, Xcode(명령줄 도구 포함), Python 3.11 이상
 - iOS Simulator 런타임 (없으면 `xcodebuild -downloadPlatform iOS`)
 - 앱이 XcodeGen·Tuist로 프로젝트를 생성한다면 해당 도구 (`brew install xcodegen` 등). Tuist는 도구가 설치하지 않는다.
+  Tuist 지원은 미검증(이 Mac에 Tuist 없음; `tuist install` 선행 필요 여부 미확인)이다.
 - 작업 공간 여유 공간 30 GB 이상
 
 ## 설치
@@ -42,13 +43,15 @@ reproof app init
 때만 번호로 묻고, 테스트 scheme은 추측값을 보여 주며 Enter로 수락하면 된다. Simulator는
 `iPhone 16`, 런타임은 `latest`로 두고 묻지 않는다. 이름은 폴더 이름에서 만든다.
 
+출력 예(이 Mac, Xcode 27.0. 경로는 예시):
+
 ```
 저장했습니다: /Users/me/Desktop/회사 앱/reproof.toml
   프로젝트: MixedShop.xcodeproj  scheme: MixedShop  테스트 scheme: MixedShopTests
   앱 번들 ID: io.reproof.example.mixedshop  Simulator: iPhone 16 (latest)
 질문 1개
 환경 점검:
-✓ xcode: Xcode 16.2
+✓ xcode: Xcode 27.0
 ...
 다음 단계: reproof app build
 ```
@@ -57,7 +60,8 @@ reproof app init
 
 옵션: `--path DIR`(다른 폴더), `--non-interactive`(질문 없이; 모호하면 후보를 보여 주고 멈춤),
 `--force`(기존 `reproof.toml` 덮어쓰기). XcodeGen·Tuist 프로젝트는 임시 사본에서 생성해 확인하고
-바로 지운다. 일반 프로젝트도 임시 사본에서 scheme을 조회하므로, `init`이 저장소에 남기는 파일은 `reproof.toml` 하나뿐이다.
+바로 지운다. Tuist 경로는 미검증(이 Mac에 Tuist 없음; `tuist install` 선행 필요 여부 미확인)이다.
+일반 프로젝트도 임시 사본에서 scheme을 조회하므로, `init`이 저장소에 남기는 파일은 `reproof.toml` 하나뿐이다.
 `reproof.toml`이 심볼릭 링크이면(`config_symlink`) 쓰지 않는다.
 
 ### 2. `reproof app doctor`
@@ -68,11 +72,21 @@ reproof app doctor [--config FILE]
 
 항목마다 한 줄로 보여 준다. 실패하면 바로 아래 `해결:`에 할 일이 나온다.
 
+출력 예(이 Mac, Xcode 27.0·iOS 27.0 런타임. 디스크 값은 실행할 때마다 다르다):
+
 ```
-✓ xcode: Xcode 16.2
+✓ xcode: Xcode 27.0
+✓ ios_runtime: iOS 27.0
+✓ git: git 사용 가능
+✓ disk: 남은 공간 63.3 GB
+ⓘ claude: claude 사용 가능 (AI 수정에 필요)
+```
+
+런타임이 없을 때의 형식:
+
+```
 ✗ ios_runtime: 사용 가능한 iOS Simulator 런타임이 없습니다.
   해결: `xcodebuild -downloadPlatform iOS`로 iOS 런타임을 설치한 뒤 다시 실행하세요.
-ⓘ claude: claude를 찾을 수 없습니다. AI 수정에 필요합니다.
 ```
 
 점검 항목: `xcode`, `ios_runtime`, `git`, `generator`(생성기를 쓸 때만), `disk`(30 GB),
@@ -124,15 +138,15 @@ reproof app inspect [--point X,Y] [--output FILE]
 |---|---|---|
 | 최상위 | `schema` | 설정 형식 버전(현재 1) |
 | 최상위 | `name` | 소문자·숫자·`-` 이름(40자 이하). Simulator 이름 `reproof-<name>`에 쓴다 |
-| `[project]` | `container` | `.xcworkspace` 또는 `.xcodeproj`의 저장소 기준 상대 경로 |
-| `[project]` | `generator`, `generator_spec` | `none`/`xcodegen`/`tuist`, XcodeGen 스펙 파일(`project.yml`) |
-| `[project]` | `scheme`, `app_target`, `bundle_id` | 빌드할 scheme, 앱 타깃, 번들 ID |
+| `[project]` | `container` | `.xcworkspace` 또는 `.xcodeproj`의 저장소 기준 상대 경로(빈 값·절대 경로·`..` 불가) |
+| `[project]` | `generator`, `generator_spec` | `none`/`xcodegen`/`tuist`, 스펙 파일의 저장소 기준 상대 경로(xcodegen은 `.yml`·`.yaml`, tuist는 `.swift`; 빈 값·절대 경로·`..` 불가). Tuist는 미검증(이 Mac에 Tuist 없음; `tuist install` 선행 필요 여부 미확인) |
+| `[project]` | `scheme`, `app_target`, `bundle_id` | 빌드할 scheme, 앱 타깃, 번들 ID(비울 수 없음) |
 | `[project]` | `test_scheme` | 단위 테스트 scheme(선택) |
 | `[simulator]` | `device_type`, `runtime` | 기기 이름(`iPhone 16`), 런타임(`latest` 또는 `iOS 18.0`) |
 | `[simulator]` | `locale`, `language`, `timezone` | 기본 `ko_KR`, `ko`, `Asia/Seoul` (스크린샷을 같게 하려고 매번 명시) |
 | `[launch]` | `arguments` | 앱 실행 인자 목록 |
 | `[launch.environment]` | `KEY = "값"` | 앱 실행 환경 변수 |
-| `[build]` | `timeout_seconds` | 빌드 제한 시간(기본 3600) |
+| `[build]` | `timeout_seconds` | 패키지 해석·빌드 제한 시간(기본 3600) |
 | `[ai]` | `claude_consent` | AI 수정 동의(기본 false, 다음 단계에서 사용) |
 
 ### 비밀 값은 `env:`로
@@ -162,8 +176,31 @@ git ls-remote git@github.com:회사/비공개-패키지.git     # 목록이 나�
 ```
 
 여기서 실패하면 `ssh-add`로 키를 올리거나 `gh auth login`·자격 증명 도우미를 설정한다. 도구는
-`GIT_TERMINAL_PROMPT=0`으로 실행해 인증 입력을 기다리며 멈추지 않고 실패로 알린다. 로그와 오류의
-URL에서는 사용자 정보(`user:token@`)를 지운다.
+`GIT_TERMINAL_PROMPT=0`으로 실행해 인증 입력을 기다리며 멈추지 않고 실패로 알린다. 프록시·사내 CA·git SSH 변수
+(`http_proxy`·`https_proxy`·`no_proxy`와 대문자형, `GIT_SSH_COMMAND`, `SSL_CERT_FILE`, `GIT_SSL_CAINFO`)는 설정돼 있으면
+값을 읽지 않고 그대로 넘긴다.
+
+가리는 범위: **오류 안내문**에서만 URL의 사용자 정보(`user:token@`)를 지우고, `마지막 출력:` 줄의 토큰·서명·
+`Authorization` 값을 `***`로 바꾼다. **로그 파일**(`logs/*.log`, 소유자만 읽는 0600)은 xcodebuild·git 출력을 그대로
+담으므로 URL의 자격 증명이나 토큰이 남을 수 있다. 로그를 다른 사람에게 보내기 전에 내용을 확인한다.
+
+## 툴이 손대는 전역 위치
+
+작업 사본·빌드는 작업 공간에서 하지만, 다음 위치에도 흔적이 남는다.
+
+- **작업 공간 `~/.reproof`**(또는 `REPROOF_HOME`·`--workspace`): 빌드(`projects/<이름>/builds/<빌드 ID>/`), 패키지 캐시
+  (`cache/spm`), 실행기(`runner`), crash 로그(`logs`). 빌드는 크다(Wikipedia 앱은 빌드 하나에 약 3.8 GB). 소스·설정·Xcode가
+  바뀌면 새 빌드 ID 폴더가 생기고 옛 폴더는 자동으로 지우지 않는다. 지울 때는 그 프로젝트의 `build`·`inspect`가 돌고 있지
+  않을 때 `rm -rf ~/.reproof/projects/<이름>/builds/<빌드 ID>`처럼 폴더 단위로 지운다(`.partial`로 끝나는 폴더는 진행 중이거나
+  끊긴 빌드이고, 다음 실행이 어차피 다시 만든다). 작업 사본은 원본의 읽기 전용 권한을 그대로 가져오므로 `Permission denied`가 나면
+  `chmod -R u+w <폴더>` 뒤에 지운다. `~/.reproof` 전체를 지워도 되지만, 다음 실행이 패키지를 다시 받고 실행기를 다시 빌드한다.
+- **SwiftPM 전역 캐시**: `~/Library/Caches/org.swift.swiftpm`(저장소 캐시), `~/Library/org.swift.swiftpm`(패키지 지문 등).
+  xcodebuild가 패키지를 받을 때 쓰며 Xcode·다른 프로젝트와 함께 쓰는 위치다. 지우면 다른 프로젝트도 패키지를 다시 받는다.
+- **CoreSimulator 기기**: 이름이 `reproof-<이름>`인 Simulator. `inspect` 뒤에도 켜 둔다. 지우려면
+  `xcrun simctl delete <udid>`(이름이 `reproof-`로 시작하는 기기만). 다른 Simulator는 도구가 만들거나 지우지 않는다.
+- **Xcode DerivedData**: `~/Library/Developer/Xcode/DerivedData`에 `<scheme>-<해시>` 이름의 작은 로그 폴더(수 KB~수백 KB)가
+  있을 수 있다. 확인된 원인은 이전 버전의 패키지 해석이었다(지금은 빌드 폴더의 `DerivedData`를 쓴다). 다른 xcodebuild 호출이
+  남기는지는 확인하지 않았다. 지워도 된다.
 
 ## 자주 나는 오류
 
@@ -175,9 +212,13 @@ URL에서는 사용자 정보(`user:token@`)를 지운다.
 | `generator_missing` | XcodeGen/Tuist 미설치 | `brew install xcodegen` 등으로 설치 |
 | `ios_runtime_missing` | iOS Simulator 런타임 없음 | `xcodebuild -downloadPlatform iOS` |
 | `config_missing` | 상위 폴더에도 reproof.toml 없음 | 앱 폴더에서 `init` 또는 `--config` 지정 |
-| `xcodebuild 실행이 실패했습니다` | 빌드 오류 | 안내된 `로그:` 파일 끝부분을 확인(패키지 인증, 서명 설정, 누락된 파일 등) |
+| `<도구> 실행이 실패했습니다(종료 코드 N). 마지막 출력: …` | 빌드·도구 오류 | `마지막 출력:` 줄과 안내된 `로그:` 파일 끝부분을 확인(패키지 인증, 서명 설정, 누락된 파일 등) |
+| `<도구> 실행이 시간 제한 N초를 넘겼습니다` | 시간 초과 | 빌드·패키지 단계면 `reproof.toml`의 `[build] timeout_seconds`를 늘리고, 아니면 네트워크·Simulator 상태 확인 |
 | `point_invalid` | `--point` 형식 오류 | `--point 195,420`처럼 숫자 두 개 |
-| `runner_unreachable` | 실행기 세션이 시작되지 않음 | `inspect-session.log`를 확인하고, Simulator가 부팅됐는지 `xcrun simctl list devices`로 확인 |
+| `runner_start_failed` | 실행기 세션이 시작되지 않음 | `inspect-session.log`를 확인하고, Simulator가 부팅됐는지 `xcrun simctl list devices`로 확인 |
+| `project_busy` / `runner_busy` | 다른 터미널에서 같은 프로젝트(또는 실행기 준비)가 실행 중 | 그 실행이 끝난 뒤 다시 실행(잠금은 실행이 끝나면 자동으로 풀림) |
+| `file_operation_failed` | 읽을 수 없는 파일, 디스크 부족, 읽기 전용 폴더 | 안내된 파일의 권한(`ls -l`)이나 디스크 여유 공간 확인 |
+| `내부 오류입니다. 이 로그를 첨부해 알려 주세요` | 예상하지 못한 오류 | 안내된 `crash-*.log`(작업 공간 `logs/`)를 첨부해 알림 |
 
 `Package.resolved`가 없는 프로젝트는 버전 고정 없이 해석하므로 실행마다 버전이 달라질 수 있다는 경고가
 나온다. 저장소에 `Package.resolved`를 커밋하면 같은 빌드가 재현된다. git 저장소가 아니거나 커밋이
