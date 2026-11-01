@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+import stat
 import sys
 import tempfile
 import time
@@ -86,7 +87,7 @@ def find_config(start: Path) -> Path | None:
     home = Path.home().absolute()
     for folder in (start, *start.parents):
         candidate = folder / CONFIG_FILE_NAME
-        if candidate.is_file():
+        if os.path.lexists(candidate):  # 링크도 찾은 것으로 보고, 이어서 _require_trusted가 거절한다.
             return candidate
         if (folder / ".git").exists() or folder == home:
             return None
@@ -99,14 +100,20 @@ def _current_uid() -> int:
 
 
 def _require_trusted(path: Path) -> None:
-    """설정 파일이 현재 사용자 소유가 아니면 config_untrusted로 거절한다. 파일이 없으면 load_config가 안내한다.
+    """설정 파일이 링크면 config_symlink, 현재 사용자 소유가 아니면 config_untrusted로 거절한다(lstat 기준).
 
-    왜: 설정에는 실행할 생성기·환경 변수가 담겨, 다른 사용자가 놓아 둔 파일을 그대로 따르면 위험하다.
+    왜: 설정에는 실행할 생성기·환경 변수가 담겨, 다른 사용자가 놓아 둔 파일을 그대로 따르면 위험하다. stat()은 링크를
+    따라가 대상의 소유자를 보므로, 남의 저장소의 링크가 내 다른 설정을 가리키면 검사를 통과해 버린다.
+    파일이 없거나 읽을 수 없으면 이어서 load_config가 원인과 함께 안내한다.
     """
     try:
-        owner = path.stat().st_uid
+        info = os.lstat(path)
     except OSError:
         return  # 없거나 읽을 수 없는 파일은 이어서 load_config가 원인과 함께 오류를 낸다.
+    if stat.S_ISLNK(info.st_mode):
+        raise SimpleError("config_symlink", f"{path}은(는) 심볼릭 링크라 읽지 않습니다.",
+                          "링크를 지우고 실제 파일로 바꾼 뒤 다시 실행하세요(`reproof app init --force`로 새로 만들 수 있습니다).")
+    owner = info.st_uid
     if owner != _current_uid():
         raise SimpleError("config_untrusted", f"{path}의 소유자가 현재 사용자가 아닙니다.",
                           "내용을 확인한 뒤 `chown`으로 소유자를 바꾸거나, 본인 계정으로 `reproof app init --force`를 실행하세요.")

@@ -143,6 +143,42 @@ class SimpleConfigTests(unittest.TestCase):
                 self.assert_rejected("source.include", source_include=(bad,))
         self.assert_invalid(render_config(sample_config()) + "\n[source]\ninclude = [1]\n", "source.include")
 
+    def test_symlinked_config_is_refused_on_read(self):
+        """읽을 때도 링크를 따라가지 않는다. 링크면 config_symlink(대상이 다른 사용자의 설정·장치일 수 있다)."""
+        real = self.path.with_name("real.toml")
+        real.write_text(render_config(sample_config()), encoding="utf-8")
+        self.path.symlink_to(real)
+        with self.assertRaises(SimpleError) as caught:
+            load_config(self.path)
+        self.assertEqual(caught.exception.code, "config_symlink")
+
+    def test_fifo_config_is_refused_without_blocking(self):
+        """FIFO 같은 일반 파일이 아닌 설정은 쓰는 쪽을 기다리지 않고 바로 config_invalid로 거절한다."""
+        import os
+        os.mkfifo(self.path)
+        with self.assertRaises(SimpleError) as caught:
+            load_config(self.path)
+        self.assertEqual(caught.exception.code, "config_invalid")
+
+    def test_oversized_config_is_refused(self):
+        """256 KiB를 넘는 설정은 읽지 않고 config_invalid로 거절한다(실수로 지정한 큰 파일·장치로 메모리를 채우지 않게)."""
+        self.path.write_text(render_config(sample_config()) + "#" * (256 * 1024), encoding="utf-8")
+        with self.assertRaises(SimpleError) as caught:
+            load_config(self.path)
+        self.assertEqual(caught.exception.code, "config_invalid")
+        self.assertIn("256", caught.exception.cause)
+
+    def test_nul_character_in_any_string_is_rejected(self):
+        """어느 문자열(값·키)에 NUL이 있어도 config_invalid. 왜: C 수준 API가 NUL에서 잘라, 검증한 값과 쓰는 값이 달라진다."""
+        cases = {
+            "scheme": render_config(sample_config()).replace('scheme = "MixedShop"', 'scheme = "Mixed\\u0000Shop"'),
+            "launch.arguments": render_config(sample_config()).replace('"-AppleLanguages"', '"-Apple\\u0000"'),
+            "launch.environment": render_config(sample_config()).replace('"API_TOKEN" =', '"BAD\\u0000KEY" = "x"\n"API_TOKEN" ='),
+        }
+        for label, text in cases.items():
+            with self.subTest(label=label):
+                self.assert_invalid(text, "NUL")
+
     def test_container_kind_follows_extension(self):
         """container 확장자로 workspace/project를 정한다."""
         self.assertEqual(sample_config().container_kind, "project")

@@ -235,6 +235,22 @@ class SimpleCliTests(unittest.TestCase):
         self.assertIn("소유자", err)
         self.assertEqual(runner.calls, [])
 
+    def test_symlinked_config_is_refused_even_if_target_is_owned_by_user(self):
+        """--config나 자동 탐색이 찾은 reproof.toml이 링크면 소유자 검사 전에 config_symlink로 거절한다.
+
+        왜: stat()은 링크를 따라가 대상의 소유자를 보므로, 다른 사람의 저장소가 내 다른 설정을 가리키게 할 수 있다.
+        """
+        real = self.tmp / "elsewhere.toml"
+        real.write_text(render_config(replace(sample_config(), generator="none", generator_spec=None)),
+                        encoding="utf-8")
+        link = self.app / CONFIG_FILE_NAME
+        link.symlink_to(real)
+        for argv in (["doctor", "--config", str(link)],):
+            code, _, err, runner, _ = self.run_cli(argv, doctor_responses(READY_RUNTIME))
+            self.assertEqual(code, 2)
+            self.assertIn("심볼릭 링크", err)
+            self.assertEqual(runner.calls, [])
+
     def test_commands_print_which_config_file_is_used(self):
         path = self.write_config()
         _, out, *_ = self.run_cli(["doctor", "--config", str(path)], doctor_responses(READY_RUNTIME))

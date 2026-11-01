@@ -1,9 +1,12 @@
 """프로젝트 루트의 reproof.toml을 읽고 쓰는 모듈. 모든 간편 모드 명령이 이 설정을 읽는다."""
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
+import os
 import re
+import stat
 import tomllib
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
@@ -24,6 +27,9 @@ NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 """프로젝트 이름 규칙. 디렉터리·시뮬레이터 이름에 안전하게 쓰려는 소문자 slug.
 
 fullmatch로만 쓴다: `$`는 끝의 개행을 허용해 "abc\\n"이 통과하기 때문이다."""
+
+MAX_CONFIG_BYTES = 256 * 1024
+"""reproof.toml 크기 상한. 손으로 쓰는 설정은 수 KB라, 넘으면 잘못 지정한 파일(로그·장치 등)로 본다."""
 
 ENV_PREFIX = "env:"
 """launch.environment 값이 이 접두사로 시작하면 실행 시점 환경 변수에서 읽는다(비밀 값을 파일에 두지 않으려는 것)."""
@@ -253,18 +259,72 @@ def _build_simulator(table: Mapping[str, Any]) -> SimulatorSettings:
     )
 
 
+_READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+"""설정을 여는 플래그. 링크는 따라가지 않고(ELOOP), FIFO라도 쓰는 쪽을 기다리며 멈추지 않는다."""
+
+
+def _symlink_error(path: Path) -> SimpleError:
+    """reproof.toml이 심볼릭 링크라 거절한다는 config_symlink 오류를 만든다."""
+    return SimpleError("config_symlink", f"{path}은(는) 심볼릭 링크라 읽거나 쓸 수 없습니다.",
+                       "링크를 지우고 실제 파일로 바꾼 뒤 다시 실행하세요(`reproof app init --force`로 새로 만들 수 있습니다).")
+
+
+def _open_config(path: Path) -> int:
+    """설정 파일을 링크를 따라가지 않고 연다. 없으면 config_missing, 링크면 config_symlink."""
+    try:
+        return os.open(path, _READ_FLAGS)
+    except FileNotFoundError:
+        raise SimpleError("config_missing", f"{path} 파일이 없습니다.", "프로젝트 루트에서 init을 먼저 실행하세요.") from None
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise _symlink_error(path) from error
+        raise
+
+
+def read_config_bytes(path: Path) -> bytes:
+    """reproof.toml을 안전하게 읽는다: 링크 거절, 일반 파일만, MAX_CONFIG_BYTES(256 KiB) 이하.
+
+    왜: 링크를 따라가면 다른 저장소가 내 다른 설정(리터럴 비밀 값 포함)을 가리키게 할 수 있고, FIFO·장치·거대한
+    파일은 읽다가 멈추거나 메모리를 채운다. 반환: 파일 바이트. 주의: 규칙을 어기면 SimpleError.
+    """
+    with os.fdopen(_open_config(path), "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise _invalid(f"{path}은(는) 일반 파일이 아닙니다(장치·FIFO·폴더 등).",
+                           "reproof.toml을 일반 텍스트 파일로 만든 뒤 다시 실행하세요.")
+        data = stream.read(MAX_CONFIG_BYTES + 1)
+    if len(data) > MAX_CONFIG_BYTES:
+        raise _invalid(f"{path}이(가) 설정 크기 상한({MAX_CONFIG_BYTES // 1024} KiB)을 넘습니다.",
+                       "올바른 reproof.toml을 지정했는지 확인하고, 필요 없는 내용을 지운 뒤 다시 실행하세요.")
+    return data
+
+
+def _reject_nul(value: Any, label: str) -> None:
+    """설정 문서 전체(키·값·배열)를 돌며 NUL 문자가 든 문자열이 있으면 config_invalid를 낸다.
+
+    왜: TOML은 `\\u0000`을 허용하지만 경로·argv·환경 변수를 받는 C 수준 API는 NUL에서 잘라, 검증한 값과 실제로
+    쓰이는 값이 달라질 수 있다.
+    """
+    if isinstance(value, str) and "\0" in value:
+        raise _invalid(f"reproof.toml의 {label or '최상위'} 항목에 NUL 문자(\\0)가 들어 있습니다.",
+                       "해당 값에서 \\u0000 같은 NUL 문자를 지운 뒤 다시 실행하세요.")
+    children = value.items() if isinstance(value, dict) else enumerate(value) if isinstance(value, list) else ()
+    for key, child in children:
+        child_label = f"{label}.{key}" if label else str(key)
+        _reject_nul(key, f"{label or '최상위'} 표의 키")
+        _reject_nul(child, child_label)
+
+
 def load_config(path: Path) -> ProjectConfig:
     """reproof.toml을 읽어 검증한 ProjectConfig를 돌려준다.
 
-    path: 설정 파일 경로. 파일이 없거나 TOML 문법/스키마/값이 틀리면 SimpleError를 낸다.
-    왜 엄격한가: 오타가 조용히 무시되면 빌드 결과가 의도와 달라지기 때문이다.
+    path: 설정 파일 경로. 파일이 없거나 링크·일반 파일이 아님·256 KiB 초과, TOML 문법/스키마/값이 틀리거나
+    NUL 문자가 있으면 SimpleError를 낸다. 왜 엄격한가: 오타가 조용히 무시되면 빌드 결과가 의도와 달라지기 때문이다.
     """
     try:
-        root = tomllib.loads(Path(path).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        raise SimpleError("config_missing", f"{path} 파일이 없습니다.", "프로젝트 루트에서 init을 먼저 실행하세요.") from None
+        root = tomllib.loads(read_config_bytes(Path(path)).decode("utf-8"))
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
         raise _invalid(f"reproof.toml을 읽을 수 없습니다: {error}") from error
+    _reject_nul(root, "")
     _check_keys(root, "")
     if _field(root, "schema", int) != SCHEMA_VERSION:
         raise _invalid(f"schema 값이 {SCHEMA_VERSION}이(가) 아닙니다.", "지원하는 schema = 1로 고치세요.")
