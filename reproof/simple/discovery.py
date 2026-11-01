@@ -145,10 +145,29 @@ def read_app_settings(working_copy: Path, container: str, scheme: str, runner: T
             "-sdk", "iphonesimulator", _container_flag(container), container]
     output = runner.run(argv, cwd=working_copy, timeout=_XCODEBUILD_TIMEOUT_SECONDS)
     entries = _parse_json_from_first_brace(output, "[", "xcodebuild -showBuildSettings")
-    applications = [entry["buildSettings"] for entry in entries
-                    if entry.get("buildSettings", {}).get("PRODUCT_TYPE") == _APPLICATION_PRODUCT_TYPE]
+    applications = _application_settings(entries)
     chosen = _pick_application(applications, scheme)
-    return AppSettings(chosen["TARGET_NAME"], chosen["PRODUCT_BUNDLE_IDENTIFIER"])
+    return _to_app_settings(chosen, scheme)
+
+
+def _application_settings(entries) -> list[dict]:
+    """출력 배열에서 application 타깃의 buildSettings 만 모은다. 형식이 다르면 SimpleError."""
+    if not isinstance(entries, list) or not all(
+            isinstance(entry, dict) and isinstance(entry.get("buildSettings", {}), dict) for entry in entries):
+        raise SimpleError("build_settings_invalid", "xcodebuild -showBuildSettings 출력 형식이 예상과 다릅니다.",
+                          "Xcode 버전을 확인하고 `xcodebuild -showBuildSettings -json` 을 직접 실행해 보세요.")
+    return [entry["buildSettings"] for entry in entries
+            if entry.get("buildSettings", {}).get("PRODUCT_TYPE") == _APPLICATION_PRODUCT_TYPE]
+
+
+def _to_app_settings(chosen: dict, scheme: str) -> AppSettings:
+    """선택된 설정에서 타깃 이름과 번들 ID 를 꺼낸다. 하나라도 없으면 SimpleError."""
+    target, bundle_id = chosen.get("TARGET_NAME"), chosen.get("PRODUCT_BUNDLE_IDENTIFIER")
+    if not target or not bundle_id:
+        raise SimpleError("build_settings_invalid",
+                          f"scheme '{scheme}' 앱 타깃의 TARGET_NAME 또는 PRODUCT_BUNDLE_IDENTIFIER 가 비어 있습니다.",
+                          "타깃의 Build Settings 에 Product Bundle Identifier 를 지정한 뒤 다시 실행하세요.")
+    return AppSettings(target, bundle_id)
 
 
 def _pick_application(applications: list[dict], scheme: str) -> dict:
@@ -168,10 +187,10 @@ def _pick_application(applications: list[dict], scheme: str) -> dict:
 def guess_test_scheme(schemes: Sequence[str], app_scheme: str) -> str | None:
     """단위 테스트 scheme 을 추측한다.
 
-    이름에 Test 가 있고 UITest 가 없는 후보 중 앱 scheme 이름으로 시작하는 것을 고른다.
-    앱 이름과 무관한 후보만 있으면 엉뚱한 테스트를 돌리지 않도록 None 을 돌려준다.
+    이름에 Test 가 있고 UITest 가 없는 후보를 정렬해, 앱 scheme 이름으로 시작하는 첫 후보를 우선하고
+    없으면 정렬상 첫 후보로 대체한다. 왜 정렬: 입력 순서와 무관하게 결과가 항상 같게 하려는 것이다.
+    후보가 없으면 None.
     """
-    for name in schemes:
-        if "Test" in name and "UITest" not in name and name.startswith(app_scheme):
-            return name
-    return None
+    candidates = sorted(name for name in schemes if "Test" in name and "UITest" not in name)
+    preferred = [name for name in candidates if name.startswith(app_scheme)]
+    return (preferred or candidates or [None])[0]

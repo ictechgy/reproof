@@ -115,6 +115,18 @@ class SimpleDiscoveryTests(unittest.TestCase):
         self.assertEqual(guess_test_scheme(schemes, "App"), "AppTests")
         self.assertIsNone(guess_test_scheme(("App", "AppUITests"), "App"))
 
+    def test_guess_test_scheme_falls_back_to_sorted_first(self):
+        self.assertEqual(guess_test_scheme(("App", "OtherTests", "BTests"), "App"), "BTests")
+        self.assertEqual(guess_test_scheme(("ZTests", "AppZTests", "AppATests"), "App"), "AppATests")
+
+    def test_read_app_settings_missing_bundle_id_is_user_error(self):
+        entry = build_settings_entry("App", APP_TYPE, "x")
+        del entry["buildSettings"]["PRODUCT_BUNDLE_IDENTIFIER"]
+        fake = FakeToolRunner([(("xcodebuild",), json.dumps([entry, "junk"]))])
+        with self.assertRaises(SimpleError) as caught:
+            read_app_settings(Path("/tmp"), "App.xcodeproj", "App", fake)
+        self.assertEqual(caught.exception.code, "build_settings_invalid")
+
 
 if __name__ == "__main__":
     unittest.main()
