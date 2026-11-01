@@ -16,6 +16,8 @@ from .workcopy import replacing_file
 
 # 실패 시 오류에 싣는 로그 끝부분 크기(바이트).
 _TAIL_BYTES = 4096
+# 잘린 창의 첫 조각이 끝나는 글자(공백·탭·줄바꿈).
+_FIRST_SEPARATOR = re.compile(rb"[ \t\n]")
 # run_command가 로그에서 stdout과 stderr 사이에 넣는 구분 줄.
 _STDERR_MARKER = "\n--- stderr ---\n"
 # 안내문에 싣는 마지막 출력 줄 수와 최대 글자 수.
@@ -86,14 +88,31 @@ def build_default_environment() -> dict[str, str]:
 
 
 def read_log_tail(log_path: Path | None) -> str:
-    """로그 끝 4096바이트를 문자열로 읽는다. 로그가 없거나 읽을 수 없으면 빈 문자열."""
+    """로그 끝 4096바이트를 읽는다. 창이 파일 중간에서 시작하면 잘린 첫 조각은 버린다(_drop_partial_start). 없거나 못
+    읽으면 빈 문자열.
+
+    왜 조각을 버리나: 'https:' 바로 뒤에서 잘린 '//user:pw@host' 같은 조각은 가리기 규칙이 알아보지 못해, 그대로
+    안내문에 실릴 수 있다. 파일 끝에서 seek해 읽어 큰 로그도 전부 메모리에 올리지 않는다.
+    """
     if log_path is None:
         return ""
     try:
-        data = Path(log_path).read_bytes()
+        with open(log_path, "rb") as stream:
+            size = stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, size - _TAIL_BYTES))
+            data = stream.read(_TAIL_BYTES)
     except OSError:
         return ""  # 로그는 보조 정보라 읽기 실패가 원래 오류를 가리면 안 된다.
-    return data[-_TAIL_BYTES:].decode("utf-8", "replace")
+    return (_drop_partial_start(data) if size > _TAIL_BYTES else data).decode("utf-8", "replace")
+
+
+def _drop_partial_start(data: bytes) -> bytes:
+    """앞에서 잘린 창의 첫 조각(첫 공백·탭·줄바꿈까지)을 버린다. 그런 글자가 없으면 판단할 수 없어 전부 버린다.
+
+    왜 조각만: 긴 마지막 줄 하나가 원인일 때 줄 전체를 버리면 안내문이 비므로, 단서를 잃은 첫 낱말만 버린다.
+    """
+    match = _FIRST_SEPARATOR.search(data)
+    return data[match.end():] if match else b""
 
 
 def _clean_line(line: str) -> str:
@@ -105,17 +124,17 @@ def _clean_line(line: str) -> str:
 def summarize_tool_output(log_text: str) -> str:
     """로그 끝부분에서 마지막 비어 있지 않은 줄 몇 개(stderr 우선, 없으면 stdout)를 안내문용 한 줄로 만든다.
 
-    제어 문자를 지우고, 줄마다 mask_secrets로 토큰·서명·Authorization 값을 가리고, URL의 사용자 정보를 redact_url로
-    가린 뒤, 끝쪽 300자만 남긴다. 왜 가린 다음에 자르나: 먼저 자르면 `://`나 `token=`이 잘려 나가 비밀 조각이 가려지지
-    않은 채 남을 수 있기 때문이다.
+    제어 문자를 지우고, 줄마다 URL의 사용자 정보를 redact_url로, 토큰·서명·Authorization 값을 mask_secrets로 가린 뒤,
+    끝쪽 300자만 남긴다. 왜 가린 다음에 자르나: 먼저 자르면 `://`나 `token=`이 잘려 나가 비밀 조각이 가려지지 않은 채
+    남을 수 있기 때문이다(로그 창의 잘린 첫 줄은 read_log_tail이 미리 버린다).
     """
     from .packages import redact_url  # packages가 이 모듈을 import하므로 순환을 피해 여기서 가져온다.
 
     stdout, _, stderr = log_text.rpartition(_STDERR_MARKER)
     for part in (stderr, stdout):
-        lines = [mask_secrets(cleaned) for cleaned in map(_clean_line, part.splitlines()) if cleaned]
+        lines = [mask_secrets(redact_url(cleaned)) for cleaned in map(_clean_line, part.splitlines()) if cleaned]
         if lines:
-            text = redact_url(" | ".join(lines[-_SUMMARY_LINES:]))
+            text = " | ".join(lines[-_SUMMARY_LINES:])
             return text if len(text) <= _SUMMARY_LIMIT else "…" + text[-(_SUMMARY_LIMIT - 1):]
     return ""
 

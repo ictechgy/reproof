@@ -221,6 +221,56 @@ class ToolOutputMaskingTests(unittest.TestCase):
                 self.assertEqual(summarize_tool_output(line), line)
         self.assertEqual(summarize_tool_output(lines[4]), "~/.reproof/projects/my-app/builds/***/logs")
 
+    def test_jwt_is_masked_as_one_token(self):
+        """점 세 조각 JWT(eyJ…)는 조각이 짧아도 통째로 가린다(쿼리 값이 아니어도)."""
+        jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"
+        for line in (f"token rejected: {jwt}", f"https://h.example/cb?state=1#id_token={jwt}"):
+            with self.subTest(line=line):
+                summary = summarize_tool_output(line)
+                for piece in jwt.split("."):
+                    self.assertNotIn(piece, summary)
+
+    def test_credential_query_keys_match_by_suffix_and_substring(self):
+        """refresh_token·id_token·client_secret·access-token·api-key처럼 접미·부분 일치하는 쿼리 이름의 값을 가린다."""
+        for name in ("refresh_token", "id_token", "client_secret", "access-token", "api-key", "x-api-key",
+                     "db_password", "user_passwd", "aws_secret_key", "pagetoken"):
+            with self.subTest(name=name):
+                self.assertMasked(f"url https://h.example/p?mode=1&{name}=hunter2&lang=ko", "hunter2",
+                                  kept=(f"{name}=***", "mode=1", "lang=ko"))
+        self.assertEqual(summarize_tool_output("GET /p?page=2&monkey=banana"), "GET /p?page=2&monkey=banana")
+
+    def test_base64_secret_with_slashes_is_judged_as_a_whole(self):
+        """'/'가 섞인 base64 비밀은 낱말 같은 조각(info, abc)이 끼어 있어도 조각마다가 아니라 전체로 판단해 가린다."""
+        secret = "info/Zx9Kq2Lm8Pw3Ds/abc/Rt5Yh7Uj1Ok4Nb6VcX"
+        summary = summarize_tool_output(f"fatal: bad key {secret} rejected")
+        self.assertNotIn("Zx9Kq2Lm8Pw3Ds", summary)
+        self.assertNotIn("Rt5Yh7Uj1Ok4Nb6VcX", summary)
+        plus = "ab/cdEfgh9Kq2+Lm8Pw3Ds/xyzRt5Yh7Uj1Ok4N=="
+        self.assertNotIn("Lm8Pw3Ds", summarize_tool_output(f"secret {plus} rejected"))
+
+    def test_log_tail_drops_partial_first_line_before_masking(self):
+        """로그 끝 4096바이트 창이 줄 중간(예: 'https:' 바로 뒤)에서 시작하면 그 조각 줄을 버린다.
+
+        왜: '//bot:pw@host'처럼 스킴이 잘린 조각은 redact_url이 알아보지 못해, 뒤가 빈 줄뿐이면 비밀번호가 안내문에 남는다.
+        """
+        from reproof.simple.process import read_log_tail
+        fragment = "//bot:hunter2pw@git.corp/x.git"
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "a.log"
+            log.write_text("x" * 100 + "https:" + fragment + "\n" * (4096 - len(fragment)), encoding="utf-8")
+            self.assertNotIn("hunter2pw", summarize_tool_output(read_log_tail(log)))
+            short = Path(tmp) / "short.log"
+            short.write_text("first line\nlast line\n", encoding="utf-8")
+            self.assertEqual(read_log_tail(short), "first line\nlast line\n")
+
+    def test_overlong_line_drops_partial_first_token_before_masking(self):
+        """4096자를 넘는 줄은 끝쪽만 보되, 창 시작에서 잘린 첫 조각(쿼리 이름이 잘린 비밀 등)은 버리고 가린다."""
+        from reproof.simple.redaction import mask_secrets
+        line = "fetch ?access_token=" + "SECRETVALUEabc" + " " + "w " * 2041
+        cut = len(line) - 4096
+        self.assertTrue(20 < cut < 34, cut)  # 창이 비밀 값 가운데에서 시작한다.
+        self.assertNotIn(line[cut:34], mask_secrets(line))
+
     def test_adversarial_long_input_is_processed_quickly(self):
         """긴 적대적 입력도 1초 안에 처리하는지 본다(ReDoS 회귀 방지, 보안 검토 지시).
 
