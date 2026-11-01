@@ -1857,6 +1857,23 @@
           "gate": "software"
         },
         {
+          "id": "simple-locking",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_simple_locking"
+          ],
+          "environment": "local-python-synthetic-no-native-execution",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
           "id": "simple-fetch-app",
           "command": [
             "python3",

@@ -29,6 +29,7 @@ from ..repair import signal_process_group
 from ..resources import ResourceError, read_resource
 from .errors import SimpleError
 from .hierarchy import Element, parse_hierarchy
+from .locking import runner_lock
 from .process import ToolRunner, build_default_environment
 from .workcopy import tree_digest
 
@@ -139,8 +140,16 @@ def build_runner(output_root: Path, runner: ToolRunner) -> RunnerProducts:
     흐름: 리소스를 `runner-src`에 복사 → 키 계산 → `runner/<key>/`에 .xctestrun이 있으면 반환,
     없으면 `runner-dd`에서 빌드해 Products를 `runner/<key>.partial`로 복사한 뒤 rename한다.
     왜 rename인가: 중간에 끊긴 빌드가 완성된 캐시로 보이지 않게 하려는 것이다.
+    잠금: 전체를 실행기 잠금(runner_lock) 안에서 한다. 왜: 다른 터미널의 실행이 runner-src·runner-dd를 지우고 다시 쓰는
+    도중에 섞이지 않게 하려는 것이다. 잠겨 있으면 아무것도 하지 않고 runner_busy를 낸다.
     """
     output_root = output_root.expanduser().absolute()
+    with runner_lock(output_root):
+        return _build_runner_locked(output_root, runner)
+
+
+def _build_runner_locked(output_root: Path, runner: ToolRunner) -> RunnerProducts:
+    """실행기 잠금을 쥔 상태에서 소스 복사·키 계산·캐시 확인·빌드를 한다(build_runner 참고)."""
     source = output_root / "runner-src"
     copy_runner_source(source)
     version = runner.run(["xcodebuild", "-version"], cwd=source, timeout=_VERSION_TIMEOUT).strip()

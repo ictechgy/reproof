@@ -30,6 +30,7 @@ from .errors import SimpleError
 from .generation import generate_project
 from .hierarchy import Element, element_at, parse_hierarchy
 from .locator import capture_evidence, resolve
+from .locking import project_lock
 from .pipeline import PreparedBuild, _remove_tree, default_workspace_root, prepare_build
 from .process import HostToolRunner, ToolRunner
 from .runner_client import RunnerClient, RunnerSession, build_runner, free_loopback_port
@@ -454,21 +455,30 @@ def run_inspect_command(arguments: argparse.Namespace) -> int:
     """inspect 명령. 빌드 → 전용 Simulator 준비 → 실행기 세션 → 앱 실행 → 계층 저장(→ 좌표 요소 확인).
 
     reproof-<이름> Simulator는 끄지 않고 둔다(다음 실행을 빠르게 하고, 이 명령이 시작하지 않은 것은 건드리지 않으려는 것).
+    빌드부터 세션 끝까지 프로젝트 잠금을 쥔다. 왜: 다른 터미널의 같은 프로젝트 실행이 세션 도중 같은 Simulator를
+    초기화하거나 빌드 폴더를 지우지 못하게 하려는 것이다.
     """
     point = parse_point(arguments.point)  # 빌드 전에 검사해 잘못된 입력으로 몇 분을 쓰지 않게 한다.
+    config, root = _load_project(arguments)
+    workspace_root = _workspace_root(arguments)
+    with project_lock(workspace_root, config.name):
+        hierarchy_root = _inspect_locked(arguments, config, root, workspace_root)
+    if point is not None:
+        describe_point(hierarchy_root, point)
+    return 0
+
+
+def _inspect_locked(arguments: argparse.Namespace, config: ProjectConfig, root: Path, workspace_root: Path) -> Element:
+    """프로젝트 잠금을 쥔 상태에서 빌드 → Simulator 준비 → 실행기 → 세션 → 앱 실행 → 계층 저장을 하고 계층 루트를 돌려준다."""
     runner = _new_runner()
-    config, prepared, workspace_root = _build(arguments, runner)
+    prepared = prepare_build(root, config, workspace_root=workspace_root, runner=runner)
     udid = prepare_simulator(config, prepared, runner)
     products = build_runner(workspace_root / "runner", runner)
-    log_path = prepared.directory / "logs" / "inspect-session.log"
     session = RunnerSession(products, udid=udid, target_bundle=config.bundle_id, port=free_loopback_port(),
-                            log_path=log_path)
+                            log_path=prepared.directory / "logs" / "inspect-session.log")
     with session as client:
         launch_app(client, config)
-        root = save_hierarchy(client, inspect_output_path(arguments, prepared))
-    if point is not None:
-        describe_point(root, point)
-    return 0
+        return save_hierarchy(client, inspect_output_path(arguments, prepared))
 
 
 _COMMANDS = {"init": run_init_command, "doctor": run_doctor_command, "build": run_build_command,

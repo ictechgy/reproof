@@ -13,6 +13,7 @@ from .build import BUILD_RECIPE_VERSION, BuildProducts, build_for_simulator, rea
 from .config import ProjectConfig, config_digest
 from .generation import generate_project
 from .identity import BuildIdentity, capture_build_identity
+from .locking import project_lock
 from .packages import resolve_packages
 from .process import ToolRunner
 from .workcopy import WorkingCopy, _make_tree_writable, materialize_working_copy
@@ -125,10 +126,20 @@ def prepare_build(source_root: Path, config: ProjectConfig, *, workspace_root: P
     흐름: 작업 사본을 staging에 만들고 build_id를 정한 뒤 `<build_id>.partial/`에서 작업하고,
     성공해야 `<build_id>/`로 rename한다. 도중에 실패·중단되면 partial을 남기고 예외를 그대로 던지며,
     다음 실행이 partial을 지우고 처음부터 다시 한다(끊긴 빌드를 완성으로 착각하지 않으려는 것).
+    잠금: Xcode 버전 확인 뒤의 모든 작업 공간 변경을 프로젝트 잠금(project_lock) 안에서 한다. 왜: 다른 터미널의 같은
+    프로젝트 실행이 쓰고 있는 staging·partial을 "남은 잔재"로 보고 지우지 않게 하려는 것이다. 잠겨 있으면 작업 공간을
+    바꾸지 않고 project_busy를 낸다.
     """
     workspace_root = workspace_root.expanduser().absolute()  # xcodebuild는 cwd 기준으로 경로를 풀기 때문
     progress("빌드 식별 중")
-    xcode_version = read_xcode_version(runner)  # 복사 전에 확인해 Xcode가 없으면 바로 멈춘다.
+    xcode_version = read_xcode_version(runner)  # 복사·잠금 전에 확인해 Xcode가 없으면 작업 공간을 건드리지 않고 멈춘다.
+    with project_lock(workspace_root, config.name):
+        return _prepare_locked(source_root, config, workspace_root, runner, progress, xcode_version)
+
+
+def _prepare_locked(source_root: Path, config: ProjectConfig, workspace_root: Path, runner: ToolRunner,
+                    progress: Callable[[str], None], xcode_version: str) -> PreparedBuild:
+    """프로젝트 잠금을 쥔 상태에서 식별 → 작업 사본 → (재사용 또는) 빌드를 한다. 흐름은 prepare_build 설명과 같다."""
     project_dir = workspace_root / "projects" / config.name
     builds_dir = project_dir / "builds"
     staging, copy = _stage_working_copy(source_root, project_dir, progress)
