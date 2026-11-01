@@ -2083,6 +2083,29 @@
           "gate": "software"
         }
       ]
+    },
+    "IOS_SIMPLE_NATIVE": {
+      "available": true,
+      "checks": [
+        {
+          "id": "simple-native-build",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_simple_native_build"
+          ],
+          "environment": "local-xcode-xcodegen-ios-simulator-sdk-build-no-simulator-boot",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile"
+          ],
+          "timeoutSeconds": 600,
+          "evidence": "unittest-summary",
+          "gate": "environment"
+        }
+      ]
     }
   }
 }
