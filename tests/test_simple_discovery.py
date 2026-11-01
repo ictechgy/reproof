@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from reproof.simple.discovery import (AppSettings, ContainerScan, choose_container, guess_test_scheme,
-                                      list_schemes, read_app_settings, scan_containers)
+from reproof.simple.discovery import (AppSettings, ContainerScan, DiscoveryPaths, choose_container,
+                                      guess_test_scheme, list_schemes, read_app_settings, scan_containers)
 from reproof.simple.errors import SimpleError
 from tests.simple_support import FakeToolRunner
 
@@ -102,6 +102,41 @@ class SimpleDiscoveryTests(unittest.TestCase):
             with self.assertRaises(SimpleError) as caught:
                 read_app_settings(Path("/tmp"), "App.xcodeproj", "App", fake)
             self.assertEqual(caught.exception.code, code)
+
+    def test_discovery_paths_keep_xcodebuild_out_of_global_derived_data(self):
+        """탐색 폴더를 주면 -list·-showBuildSettings 모두 DerivedData와 패키지 폴더를 임시·작업 공간 폴더로 받는다.
+
+        왜: 주지 않으면 Xcode가 ~/Library/Developer/Xcode/DerivedData에 임시 사본 기준 폴더(Wikipedia는 1.1 GB)를
+        init마다 남긴다. -list는 -derivedDataPath를 거부하므로(`-scheme ... is required`) 같은 효과의 사용자 기본값
+        `-IDECustomDerivedDataLocation=<폴더>`를 쓴다(Xcode 27.0에서 전역 폴더가 생기지 않음을 확인).
+        """
+        paths = DiscoveryPaths(derived_data=Path("/w/tmp/init-1/dd"), packages_dir=Path("/w/cache/spm/discovery"))
+        entries = [build_settings_entry("App", APP_TYPE, "com.x.app")]
+        fake = FakeToolRunner([(("xcodebuild", "-list"), json.dumps({"project": {"schemes": ["App"]}})),
+                               (("xcodebuild", "-showBuildSettings"), json.dumps(entries))])
+        list_schemes(Path("/tmp"), "App.xcodeproj", fake, paths=paths)
+        read_app_settings(Path("/tmp"), "App.xcodeproj", "App", fake, paths=paths)
+        list_argv, settings_argv = (call["argv"] for call in fake.calls)
+        self.assertIn("-clonedSourcePackagesDirPath", list_argv)
+        self.assertIn("-derivedDataPath", settings_argv)
+        self.assertEqual(list_argv[list_argv.index("-clonedSourcePackagesDirPath") + 1], "/w/cache/spm/discovery")
+        self.assertNotIn("-derivedDataPath", list_argv)
+        self.assertIn("-IDECustomDerivedDataLocation=/w/tmp/init-1/dd", list_argv)
+        self.assertEqual(settings_argv[settings_argv.index("-derivedDataPath") + 1], "/w/tmp/init-1/dd")
+        self.assertEqual(settings_argv[settings_argv.index("-clonedSourcePackagesDirPath") + 1],
+                         "/w/cache/spm/discovery")
+
+    def test_discovery_without_paths_keeps_previous_argv(self):
+        """탐색 폴더를 주지 않는 기존 호출자는 argv가 그대로다."""
+        entries = [build_settings_entry("App", APP_TYPE, "com.x.app")]
+        fake = FakeToolRunner([(("xcodebuild", "-list"), json.dumps({"project": {"schemes": ["App"]}})),
+                               (("xcodebuild", "-showBuildSettings"), json.dumps(entries))])
+        list_schemes(Path("/tmp"), "App.xcodeproj", fake)
+        read_app_settings(Path("/tmp"), "App.xcodeproj", "App", fake)
+        for call in fake.calls:
+            self.assertNotIn("-derivedDataPath", call["argv"])
+            self.assertNotIn("-clonedSourcePackagesDirPath", call["argv"])
+            self.assertFalse([item for item in call["argv"] if item.startswith("-IDECustomDerivedDataLocation")])
 
     def test_argv_keeps_space_and_korean_container_path_as_single_argument(self):
         entries = [build_settings_entry("My App", APP_TYPE, "com.x.app")]

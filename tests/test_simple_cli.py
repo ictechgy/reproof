@@ -173,6 +173,28 @@ class SimpleCliTests(unittest.TestCase):
         self.assertEqual(after, before)
         self.assertEqual(list((self.tmp / "home" / "tmp").iterdir()), [])
 
+    def test_init_keeps_discovery_xcodebuild_inside_workspace(self):
+        """init의 -list·-showBuildSettings가 작업 공간 안의 패키지 폴더·임시 DerivedData를 쓰고, 임시 폴더는 지워진다.
+
+        왜: 지정하지 않으면 ~/Library/Developer/Xcode/DerivedData에 init마다 고아 폴더(패키지 포함 1 GB 이상)가 남는다.
+        """
+        responses = scheme_responses(["MixedShop"], ["MixedShopTests"]) + doctor_responses(READY_RUNTIME)
+        code, _, _, runner, _ = self.run_cli(self.init_args("--non-interactive"), responses)
+        self.assertEqual(code, 0)
+        home = self.tmp / "home"
+        discovery = [call["argv"] for call in runner.calls
+                     if call["argv"][:2] in (["xcodebuild", "-list"], ["xcodebuild", "-showBuildSettings"])]
+        self.assertEqual(len(discovery), 3)
+        for argv in discovery:
+            self.assertIn("-clonedSourcePackagesDirPath", argv)
+            self.assertEqual(Path(argv[argv.index("-clonedSourcePackagesDirPath") + 1]),
+                             home / "cache" / "spm" / "discovery")
+        locations = [item.split("=", 1)[1] for item in discovery[0] if item.startswith("-IDECustomDerivedDataLocation=")]
+        locations += [argv[argv.index("-derivedDataPath") + 1] for argv in discovery[1:]]
+        self.assertEqual(len(locations), 3)
+        self.assertTrue(all(Path(location).is_relative_to(home / "tmp") for location in locations))
+        self.assertEqual(list((home / "tmp").iterdir()), [])
+
     def test_init_refuses_symlinked_config_and_keeps_target(self):
         victim = self.tmp / "victim.txt"
         victim.write_text("건드리면 안 됨", encoding="utf-8")

@@ -21,8 +21,8 @@ from pathlib import Path
 
 from .config import CONFIG_FILE_NAME, ProjectConfig, SimulatorSettings, load_config, render_config, \
     resolve_launch_environment
-from .discovery import (AppSettings, ContainerScan, choose_container, guess_test_scheme, list_schemes,
-                        read_app_settings, scan_containers)
+from .discovery import (AppSettings, ContainerScan, DiscoveryPaths, choose_container, guess_test_scheme,
+                        list_schemes, read_app_settings, scan_containers)
 from .doctor import Check, run_doctor
 from .errors import SimpleError
 from .generation import generate_project
@@ -222,9 +222,9 @@ def _pick_container(scan: ContainerScan, prompter: Prompter) -> str:
     return options[0] if len(options) == 1 else prompter.choose("Xcode 프로젝트", options)
 
 
-def _application_schemes(search_root: Path, container: str, schemes: Sequence[str],
-                         runner: ToolRunner) -> dict[str, AppSettings]:
-    """scheme 중 앱 타깃이 있는 것만 {scheme: 앱 설정}으로 모은다.
+def _application_schemes(search_root: Path, container: str, schemes: Sequence[str], runner: ToolRunner,
+                         paths: DiscoveryPaths) -> dict[str, AppSettings]:
+    """scheme 중 앱 타깃이 있는 것만 {scheme: 앱 설정}으로 모은다. paths는 xcodebuild가 쓸 탐색 폴더다.
 
     왜 읽기 실패도 건너뛰나: 테스트·패키지 scheme은 Simulator 대상이 없어 xcodebuild가 오류를 내기도 하므로, scheme
     하나의 조회 실패로 init 전체를 멈추지 않는다. 다만 앱 scheme이 하나도 없으면 첫 실패 원인을 그대로 보여 준다.
@@ -233,7 +233,7 @@ def _application_schemes(search_root: Path, container: str, schemes: Sequence[st
     failures: list[SimpleError] = []
     for scheme in schemes:
         try:
-            found[scheme] = read_app_settings(search_root, container, scheme, runner)
+            found[scheme] = read_app_settings(search_root, container, scheme, runner, paths=paths)
         except SimpleError as error:
             print(f"건너뜀: {scheme} ({error.cause})")
             failures.append(error)
@@ -255,11 +255,14 @@ def _pick_application(applications: dict[str, AppSettings], prompter: Prompter) 
 
 
 def _config_from_project(root: Path, search_root: Path, scan: ContainerScan, generator: tuple[str, str | None],
-                         runner: ToolRunner, prompter: Prompter) -> ProjectConfig:
-    """search_root(원본 또는 생성된 사본)에서 컨테이너·scheme·앱 설정을 정해 ProjectConfig를 만든다."""
+                         runner: ToolRunner, prompter: Prompter, paths: DiscoveryPaths) -> ProjectConfig:
+    """search_root(원본 또는 생성된 사본)에서 컨테이너·scheme·앱 설정을 정해 ProjectConfig를 만든다.
+
+    paths: xcodebuild가 쓸 탐색 폴더(전역 DerivedData에 고아 폴더를 남기지 않으려는 것).
+    """
     container = _pick_container(scan, prompter)
-    schemes = list_schemes(search_root, container, runner)
-    scheme, app = _pick_application(_application_schemes(search_root, container, schemes, runner), prompter)
+    schemes = list_schemes(search_root, container, runner, paths=paths)
+    scheme, app = _pick_application(_application_schemes(search_root, container, schemes, runner, paths), prompter)
     test_scheme = prompter.confirm_test_scheme(schemes, guess_test_scheme(schemes, scheme))
     return ProjectConfig(
         name=slugify_name(root.name), container=container, generator=generator[0] or "none",
@@ -268,12 +271,15 @@ def _config_from_project(root: Path, search_root: Path, scan: ContainerScan, gen
 
 
 @contextlib.contextmanager
-def _discovery_copy(root: Path, scan: ContainerScan, workspace_root: Path, runner: ToolRunner) -> Iterator[Path]:
-    """원본을 임시 사본으로 복사하고(생성기가 있으면 생성까지 해서) 사본 경로를 준다. 끝나면 사본을 지운다.
+def _discovery_copy(root: Path, scan: ContainerScan, workspace_root: Path,
+                    runner: ToolRunner) -> Iterator[tuple[Path, DiscoveryPaths]]:
+    """원본을 임시 사본으로 복사하고(생성기가 있으면 생성까지 해서) (사본 경로, 탐색 폴더)를 준다. 끝나면 사본을 지운다.
 
     왜 항상 사본에서: xcodebuild -list 등이 Package.resolved·.build를 쓸 수 있고 생성기는 .xcodeproj를 쓰므로,
     init이 원본 저장소에 남기는 파일을 reproof.toml 하나로 제한하려는 것이다. 생성 로그는 사본 밖(작업 공간 logs)에
     둬서 실패했을 때도 안내된 경로에서 읽을 수 있다.
+    탐색 폴더: DerivedData는 사본과 함께 지워지는 임시 폴더 안, 패키지는 작업 공간의 `cache/spm/discovery`에 둔다
+    (init을 다시 해도 패키지를 다시 받지 않게 하고, ~/Library/Developer/Xcode/DerivedData를 쓰지 않으려는 것).
     """
     tmp_root = workspace_root / "tmp"
     tmp_root.mkdir(parents=True, exist_ok=True)
@@ -286,7 +292,7 @@ def _discovery_copy(root: Path, scan: ContainerScan, workspace_root: Path, runne
             generator_spec=scan.generator_spec, scheme="", app_target="", bundle_id="", test_scheme=None,
             simulator=SimulatorSettings(DEFAULT_DEVICE_TYPE, "latest"))
         generate_project(copy.root, provisional, runner, log_path=workspace_root / "logs" / "init-generate.log")
-        yield copy.root
+        yield copy.root, DiscoveryPaths(directory / "dd", workspace_root / "cache" / "spm" / "discovery")
     finally:
         _remove_tree(directory)
 
@@ -295,8 +301,8 @@ def discover_config(root: Path, runner: ToolRunner, workspace_root: Path, prompt
     """프로젝트를 탐색해 ProjectConfig를 만든다. 탐색은 항상 임시 사본에서 하고 원본은 읽기만 한다."""
     scan = scan_containers(root)
     generator = (scan.generator, scan.generator_spec)
-    with _discovery_copy(root, scan, workspace_root, runner) as copy_root:
-        return _config_from_project(root, copy_root, scan_containers(copy_root), generator, runner, prompter)
+    with _discovery_copy(root, scan, workspace_root, runner) as (copy_root, paths):
+        return _config_from_project(root, copy_root, scan_containers(copy_root), generator, runner, prompter, paths)
 
 
 def _refuse_symlink(target: Path) -> None:

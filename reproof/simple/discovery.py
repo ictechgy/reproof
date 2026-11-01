@@ -114,13 +114,44 @@ def _parse_json_from_first_brace(output: str, opener: str, command_name: str):
                           "Xcode 가 정상 설치됐는지 `xcodebuild -list` 를 직접 실행해 확인하세요.") from error
 
 
-def list_schemes(working_copy: Path, container: str, runner: ToolRunner) -> tuple[str, ...]:
+@dataclass(frozen=True)
+class DiscoveryPaths:
+    """탐색용 xcodebuild가 쓸 폴더. derived_data: -showBuildSettings의 DerivedData, packages_dir: 패키지 체크아웃 폴더.
+
+    왜 필요한가: 지정하지 않으면 Xcode가 패키지를 해석하며 ~/Library/Developer/Xcode/DerivedData에 임시 사본 경로 기준
+    폴더(패키지 포함, Wikipedia는 1.1 GB)를 만들고, 사본이 지워진 뒤에도 다시 쓰지 않는 고아로 남긴다.
+    """
+
+    derived_data: Path
+    packages_dir: Path
+
+
+def _location_arguments(paths: DiscoveryPaths | None, *, has_scheme: bool) -> list[str]:
+    """탐색 폴더 인자를 만든다. paths가 없으면 빈 목록(기존 호출자 argv 유지).
+
+    scheme이 있는 호출은 -derivedDataPath를, `-list`는 사용자 기본값 `-IDECustomDerivedDataLocation=<폴더>`를 쓴다.
+    왜: `xcodebuild -list`는 -derivedDataPath를 거부하고("The flag -scheme, -testProductsPath, or -xctestrun is
+    required when specifying -derivedDataPath."), 패키지 폴더만 주면 전역 DerivedData에 Logs 폴더가 남는다.
+    사용자 기본값은 이 실행에만 적용되고 Xcode 설정 파일은 바꾸지 않는다(Xcode 27.0에서 확인).
+    """
+    if paths is None:
+        return []
+    if has_scheme:
+        derived = ["-derivedDataPath", str(paths.derived_data)]
+    else:
+        derived = [f"-IDECustomDerivedDataLocation={paths.derived_data}"]
+    return [*derived, "-clonedSourcePackagesDirPath", str(paths.packages_dir)]
+
+
+def list_schemes(working_copy: Path, container: str, runner: ToolRunner, *,
+                 paths: DiscoveryPaths | None = None) -> tuple[str, ...]:
     """`xcodebuild -list -json` 으로 scheme 이름 목록을 읽는다.
 
     워크스페이스는 {"workspace": ...}, 프로젝트는 {"project": ...} 형태라 둘 다 받는다.
-    argv 는 리스트로 넘겨 공백·한글 경로가 한 인자로 유지된다.
+    argv 는 리스트로 넘겨 공백·한글 경로가 한 인자로 유지된다. paths를 주면 패키지를 그 폴더에 받는다.
     """
-    argv = ["xcodebuild", "-list", "-json", _container_flag(container), container]
+    argv = ["xcodebuild", "-list", "-json", _container_flag(container), container,
+            *_location_arguments(paths, has_scheme=False)]
     output = runner.run(argv, cwd=working_copy, timeout=_XCODEBUILD_TIMEOUT_SECONDS)
     data = _parse_json_from_first_brace(output, "{", "xcodebuild -list")
     section = data.get("workspace") or data.get("project") or {}
@@ -135,14 +166,17 @@ class AppSettings:
     bundle_id: str
 
 
-def read_app_settings(working_copy: Path, container: str, scheme: str, runner: ToolRunner) -> AppSettings:
+def read_app_settings(working_copy: Path, container: str, scheme: str, runner: ToolRunner, *,
+                      paths: DiscoveryPaths | None = None) -> AppSettings:
     """scheme 의 빌드 설정에서 앱(application) 타깃의 이름과 번들 ID 를 읽는다.
 
     왜 PRODUCT_TYPE 으로 거르나: 위젯·확장(.appex)이 같은 scheme 에 섞여 있어도 .app 을 골라야 한다.
     후보가 여럿이면 TARGET_NAME 이 scheme 과 같은 것을 쓰고, 그래도 모호하면 app_target_ambiguous.
+    paths를 주면 DerivedData와 패키지를 그 폴더에 둔다.
     """
     argv = ["xcodebuild", "-showBuildSettings", "-json", "-scheme", scheme, "-configuration", "Debug",
-            "-sdk", "iphonesimulator", _container_flag(container), container]
+            "-sdk", "iphonesimulator", _container_flag(container), container,
+            *_location_arguments(paths, has_scheme=True)]
     output = runner.run(argv, cwd=working_copy, timeout=_XCODEBUILD_TIMEOUT_SECONDS)
     entries = _parse_json_from_first_brace(output, "[", "xcodebuild -showBuildSettings")
     applications = _application_settings(entries)
