@@ -85,8 +85,13 @@ def parse_porcelain_status(output: str) -> tuple[list[str], list[str]]:
 
 
 def _run_git(runner: ToolRunner, source_root: Path, arguments: list[str]) -> str:
-    """source_root에서 git을 실행해 stdout을 돌려준다. 실패하면 ToolFailure."""
-    return runner.run(["git", "-C", str(source_root), *arguments], cwd=source_root, timeout=_GIT_TIMEOUT_SECONDS)
+    """source_root에서 git을 실행해 stdout을 돌려준다. 실패하면 ToolFailure.
+
+    --no-optional-locks: status·diff가 사용자 저장소의 .git/index(stat 캐시)를 새로 고쳐 쓰지 않게 한다. 왜: 원본
+    저장소에는 reproof.toml 말고는 아무것도 쓰지 않기로 했고, 사용자의 다른 git 작업과 index 잠금으로 부딪히지 않게 하려는 것이다.
+    """
+    argv = ["git", "--no-optional-locks", "-C", str(source_root), *arguments]
+    return runner.run(argv, cwd=source_root, timeout=_GIT_TIMEOUT_SECONDS)
 
 
 def _read_head_commit(runner: ToolRunner, source_root: Path) -> str | None:

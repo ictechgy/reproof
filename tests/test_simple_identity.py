@@ -208,6 +208,21 @@ class SimpleIdentityTests(unittest.TestCase):
             self.assertEqual(base.to_document()["excludedPaths"], [])
             self.assertNotEqual(base.build_id(), excluded.build_id())
 
+    def test_identity_does_not_rewrite_users_git_index(self):
+        """식별용 git 호출은 사용자 저장소의 .git/index(stat 캐시)를 다시 쓰지 않는다(--no-optional-locks).
+
+        왜: 원본 저장소에는 reproof.toml 말고는 아무것도 쓰지 않기로 했다. 내용은 같고 mtime만 바뀐 파일이 있으면
+        보통의 `git status`는 index를 새로 고쳐 쓴다.
+        """
+        import os
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repository(Path(tmp))
+            os.utime(repo / "a.swift", (1_000_000_000, 1_000_000_000))
+            index = repo / ".git" / "index"
+            before = (index.read_bytes(), index.stat().st_mtime_ns)
+            self.capture(repo, Path(tmp) / "out")
+            self.assertEqual((index.read_bytes(), index.stat().st_mtime_ns), before)
+
     def test_rename_entry_skips_source_path(self):
         changed, untracked = parse_porcelain_status("R  new name.swift\0old.swift\0?? z.swift\0?? b.swift\0")
         self.assertEqual(changed, ["new name.swift"])
