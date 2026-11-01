@@ -200,6 +200,25 @@ class SimpleLockingTests(unittest.TestCase):
         self.assertIn("패키지 캐시", err.getvalue())
         self.assertEqual(runner.calls, [])
 
+    def test_project_lock_rejects_unsafe_project_name(self):
+        """프로젝트 이름이 경로 한 조각(설정 이름 규칙)이 아니면 잠금 파일을 만들지 않고 거절한다(설정 검증과 별개의 방어)."""
+        from reproof.simple.locking import project_lock
+        for name in ("../escape", "a/b", "", "..", "UPPER"):
+            with self.subTest(name=name), self.assertRaises(SimpleError) as raised, project_lock(self.workspace, name):
+                pass
+            self.assertEqual(raised.exception.code, "project_name_invalid")
+        self.assertFalse((self.workspace / "escape").exists())
+        self.assertFalse(os.path.lexists(self.workspace / "projects" / "a"))
+
+    def test_lock_reentrancy_uses_real_path(self):
+        """같은 잠금 파일을 링크 경로와 실제 경로로 겹쳐 잡아도 스스로 막히지 않는다(/tmp ↔ /private/tmp 같은 경우)."""
+        from reproof.simple.locking import project_lock
+        real = self.tmp / "real-ws"
+        real.mkdir()
+        (self.tmp / "linked-ws").symlink_to(real)
+        with project_lock(self.tmp / "linked-ws", self.config.name), project_lock(real, self.config.name):
+            pass
+
     def test_lock_is_reentrant_within_one_process(self):
         """inspect처럼 이미 잠금을 쥔 프로세스가 prepare_build를 불러도 스스로 막히지 않는지 본다."""
         from reproof.simple.locking import project_lock

@@ -492,8 +492,8 @@ def run_inspect_command(arguments: argparse.Namespace) -> int:
     launch_environment = resolve_launch_environment(config, os.environ)  # 빠진 env: 참조도 빌드·부팅 전에 알린다.
     workspace_root = _workspace_root(arguments)
     prepare_workspace(workspace_root)  # 잠금 파일을 만들기 전에 작업 공간 폴더를 0700으로 둔다.
-    make_private_directory(workspace_root / "projects" / config.name)
     with project_lock(workspace_root, config.name):
+        make_private_directory(workspace_root / "projects" / config.name)
         hierarchy_root = _inspect_locked(arguments, config, root, workspace_root, launch_environment)
     if point is not None:
         describe_point(hierarchy_root, point)

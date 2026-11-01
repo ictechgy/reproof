@@ -17,6 +17,7 @@ import tempfile
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
+from .config import NAME_PATTERN
 from .errors import SimpleError
 
 LOCK_FILE_NAME = ".lock"
@@ -32,7 +33,7 @@ _held: dict[Path, int] = {}
 
 def _acquire(path: Path, busy: Callable[[], SimpleError]) -> int:
     """path를 0600으로 열고(링크는 따라가지 않음) 기다리지 않는 배타 flock을 건다. 이미 잠겨 있으면 busy()를 던진다."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)  # 지키는 폴더가 새로 생기면 처음부터 소유자 전용이다.
     descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -57,9 +58,10 @@ def _release(key: Path, descriptor: int | None) -> None:
 def exclusive_lock(path: Path, busy: Callable[[], SimpleError]) -> Iterator[None]:
     """with 동안 path의 배타 잠금을 쥔다. 다른 프로세스(또는 다른 디스크립터)가 쥐고 있으면 busy()가 만든 오류를 던진다.
 
-    같은 프로세스가 이미 쥔 잠금이면 다시 걸지 않고 겹쳐 쥔다(_held 참고).
+    같은 프로세스가 이미 쥔 잠금이면 다시 걸지 않고 겹쳐 쥔다(_held 참고). 겹침 판단은 실제 경로(realpath) 기준이다.
+    왜: 같은 파일을 /tmp와 /private/tmp, 링크로 둔 작업 공간처럼 다른 철자로 다시 잡으면 자기 자신과 충돌해 거짓 busy가 난다.
     """
-    key = path.absolute()
+    key = Path(os.path.realpath(path))
     descriptor = None if key in _held else _acquire(key, busy)
     _held[key] = _held.get(key, 0) + 1
     try:
@@ -68,8 +70,21 @@ def exclusive_lock(path: Path, busy: Callable[[], SimpleError]) -> Iterator[None
         _release(key, descriptor)
 
 
+def _require_safe_name(project_name: str) -> None:
+    """project_name이 NAME_PATTERN(소문자·숫자·하이픈, 40자 이하)에 맞지 않으면 project_name_invalid를 낸다."""
+    if not NAME_PATTERN.fullmatch(project_name):
+        raise SimpleError("project_name_invalid",
+                          f"프로젝트 이름 {project_name!r}은(는) 작업 공간 폴더 이름으로 쓸 수 없습니다(경로 구분자·'..' 등).",
+                          "reproof.toml의 name을 소문자·숫자·하이픈만으로 된 40자 이하 이름(예: my-app)으로 고친 뒤 다시 실행하세요.")
+
+
 def project_lock(workspace_root: Path, project_name: str) -> contextlib.AbstractContextManager[None]:
-    """`<작업 공간>/projects/<이름>/.lock` 잠금. 빌드 준비와 inspect 세션 전체 동안 쥔다. 잠겨 있으면 project_busy."""
+    """`<작업 공간>/projects/<이름>/.lock` 잠금. 빌드 준비와 inspect 세션 전체 동안 쥔다. 잠겨 있으면 project_busy.
+
+    주의: project_name이 설정 이름 규칙(경로 한 조각인 소문자 slug)이 아니면 잠금 파일을 만들지 않고 project_name_invalid.
+    왜: 설정 검증과 별개로 한 번 더 막아, '..'나 '/'가 든 이름이 작업 공간 밖에 폴더·잠금 파일을 만들지 못하게 한다.
+    """
+    _require_safe_name(project_name)
     path = workspace_root / "projects" / project_name / LOCK_FILE_NAME
     return exclusive_lock(path, lambda: SimpleError(
         "project_busy", f"다른 터미널에서 같은 프로젝트({project_name})를 실행 중입니다(잠금 파일: {path}).",

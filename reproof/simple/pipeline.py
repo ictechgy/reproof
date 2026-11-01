@@ -248,8 +248,8 @@ def prepare_build(source_root: Path, config: ProjectConfig, *, workspace_root: P
     progress("빌드 식별 중")
     xcode_version = read_xcode_version(runner)  # 복사·잠금 전에 확인해 Xcode가 없으면 작업 공간을 건드리지 않고 멈춘다.
     prepare_workspace(workspace_root)
-    make_private_directory(workspace_root / "projects" / config.name)
-    with project_lock(workspace_root, config.name):
+    with project_lock(workspace_root, config.name):  # 이름 검사가 폴더를 만들기 전에 돌도록 잠금부터 잡는다.
+        make_private_directory(workspace_root / "projects" / config.name)
         return _prepare_locked(source_root, config, workspace_root, runner, progress, xcode_version)
 
 
