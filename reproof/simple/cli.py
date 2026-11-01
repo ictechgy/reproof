@@ -1,42 +1,433 @@
-"""`reproof app` 명령 진입점. 하위 명령은 Task 12에서 구현하며 지금은 등록만 한다."""
+"""`reproof app` 명령 진입점: init, doctor, build, inspect.
+
+왜 질문을 줄이나: 회사 개발자가 설정 때문에 도구를 포기하지 않도록, 자동으로 정할 수 있는 값은 묻지 않고
+모호한 것만 번호로 고르게 한다.
+"""
+from __future__ import annotations
+
 import argparse
+import contextlib
+import json
+import math
+import os
+import re
 import sys
-from collections.abc import Sequence
+import tempfile
+import time
+from collections.abc import Iterator, Sequence
+from dataclasses import replace
+from datetime import datetime
+from pathlib import Path
 
+from .config import CONFIG_FILE_NAME, ProjectConfig, SimulatorSettings, load_config, render_config, \
+    resolve_launch_environment
+from .discovery import (AppSettings, ContainerScan, choose_container, guess_test_scheme, list_schemes,
+                        read_app_settings, scan_containers)
+from .doctor import Check, run_doctor
 from .errors import SimpleError
+from .generation import generate_project
+from .hierarchy import Element, element_at, parse_hierarchy
+from .locator import capture_evidence, resolve
+from .pipeline import PreparedBuild, _remove_tree, default_workspace_root, prepare_build
+from .process import HostToolRunner, ToolRunner
+from .runner_client import RunnerClient, RunnerSession, build_runner, free_loopback_port
+from .simulator import SimulatorManager, launch_locale_settings
+from .workcopy import materialize_working_copy
 
+LAUNCH_SETTLE_SECONDS = 3.0
+"""앱 실행 후 화면이 자리 잡을 때까지 기다리는 시간(초). 첫 화면 전환·로딩 중 계층을 읽지 않으려는 것이다."""
+
+DEFAULT_DEVICE_TYPE = "iPhone 16"
+"""init이 묻지 않고 쓰는 기본 Simulator 기기."""
+
+_NAME_MAX_LENGTH = 40
 _SUBCOMMANDS = {
     "init": "앱 프로젝트를 간편 모드용으로 설정합니다",
     "doctor": "빌드에 필요한 도구와 환경을 점검합니다",
     "build": "앱을 Simulator용으로 빌드합니다",
-    "inspect": "빌드된 앱을 살펴봅니다",
+    "inspect": "앱을 실행해 화면 구조를 저장하고 요소를 확인합니다",
 }
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """init, doctor, build, inspect 하위 명령을 등록한 파서를 만든다."""
+    """init, doctor, build, inspect 하위 명령과 옵션을 등록한 파서를 만든다."""
     parser = argparse.ArgumentParser(prog="reproof app", description="iOS 앱 간편 모드")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name, help_text in _SUBCOMMANDS.items():
-        subparsers.add_parser(name, help=help_text)
+    commands = {name: subparsers.add_parser(name, help=text) for name, text in _SUBCOMMANDS.items()}
+    init = commands["init"]
+    init.add_argument("--path", default=".", help="앱 저장소 폴더 (기본: 현재 폴더)")
+    init.add_argument("--non-interactive", action="store_true", help="질문하지 않고, 모호하면 오류로 멈춥니다")
+    init.add_argument("--force", action="store_true", help="이미 있는 reproof.toml을 덮어씁니다")
+    for name in ("doctor", "build", "inspect"):
+        commands[name].add_argument("--config", help="reproof.toml 경로 (기본: 현재 폴더부터 위로 찾음)")
+    for name in ("build", "inspect"):
+        commands[name].add_argument("--workspace", help="작업 공간 폴더 (기본: ~/.reproof 또는 REPROOF_HOME)")
+    commands["inspect"].add_argument("--point", help="이 좌표(X,Y)의 요소를 확인합니다. 예: 195,420")
+    commands["inspect"].add_argument("--output", help="화면 계층 JSON 저장 경로")
     return parser
 
 
-def run_command_by_name(command: str) -> int:
-    """하위 명령을 실행한다. 아직 구현 전이라 항상 not_ready 오류를 낸다(Task 12에서 교체)."""
-    raise SimpleError("not_ready", f"'{command}' 명령은 아직 준비되지 않았습니다.",
-                      "다음 버전에서 제공됩니다. 업데이트 후 다시 시도하세요.")
+def _new_runner() -> ToolRunner:
+    """실제 명령 실행기를 만든다. 테스트에서 FakeToolRunner로 바꿔 끼우려고 함수로 분리했다."""
+    return HostToolRunner()
+
+
+# ---------- 공통: 설정 찾기 ----------
+
+def find_config(start: Path) -> Path | None:
+    """start부터 상위로 올라가며 처음 만나는 reproof.toml을 찾는다. 없으면 None."""
+    for folder in (start, *start.parents):
+        candidate = folder / CONFIG_FILE_NAME
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _config_path(arguments: argparse.Namespace, *, is_required: bool) -> Path | None:
+    """--config 값 또는 자동 탐색 결과를 돌려준다. 필수인데 없으면 init 안내와 함께 오류를 낸다."""
+    if arguments.config:
+        return Path(arguments.config).expanduser().absolute()
+    found = find_config(Path.cwd().absolute())
+    if found is None and is_required:
+        raise SimpleError("config_missing", "현재 폴더와 상위 폴더에서 reproof.toml을 찾지 못했습니다.",
+                          "앱 저장소 폴더에서 `reproof app init`을 먼저 실행하거나 --config로 경로를 지정하세요.")
+    return found
+
+
+def _workspace_root(arguments: argparse.Namespace) -> Path:
+    """--workspace 값이 있으면 그것, 없으면 기본 작업 공간(REPROOF_HOME 또는 ~/.reproof)을 쓴다."""
+    if getattr(arguments, "workspace", None):
+        return Path(arguments.workspace).expanduser().absolute()
+    return default_workspace_root()
+
+
+# ---------- doctor ----------
+
+def format_check(check: Check) -> str:
+    """점검 결과를 한 항목으로 만든다. claude는 선택 사항이라 ⓘ로 표시하고 실패 표시를 쓰지 않는다."""
+    if check.name == "claude":
+        suffix = "" if check.is_ok else f"\n  안내: {check.remedy}"
+        return f"ⓘ {check.name}: {check.detail}{suffix}"
+    if check.is_ok:
+        return f"✓ {check.name}: {check.detail}"
+    return f"✗ {check.name}: {check.detail}\n  해결: {check.remedy}"
+
+
+def print_checks(checks: Sequence[Check]) -> bool:
+    """점검 결과를 출력하고, claude를 제외한 모든 항목이 통과했는지 돌려준다."""
+    for check in checks:
+        print(format_check(check))
+    return all(check.is_ok for check in checks if check.name != "claude")
+
+
+def run_doctor_command(arguments: argparse.Namespace) -> int:
+    """doctor 명령. 설정이 없어도 점검할 수 있게 하되, 있으면 그 설정의 런타임·생성기를 기준으로 본다."""
+    path = _config_path(arguments, is_required=False)
+    config = load_config(path) if path else None
+    checks = run_doctor(config, runner=_new_runner(), workspace_root=_workspace_root(arguments))
+    return 0 if print_checks(checks) else 1
+
+
+# ---------- init ----------
+
+class Prompter:
+    """init의 질문을 맡는다. 질문 횟수를 세어 마지막에 알려 주고, 비대화 모드에서는 질문 대신 오류를 낸다."""
+
+    def __init__(self, *, is_interactive: bool):
+        """is_interactive가 False면 선택이 필요한 순간 init_needs_choice 오류를 낸다."""
+        self.is_interactive = is_interactive
+        self.question_count = 0
+
+    def _ask(self, message: str) -> str:
+        """input()으로 한 번 묻고 횟수를 센다. 입력이 닫혀 있으면(파이프 등) 안내 오류를 낸다."""
+        self.question_count += 1
+        try:
+            return input(message).strip()
+        except EOFError as error:
+            raise SimpleError("input_closed", "질문에 답할 입력이 없습니다.",
+                              "터미널에서 직접 실행하거나 --non-interactive를 쓰세요.") from error
+
+    def choose(self, title: str, options: Sequence[str]) -> str:
+        """번호로 하나를 고르게 한다. 비대화 모드면 후보를 모두 나열한 오류를 낸다."""
+        if not self.is_interactive:
+            raise SimpleError("init_needs_choice", f"{title} 후보가 여러 개라 자동으로 고를 수 없습니다: {', '.join(options)}",
+                              "`--non-interactive` 없이 실행해 직접 고르거나, 앞 후보 중 하나로 reproof.toml을 직접 작성하세요.")
+        print(f"{title}를 고르세요.")
+        for number, option in enumerate(options, start=1):
+            print(f"  {number}. {option}")
+        answer = self._ask(f"번호 입력 (1-{len(options)}): ")
+        if not answer.isdigit() or not 1 <= int(answer) <= len(options):
+            raise SimpleError("choice_invalid", f"'{answer}'은(는) 올바른 번호가 아닙니다.",
+                              f"1부터 {len(options)} 사이의 번호를 입력해 다시 실행하세요.")
+        return options[int(answer) - 1]
+
+    def confirm_test_scheme(self, schemes: Sequence[str], guess: str | None) -> str | None:
+        """테스트 scheme 추측값을 보여 주고 Enter로 수락하게 한다. 비대화 모드에서는 묻지 않고 추측값을 쓴다."""
+        if guess is None or not self.is_interactive:
+            return guess
+        answer = self._ask(f"테스트 scheme은 '{guess}'(으)로 추정했습니다. Enter=수락, 다른 이름 입력, -=사용 안 함: ")
+        if answer == "":
+            return guess
+        if answer == "-":
+            return None
+        if answer not in schemes:
+            raise SimpleError("test_scheme_invalid", f"'{answer}' scheme이 없습니다. 후보: {', '.join(schemes)}",
+                              "목록의 이름을 그대로 입력하거나 Enter로 추정값을 수락하세요.")
+        return answer
+
+
+def slugify_name(folder_name: str) -> str:
+    """폴더 이름을 설정 이름 규칙(소문자·숫자·대시, 최대 40자)에 맞는 slug로 바꾼다. 비면 'app'."""
+    slug = re.sub(r"[^a-z0-9]+", "-", folder_name.lower()).strip("-")[:_NAME_MAX_LENGTH].strip("-")
+    return slug or "app"
+
+
+def _pick_container(scan: ContainerScan, prompter: Prompter) -> str:
+    """자동으로 정해지면 그것을, 아니면 후보에서 고르게 한다. 후보가 없으면 오류를 낸다."""
+    chosen = choose_container(replace(scan, generator="", generator_spec=None))
+    if chosen is not None:
+        return chosen
+    options = [*scan.workspaces, *scan.projects]
+    if not options:
+        raise SimpleError("container_missing", ".xcworkspace 또는 .xcodeproj를 찾지 못했습니다(깊이 3까지 탐색).",
+                          "앱 저장소 폴더에서 실행하고 있는지 확인하세요. XcodeGen·Tuist 프로젝트면 생성 스펙이 루트에 있어야 합니다.")
+    return options[0] if len(options) == 1 else prompter.choose("Xcode 프로젝트", options)
+
+
+def _application_schemes(search_root: Path, container: str, schemes: Sequence[str],
+                         runner: ToolRunner) -> dict[str, AppSettings]:
+    """scheme 중 앱 타깃이 있는 것만 {scheme: 앱 설정}으로 모은다.
+
+    왜 읽기 실패도 건너뛰나: 테스트·패키지 scheme은 Simulator 대상이 없어 xcodebuild가 오류를 내기도 하므로, scheme
+    하나의 조회 실패로 init 전체를 멈추지 않는다. 다만 앱 scheme이 하나도 없으면 첫 실패 원인을 그대로 보여 준다.
+    """
+    found: dict[str, AppSettings] = {}
+    failures: list[SimpleError] = []
+    for scheme in schemes:
+        try:
+            found[scheme] = read_app_settings(search_root, container, scheme, runner)
+        except SimpleError as error:
+            failures.append(error)
+    if not found:
+        reportable = [error for error in failures if error.code != "app_target_missing"]
+        if reportable:
+            raise reportable[0]
+    return found
+
+
+def _pick_application(applications: dict[str, AppSettings], prompter: Prompter) -> tuple[str, AppSettings]:
+    """앱 scheme이 하나면 그것, 여러 개면 고르게 한다. 없으면 오류를 낸다."""
+    if not applications:
+        raise SimpleError("app_target_missing", "앱(application) 타깃을 빌드하는 scheme을 찾지 못했습니다.",
+                          "Xcode에서 앱 타깃의 scheme을 Shared로 체크하고 저장소에 커밋한 뒤 다시 실행하세요.")
+    names = list(applications)
+    scheme = names[0] if len(names) == 1 else prompter.choose("앱 scheme", names)
+    return scheme, applications[scheme]
+
+
+def _config_from_project(root: Path, search_root: Path, scan: ContainerScan, generator: tuple[str, str | None],
+                         runner: ToolRunner, prompter: Prompter) -> ProjectConfig:
+    """search_root(원본 또는 생성된 사본)에서 컨테이너·scheme·앱 설정을 정해 ProjectConfig를 만든다."""
+    container = _pick_container(scan, prompter)
+    schemes = list_schemes(search_root, container, runner)
+    scheme, app = _pick_application(_application_schemes(search_root, container, schemes, runner), prompter)
+    test_scheme = prompter.confirm_test_scheme(schemes, guess_test_scheme(schemes, scheme))
+    return ProjectConfig(
+        name=slugify_name(root.name), container=container, generator=generator[0] or "none",
+        generator_spec=generator[1], scheme=scheme, app_target=app.target, bundle_id=app.bundle_id,
+        test_scheme=test_scheme, simulator=SimulatorSettings(DEFAULT_DEVICE_TYPE, "latest"))
+
+
+@contextlib.contextmanager
+def _generated_copy(root: Path, scan: ContainerScan, workspace_root: Path, runner: ToolRunner) -> Iterator[Path]:
+    """원본을 임시 사본으로 복사해 프로젝트를 생성하고 사본 경로를 준다. 끝나면 사본을 지운다.
+
+    왜 사본에서: 생성기가 원본 저장소에 .xcodeproj를 쓰지 않게 하려는 것이다. 생성 로그는 사본 밖(작업 공간 logs)에
+    둬서 실패했을 때도 안내된 경로에서 읽을 수 있다.
+    """
+    tmp_root = workspace_root / "tmp"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    (workspace_root / "logs").mkdir(parents=True, exist_ok=True)
+    directory = Path(tempfile.mkdtemp(prefix="init-", dir=tmp_root))
+    try:
+        copy = materialize_working_copy(root, directory / "source")
+        provisional = ProjectConfig(
+            name=slugify_name(root.name), container="", generator=scan.generator, generator_spec=scan.generator_spec,
+            scheme="", app_target="", bundle_id="", test_scheme=None,
+            simulator=SimulatorSettings(DEFAULT_DEVICE_TYPE, "latest"))
+        generate_project(copy.root, provisional, runner, log_path=workspace_root / "logs" / "init-generate.log")
+        yield copy.root
+    finally:
+        _remove_tree(directory)
+
+
+def discover_config(root: Path, runner: ToolRunner, workspace_root: Path, prompter: Prompter) -> ProjectConfig:
+    """프로젝트를 탐색해 ProjectConfig를 만든다. 생성기가 있으면 임시 사본에서 생성한 결과를 기준으로 한다."""
+    scan = scan_containers(root)
+    generator = (scan.generator, scan.generator_spec)
+    if not scan.generator:
+        return _config_from_project(root, root, scan, generator, runner, prompter)
+    with _generated_copy(root, scan, workspace_root, runner) as copy_root:
+        return _config_from_project(root, copy_root, scan_containers(copy_root), generator, runner, prompter)
+
+
+def _write_config(target: Path, config: ProjectConfig) -> None:
+    """설정을 쓰고 다시 읽어 검증한다. 검증에 실패하면 깨진 파일을 남기지 않고 오류를 그대로 전달한다."""
+    target.write_text(render_config(config), encoding="utf-8")
+    try:
+        load_config(target)
+    except SimpleError:
+        target.unlink()
+        raise
+
+
+def run_init_command(arguments: argparse.Namespace) -> int:
+    """init 명령. reproof.toml을 만들고 doctor 결과와 다음 단계를 보여 준다."""
+    root = Path(arguments.path).expanduser().absolute()
+    target = root / CONFIG_FILE_NAME
+    if not root.is_dir():
+        raise SimpleError("path_invalid", f"앱 폴더를 찾을 수 없습니다: {root}", "--path에 앱 저장소 폴더를 지정하세요.")
+    if target.exists() and not arguments.force:
+        raise SimpleError("config_exists", f"{target}이(가) 이미 있습니다.",
+                          "그대로 쓰려면 `reproof app build`를, 새로 만들려면 --force를 붙여 다시 실행하세요.")
+    runner, workspace_root = _new_runner(), default_workspace_root()
+    prompter = Prompter(is_interactive=not arguments.non_interactive)
+    config = discover_config(root, runner, workspace_root, prompter)
+    _write_config(target, config)
+    print_init_summary(target, config, prompter.question_count)
+    print_checks(run_doctor(config, runner=runner, workspace_root=workspace_root))
+    print("다음 단계: reproof app build")
+    return 0
+
+
+def print_init_summary(target: Path, config: ProjectConfig, question_count: int) -> None:
+    """저장한 설정의 핵심 값과 질문 횟수를 출력한다."""
+    print(f"저장했습니다: {target}")
+    print(f"  프로젝트: {config.container}  scheme: {config.scheme}  테스트 scheme: {config.test_scheme or '없음'}")
+    print(f"  앱 번들 ID: {config.bundle_id}  Simulator: {config.simulator.device_type} ({config.simulator.runtime})")
+    print(f"질문 {question_count}개")
+    print("환경 점검:")
+
+
+# ---------- build / inspect ----------
+
+def _load_project(arguments: argparse.Namespace) -> tuple[ProjectConfig, Path]:
+    """설정을 읽고 (설정, 앱 저장소 루트)를 돌려준다. 루트는 reproof.toml이 있는 폴더다."""
+    path = _config_path(arguments, is_required=True)
+    return load_config(path), path.parent
+
+
+def _build(arguments: argparse.Namespace, runner: ToolRunner) -> tuple[ProjectConfig, PreparedBuild, Path]:
+    """설정을 읽고 빌드(완성된 빌드가 있으면 재사용)한다. (설정, 빌드, 작업 공간)을 돌려준다."""
+    config, root = _load_project(arguments)
+    workspace_root = _workspace_root(arguments)
+    prepared = prepare_build(root, config, workspace_root=workspace_root, runner=runner)
+    return config, prepared, workspace_root
+
+
+def run_build_command(arguments: argparse.Namespace) -> int:
+    """build 명령. 앱을 Simulator용으로 빌드하고 빌드 ID를 보여 준다."""
+    _, prepared, _ = _build(arguments, _new_runner())
+    print(f"빌드 ID: {prepared.build_id}")
+    return 0
+
+
+def parse_point(text: str | None) -> tuple[float, float] | None:
+    """`--point X,Y`를 숫자 두 개로 읽는다. 없으면 None, 형식이 틀리면 point_invalid."""
+    if text is None:
+        return None
+    try:
+        x_text, y_text = text.split(",")
+        x, y = float(x_text), float(y_text)
+        if math.isfinite(x) and math.isfinite(y):
+            return x, y
+    except ValueError:
+        pass  # 아래의 point_invalid 오류로 한 번에 안내한다.
+    raise SimpleError("point_invalid", f"--point 값 '{text}'을(를) 좌표로 읽지 못했습니다. X,Y 형식의 숫자 두 개여야 합니다.",
+                      "예: --point 195,420")
+
+
+def prepare_simulator(config: ProjectConfig, prepared: PreparedBuild, runner: ToolRunner) -> str:
+    """전용 Simulator를 확보해 초기화·표시 고정·앱 설치를 하고 udid를 돌려준다. 끄지는 않는다."""
+    simulators = SimulatorManager(runner)
+    udid = simulators.ensure_device(config.name, config.simulator)
+    simulators.reset(udid)
+    simulators.apply_presentation(udid)
+    simulators.install_app(udid, prepared.products.app_path)
+    return udid
+
+
+def launch_app(client: RunnerClient, config: ProjectConfig) -> None:
+    """로케일 설정과 설정의 launch 인자·환경으로 앱을 실행하고 화면이 자리 잡을 때까지 기다린다."""
+    locale_arguments, locale_environment = launch_locale_settings(config.simulator)
+    environment = {**locale_environment, **resolve_launch_environment(config, os.environ)}
+    client.launch([*locale_arguments, *config.launch_arguments], environment)
+    time.sleep(LAUNCH_SETTLE_SECONDS)
+
+
+def save_hierarchy(client: RunnerClient, output: Path) -> Element:
+    """런타임이 준 계층 문서를 UTF-8 JSON으로 저장하고 파싱한 루트 요소를 돌려준다."""
+    document = client.command("hierarchy")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"화면 계층 저장: {output}")
+    return parse_hierarchy(document.get("root"))
+
+
+def describe_point(root: Element, point: tuple[float, float]) -> None:
+    """좌표의 요소와 로케이터 근거, 다시 찾았을 때의 강도를 출력한다."""
+    element = element_at(root, *point)
+    if element is None:
+        raise SimpleError("point_no_element", f"좌표 {point[0]:g},{point[1]:g}에 요소가 없습니다.",
+                          "저장된 계층 JSON의 frame을 보고 화면 안의 좌표를 지정하세요.")
+    evidence = capture_evidence(root, element)
+    resolution = resolve(root, evidence)
+    print(f"요소: 종류={element.element_type} 라벨={element.label or '(없음)'} identifier={element.identifier or '(없음)'}")
+    print("근거: " + json.dumps(evidence.to_document(), ensure_ascii=False))
+    print(f"재탐색: strength={resolution.strength} matched_by={resolution.matched_by}")
+
+
+def inspect_output_path(arguments: argparse.Namespace, prepared: PreparedBuild) -> Path:
+    """--output 또는 빌드 폴더의 inspect-<시각>.json 경로를 돌려준다."""
+    if arguments.output:
+        return Path(arguments.output).expanduser().absolute()
+    return prepared.directory / f"inspect-{datetime.now():%Y%m%d-%H%M%S}.json"
+
+
+def run_inspect_command(arguments: argparse.Namespace) -> int:
+    """inspect 명령. 빌드 → 전용 Simulator 준비 → 실행기 세션 → 앱 실행 → 계층 저장(→ 좌표 요소 확인).
+
+    reproof-<이름> Simulator는 끄지 않고 둔다(다음 실행을 빠르게 하고, 이 명령이 시작하지 않은 것은 건드리지 않으려는 것).
+    """
+    point = parse_point(arguments.point)  # 빌드 전에 검사해 잘못된 입력으로 몇 분을 쓰지 않게 한다.
+    runner = _new_runner()
+    config, prepared, workspace_root = _build(arguments, runner)
+    udid = prepare_simulator(config, prepared, runner)
+    products = build_runner(workspace_root / "runner", runner)
+    log_path = prepared.directory / "logs" / "inspect-session.log"
+    session = RunnerSession(products, udid=udid, target_bundle=config.bundle_id, port=free_loopback_port(),
+                            log_path=log_path)
+    with session as client:
+        launch_app(client, config)
+        root = save_hierarchy(client, inspect_output_path(arguments, prepared))
+    if point is not None:
+        describe_point(root, point)
+    return 0
+
+
+_COMMANDS = {"init": run_init_command, "doctor": run_doctor_command, "build": run_build_command,
+             "inspect": run_inspect_command}
 
 
 def main(argv: Sequence[str]) -> int:
     """간편 모드 CLI를 실행한다.
 
-    반환: 0 성공, 2 SimpleError, 130 KeyboardInterrupt. 오류 안내문은 stderr로 낸다.
+    반환: 0 성공, 1 doctor 점검 실패, 2 SimpleError, 130 KeyboardInterrupt. 오류 안내문은 stderr로 낸다.
     --help는 argparse가 SystemExit(0)로 처리한다.
     """
     arguments = build_parser().parse_args(list(argv))
     try:
-        return run_command_by_name(arguments.command)
+        return _COMMANDS[arguments.command](arguments)
     except SimpleError as error:
         print(error.user_message(), file=sys.stderr)
         return 2

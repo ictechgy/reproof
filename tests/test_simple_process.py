@@ -56,9 +56,9 @@ class SimpleProcessTests(unittest.TestCase):
         self.assertEqual(code.exception.code, 0)
         self.assertIn("init", out.getvalue())
 
-    def test_app_cli_not_ready_returns_two_with_message(self):
+    def test_app_cli_simple_error_returns_two_with_message(self):
         with contextlib.redirect_stderr(io.StringIO()) as err:
-            code = reproof.cli.main(["app", "doctor"])
+            code = reproof.cli.main(["app", "build", "--config", "/없는/경로/reproof.toml"])
         self.assertEqual(code, 2)
         self.assertIn("문제:", err.getvalue())
 

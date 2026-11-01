@@ -1838,6 +1838,23 @@
           "timeoutSeconds": 120,
           "evidence": "unittest-summary",
           "gate": "software"
+        },
+        {
+          "id": "simple-cli",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_simple_cli"
+          ],
+          "environment": "local-python-synthetic-no-native-execution",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
         }
       ]
     },
@@ -2132,6 +2149,26 @@
             "tests.test_simple_native_runner"
           ],
           "environment": "local-xcode-owned-reproof-simulator-xcuitest-runner-loopback",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile",
+            "owned-device",
+            "loopback"
+          ],
+          "timeoutSeconds": 600,
+          "evidence": "unittest-summary",
+          "gate": "environment"
+        },
+        {
+          "id": "simple-native-cli",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_simple_native_cli"
+          ],
+          "environment": "local-xcode-xcodegen-owned-reproof-simulator-cli-init-build-inspect",
           "effects": [
             "filesystem",
             "process",
