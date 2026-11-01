@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import ProjectConfig
-from .errors import SimpleError
+from .errors import SimpleError, ToolFailure
 from .packages import PackageResolution
 from .process import ToolRunner
 from .workcopy import tree_digest
@@ -33,7 +33,8 @@ def simulator_build_argv(config: ProjectConfig, *, derived_data: Path, packages_
     config: 프로젝트 설정. derived_data: 산출물 폴더. packages_dir: 해석된 패키지 캐시.
     is_pinned: Package.resolved가 있을 때만 그 버전만 쓰도록 강제한다(없으면 해석 결과를 그대로 쓴다).
     왜 macro·plugin 검증을 건너뛰는가: AI는 Package.swift·Package.resolved를 바꿀 수 없으므로
-    실행되는 macro·plugin은 회사가 이미 쓰던 것으로 고정된다. 검증 프롬프트는 무인 실행을 막을 뿐이다.
+    버전이 고정(is_pinned)되어 있으면 실행되는 macro·plugin은 회사가 이미 쓰던 것으로 고정된다.
+    그래서 고정된 경우에만 검증을 건너뛴다. 고정되지 않았다면 버전이 바뀔 수 있어 건너뛰는 것이 안전하지 않다.
     서명은 끈다(Simulator는 서명이 필요 없고, 개발자의 서명 자격 증명을 건드리지 않기 위해서다).
     """
     argv = ["xcodebuild", "build", f"-{config.container_kind}", config.container, "-scheme", config.scheme,
@@ -42,10 +43,36 @@ def simulator_build_argv(config: ProjectConfig, *, derived_data: Path, packages_
             "-derivedDataPath", str(derived_data), "-clonedSourcePackagesDirPath", str(packages_dir),
             "-disableAutomaticPackageResolution"]
     if is_pinned:
-        argv.append("-onlyUsePackageVersionsFromResolvedFile")
-    argv += ["-skipMacroValidation", "-skipPackagePluginValidation",
-             "CODE_SIGNING_ALLOWED=NO", "COMPILER_INDEX_STORE_ENABLE=NO"]
+        argv += ["-onlyUsePackageVersionsFromResolvedFile", "-skipMacroValidation", "-skipPackagePluginValidation"]
+    argv += ["CODE_SIGNING_ALLOWED=NO", "COMPILER_INDEX_STORE_ENABLE=NO"]
     return argv
+
+
+# 매크로·플러그인 신뢰 검증 실패를 뜻하는 출력 문구(소문자 비교).
+_VALIDATION_MARKERS = ("must be enabled before it can be used",)
+_LOG_SCAN_BYTES = 64 * 1024
+
+
+def is_validation_failure(failure: ToolFailure) -> bool:
+    """빌드 실패 출력이 macro·plugin 신뢰 검증 때문인지 판별한다(출력 끝부분과 로그 끝 64KiB 검사)."""
+    text = failure.output_tail
+    if failure.log_path is not None:
+        try:
+            text += "\n" + Path(failure.log_path).read_bytes()[-_LOG_SCAN_BYTES:].decode("utf-8", "replace")
+        except OSError:
+            pass  # 로그는 보조 정보다. 읽지 못해도 출력 끝부분으로 판별한다.
+    lowered = text.lower()
+    if any(marker in lowered for marker in _VALIDATION_MARKERS):
+        return True
+    return ("macro" in lowered or "plugin" in lowered) and "trust" in lowered and "enable" in lowered
+
+
+def validation_required_error(failure: ToolFailure) -> SimpleError:
+    """검증 실패를 package_validation_required 오류로 바꾼다. 해결 방법은 버전 고정 또는 Xcode에서 신뢰."""
+    return SimpleError("package_validation_required",
+                       "Package.resolved가 없어 패키지 버전이 고정되지 않았고, 매크로·플러그인 신뢰 확인이 필요합니다.",
+                       "Package.resolved를 저장소에 커밋해 버전을 고정하거나, Xcode에서 프로젝트를 한 번 열어 "
+                       "해당 매크로·플러그인을 신뢰한 뒤 다시 실행하세요.", log_path=failure.log_path)
 
 
 def _bundle_identifier(app: Path) -> str | None:
@@ -56,9 +83,12 @@ def _bundle_identifier(app: Path) -> str | None:
     """
     try:
         with (app / "Info.plist").open("rb") as handle:
-            return plistlib.load(handle).get("CFBundleIdentifier")
+            document = plistlib.load(handle)
     except (OSError, plistlib.InvalidFileException, ValueError):
         return None
+    if not isinstance(document, dict):
+        return None  # 루트가 사전이 아닌 plist는 앱 Info.plist가 아니므로 일치하지 않는 것으로 본다.
+    return document.get("CFBundleIdentifier")
 
 
 def find_app_bundle(products_dir: Path, bundle_id: str) -> Path:
@@ -86,6 +116,11 @@ def build_for_simulator(working_copy: Path, config: ProjectConfig, *, derived_da
     """
     argv = simulator_build_argv(config, derived_data=derived_data, packages_dir=packages.cache_dir,
                                 is_pinned=packages.is_pinned)
-    runner.run(argv, cwd=working_copy, timeout=config.build_timeout_seconds, log_path=log_path)
+    try:
+        runner.run(argv, cwd=working_copy, timeout=config.build_timeout_seconds, log_path=log_path)
+    except ToolFailure as failure:
+        if not packages.is_pinned and is_validation_failure(failure):
+            raise validation_required_error(failure) from failure
+        raise
     app_path = find_app_bundle(derived_data / PRODUCTS_SUBPATH, config.bundle_id)
     return BuildProducts(app_path, config.bundle_id, derived_data, tree_digest(app_path))

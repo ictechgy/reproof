@@ -1,5 +1,6 @@
 """Simulator 빌드 argv, .app 탐색, 빌드 파이프라인(재사용·끊긴 빌드 폐기) 테스트. Xcode 없이 FakeToolRunner로 실행된다."""
 import dataclasses
+import os
 import plistlib
 import tempfile
 import unittest
@@ -101,11 +102,13 @@ class SimpleBuildTests(unittest.TestCase):
         first = prepare_build(self.source, self.config, workspace_root=self.workspace, runner=self._runner(),
                               progress=lambda _: None)
         runner = self._runner()
+        reuse_messages = []
         second = prepare_build(self.source, self.config, workspace_root=self.workspace, runner=runner,
-                               progress=lambda _: None)
+                               progress=reuse_messages.append)
         self.assertEqual(second.build_id, first.build_id)
         self.assertEqual(second.products, first.products)
         self.assertFalse([c for c in runner.calls if c["argv"][0] == "xcodebuild"])
+        self.assertEqual(reuse_messages[-1], f"빌드 완료: {second.products.app_path}")
         self.assertEqual(list(first.directory.parent.parent.glob("staging-*")), [])
 
     def test_prepare_build_discards_partial_directory_from_interrupted_run(self):
@@ -121,6 +124,53 @@ class SimpleBuildTests(unittest.TestCase):
         self.assertEqual(len(self.builds), 1)
         self.assertTrue((prepared.directory / "products.json").exists())
         self.assertEqual([p.name for p in builds_dir.iterdir()], [prepared.build_id])
+
+    def test_relative_workspace_root_builds_like_real_xcodebuild(self):
+        def respond(argv, cwd, env_extra):
+            derived = cwd / argv[argv.index("-derivedDataPath") + 1]  # 실제 xcodebuild처럼 cwd 기준으로 푼다
+            _make_app(derived / PRODUCTS_SUBPATH, "MixedShop.app", BUNDLE_ID)
+            return ""
+        previous = os.getcwd()
+        os.chdir(self.tmp)
+        self.addCleanup(os.chdir, previous)
+        prepared = prepare_build(self.source, self.config, workspace_root=Path("rel-ws"), runner=self._runner(respond),
+                                 progress=lambda _: None)
+        self.assertTrue(prepared.directory.is_absolute())
+        self.assertTrue(prepared.products.app_path.is_dir())
+
+    def test_pinned_build_skips_validation_unpinned_does_not(self):
+        pinned = simulator_build_argv(self.config, derived_data=Path("/d"), packages_dir=Path("/p"), is_pinned=True)
+        unpinned = simulator_build_argv(self.config, derived_data=Path("/d"), packages_dir=Path("/p"), is_pinned=False)
+        for flag in ("-skipMacroValidation", "-skipPackagePluginValidation"):
+            self.assertIn(flag, pinned)
+            self.assertNotIn(flag, unpinned)
+
+    def test_unpinned_validation_failure_maps_to_package_validation_required(self):
+        failure = ToolFailure("xcodebuild", log_path=None,
+                              output_tail="error: Macro \"M\" must be enabled before it can be used")
+        def raise_failure(argv, cwd, env_extra):
+            raise failure
+        with self.assertRaises(SimpleError) as raised:
+            prepare_build(self.source, self.config, workspace_root=self.workspace,
+                          runner=self._runner(raise_failure), progress=lambda _: None)
+        self.assertEqual(raised.exception.code, "package_validation_required")
+
+    def test_corrupt_products_json_triggers_rebuild(self):
+        first = prepare_build(self.source, self.config, workspace_root=self.workspace, runner=self._runner(),
+                              progress=lambda _: None)
+        for content in ("null", "[]"):
+            (first.directory / "products.json").write_text(content)
+            prepare_build(self.source, self.config, workspace_root=self.workspace, runner=self._runner(),
+                          progress=lambda _: None)
+        self.assertEqual(len(self.builds), 3)
+
+    def test_find_app_bundle_skips_plist_with_non_dict_root(self):
+        products = self.tmp / "products"
+        bad = products / "Bad.app"
+        bad.mkdir(parents=True)
+        (bad / "Info.plist").write_bytes(plistlib.dumps(["x"]))
+        good = _make_app(products, "Good.app", BUNDLE_ID)
+        self.assertEqual(find_app_bundle(products, BUNDLE_ID), good)
 
     def test_default_workspace_root_honors_reproof_home(self):
         self.assertEqual(default_workspace_root({"REPROOF_HOME": "/x/y"}), Path("/x/y"))

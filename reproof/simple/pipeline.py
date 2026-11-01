@@ -35,7 +35,8 @@ class PreparedBuild:
 def default_workspace_root(environ: Mapping[str, str] = os.environ) -> Path:
     """작업 공간 루트를 돌려준다. REPROOF_HOME이 있으면 그 값, 없으면 ~/.reproof."""
     configured = environ.get("REPROOF_HOME")
-    return Path(configured) if configured else Path.home() / ".reproof"
+    root = Path(configured) if configured else Path.home() / ".reproof"
+    return root.expanduser().absolute()
 
 
 def _remove_tree(path: Path) -> None:
@@ -65,7 +66,7 @@ def _load_completed(directory: Path, identity: BuildIdentity, build_id: str) -> 
         document = json.loads((directory / PRODUCTS_FILE).read_text(encoding="utf-8"))
         products = BuildProducts(directory / document["app_path"], document["bundle_id"],
                                  directory / document["derived_data"], document["products_digest"])
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError, KeyError, TypeError):
         return None  # 완성 표식이 없거나 깨졌으면 완성된 빌드가 아니므로 호출자가 새로 만든다.
     if not products.app_path.exists():
         return None
@@ -123,6 +124,7 @@ def prepare_build(source_root: Path, config: ProjectConfig, *, workspace_root: P
     성공해야 `<build_id>/`로 rename한다. 도중에 실패·중단되면 partial을 남기고 예외를 그대로 던지며,
     다음 실행이 partial을 지우고 처음부터 다시 한다(끊긴 빌드를 완성으로 착각하지 않으려는 것).
     """
+    workspace_root = workspace_root.expanduser().absolute()  # xcodebuild는 cwd 기준으로 경로를 풀기 때문
     progress("빌드 식별 중")
     project_dir = workspace_root / "projects" / config.name
     builds_dir = project_dir / "builds"
@@ -136,6 +138,7 @@ def prepare_build(source_root: Path, config: ProjectConfig, *, workspace_root: P
         cached = _load_completed(final, identity, build_id)
         if cached is not None:
             _remove_tree(staging)
+            progress(f"빌드 완료: {cached.products.app_path}")
             return cached
         builds_dir.mkdir(parents=True, exist_ok=True)
         _remove_tree(partial)
