@@ -200,8 +200,9 @@ git ls-remote git@github.com:회사/비공개-패키지.git     # 목록이 나�
 (`http_proxy`·`https_proxy`·`no_proxy`와 대문자형, `GIT_SSH_COMMAND`, `SSL_CERT_FILE`, `GIT_SSL_CAINFO`)는 설정돼 있으면
 값을 읽지 않고 그대로 넘긴다.
 
-가리는 범위: **오류 안내문**에서만 URL의 사용자 정보(`user:token@`)를 지우고, `마지막 출력:` 줄의 토큰·서명·
-`Authorization` 값을 `***`로 바꾼다. **로그 파일**(`logs/*.log`, 소유자만 읽는 0600)은 xcodebuild·git 출력을 그대로
+가리는 범위: **오류 안내문**에서만 URL의 사용자 정보(`user:token@`)와 쿼리의 토큰(`access_token=` 등)·제어 문자를
+지우고, `마지막 출력:` 줄의 토큰·서명·`Authorization` 값을 `***`로 바꾼다. 인증 실패 안내의 `git ls-remote` 명령은 주소를
+따옴표로 감싸며, 주소에 셸 특수 문자나 가린 값이 있으면 명령을 만들지 않고 주소만 보여 준다. **로그 파일**(`logs/*.log`, 소유자만 읽는 0600)은 xcodebuild·git 출력을 그대로
 담으므로 URL의 자격 증명이나 토큰이 남을 수 있다. 로그를 다른 사람에게 보내기 전에 내용을 확인한다.
 
 ## 툴이 손대는 전역 위치

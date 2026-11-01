@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -10,6 +11,7 @@ from typing import Callable
 from .config import ProjectConfig, config_digest
 from .errors import CONFIG_TIMEOUT_REMEDY, SimpleError, ToolFailure
 from .process import ToolRunner
+from .redaction import mask_secrets, strip_control_characters
 
 # 인증 실패를 뜻하는 출력 문구(소문자 비교).
 _AUTH_MARKERS = (
@@ -27,6 +29,8 @@ _LOG_SCAN_BYTES = 64 * 1024
 _SCHEME_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"<>]+")
 _USERINFO_PATTERN = re.compile(r"(://)[^\s'\"]*@")
 _SCP_URL = re.compile(r"[\w.-]+@[\w.-]+:[\w./~-]+")
+# 붙여 넣을 명령을 만들어도 되는 URL 글자. 이 밖의 글자(셸 특수 문자·가린 표시 `***` 등)가 있으면 명령을 만들지 않는다.
+_COMMAND_SAFE_URL = re.compile(r"[A-Za-z0-9@%+=:,./~_?#-]+")
 
 
 @dataclass(frozen=True)
@@ -120,10 +124,33 @@ def _first_repository_url(text: str) -> str | None:
     return match.group(0).rstrip(".,;:)") if match else None
 
 
+def display_repository_url(found: str) -> str:
+    """도구 출력에서 뽑은 저장소 주소를 안내문용으로 다듬는다: 제어 문자 제거 → 사용자 정보 제거 → 토큰 가림.
+
+    왜: 출력은 상대(git 서버 등)가 정한 바이트를 담을 수 있어, 쿼리 토큰(access_token=…)이 그대로 보이거나 터미널
+    escape가 화면을 조작할 수 있다. redact_url은 userinfo만 지우므로 mask_secrets로 쿼리 값도 가린다.
+    """
+    return mask_secrets(redact_url(strip_control_characters(found)))
+
+
+def _auth_remedy(url: str | None) -> str:
+    """인증 실패 해결 안내를 만든다. 안전한 URL이면 shlex.quote로 감싼 `git ls-remote` 명령을, 아니면 주소만 보인다.
+
+    왜: 안내문의 명령은 그대로 터미널에 붙여 넣기 쉬워, URL의 `$(...)`·백틱·`;`가 개발자 셸에서 실행되면 안 된다.
+    """
+    if url is None:
+        return "이 Mac 터미널에서 `git ls-remote <저장소 URL>`이 되는지 확인한 뒤 다시 실행하세요."
+    if _COMMAND_SAFE_URL.fullmatch(url):
+        return f"이 Mac 터미널에서 `git ls-remote {shlex.quote(url)}`이 되는지 확인한 뒤 다시 실행하세요."
+    return (f"이 Mac 터미널에서 저장소 주소({url})로 git ls-remote가 되는지 확인한 뒤 다시 실행하세요. 주소에 셸 특수 "
+            "문자나 가린 값이 있어 붙여 넣을 명령은 만들지 않았습니다. 주소를 직접 따옴표로 감싸 입력하세요.")
+
+
 def classify_package_failure(failure: ToolFailure) -> SimpleError:
     """패키지 해석 실패를 인증 문제인지 일반 실패인지 가려 사용자용 오류로 바꾼다.
 
-    반환: SimpleError(package_auth_failed 또는 package_resolution_failed). 저장소 URL은 redact_url로 가린다.
+    반환: SimpleError(package_auth_failed 또는 package_resolution_failed). 저장소 URL은 display_repository_url로
+    다듬고(제어 문자·userinfo·쿼리 토큰 제거), 해결 명령은 _auth_remedy 규칙으로 만든다.
     """
     text = _failure_text(failure)
     if not any(marker in text.lower() for marker in _AUTH_MARKERS):
@@ -134,8 +161,6 @@ def classify_package_failure(failure: ToolFailure) -> SimpleError:
                            "로그에서 실패한 패키지를 확인하고 의존성 설정을 고친 뒤 다시 실행하세요.",
                            log_path=failure.log_path)
     found = _first_repository_url(text)
-    url = redact_url(found) if found else None
-    target = url or "패키지 저장소"
-    return SimpleError("package_auth_failed", f"{target}에 접근할 인증이 없습니다.",
-                       f"이 Mac 터미널에서 `git ls-remote {url or '<저장소 URL>'}`이 되는지 확인한 뒤 다시 실행하세요.",
+    url = display_repository_url(found) if found else None
+    return SimpleError("package_auth_failed", f"{url or '패키지 저장소'}에 접근할 인증이 없습니다.", _auth_remedy(url),
                        log_path=failure.log_path)

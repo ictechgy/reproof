@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from collections import Counter
 
 MASK = "***"
@@ -35,6 +36,20 @@ _MIN_WORD_LENGTH = 3
 # 글자당 Shannon 엔트로피(비트) 기준. 16진은 글자 종류가 16개뿐이라 기준을 따로 둔다(secret 탐지 도구의 관행).
 _HEX_ENTROPY = 3.0
 _TEXT_ENTROPY = 4.2
+
+
+# 터미널 색·커서·제목을 바꾸는 ANSI escape 순서(CSI와 2바이트 escape).
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-_]")
+
+
+def strip_control_characters(text: str) -> str:
+    """ANSI escape 순서와 제어 문자(유니코드 C 분류: 줄바꿈·탭·ESC·BEL·형식 문자 등)를 지운다.
+
+    왜: 도구 출력에서 뽑은 조각(저장소 URL 등)을 안내문에 넣을 때, 상대가 심은 escape가 터미널 화면을 조작하거나
+    붙여 넣을 명령에 숨은 글자를 넣지 못하게 하려는 것이다.
+    """
+    return "".join(character for character in _ANSI_ESCAPE.sub("", text)
+                   if not unicodedata.category(character).startswith("C"))
 
 
 def _entropy(text: str) -> float:

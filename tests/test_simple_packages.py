@@ -127,6 +127,36 @@ class SimplePackagesTests(unittest.TestCase):
             for secret in ("t0k", "en#x", "bot:"):
                 self.assertNotIn(secret, error.user_message())
 
+    def test_auth_failure_masks_query_token_and_control_characters(self):
+        """쿼리의 토큰(access_token=…)과 제어 문자(터미널 escape)는 원인·해결 어디에도 남기지 않는다."""
+        token = "ghp" + "Q" * 30 + "9z"
+        failure = ToolFailure("xcodebuild", log_path=None, output_tail=(
+            f"fatal: Authentication failed for 'https://git.corp/x/Kit.git?access_token={token}\x1b]0;evil\x07'"))
+        error = classify_package_failure(failure)
+        self.assertEqual(error.code, "package_auth_failed")
+        message = error.user_message()
+        self.assertNotIn(token, message)
+        self.assertNotIn("\x1b", message)
+        self.assertNotIn("\x07", message)
+        self.assertIn("https://git.corp/x/Kit.git?access_token=***", message)
+
+    def test_auth_remedy_quotes_url_and_omits_command_for_shell_metacharacters(self):
+        """붙여 넣을 명령은 shlex.quote로 감싸고, URL에 셸 특수 문자가 있으면 명령을 만들지 않고 주소만 보인다.
+
+        왜: 안내문의 `git ls-remote <url>`을 그대로 붙여 넣으면 `$(...)`·백틱이 개발자 터미널에서 실행될 수 있다.
+        """
+        plain = classify_package_failure(ToolFailure(
+            "xcodebuild", log_path=None, output_tail="fatal: Authentication failed for 'https://git.corp/x/Kit.git'"))
+        self.assertIn("`git ls-remote https://git.corp/x/Kit.git`", plain.remedy)
+        for url in ("https://git.corp/$(touch${IFS}pwned)/Kit.git", "https://git.corp/`id`/Kit.git",
+                    "https://git.corp/x;rm/Kit.git"):
+            with self.subTest(url=url):
+                error = classify_package_failure(ToolFailure(
+                    "xcodebuild", log_path=None, output_tail=f"fatal: Authentication failed for '{url}'"))
+                self.assertNotIn("git ls-remote " + url, error.remedy)
+                self.assertNotIn("`git ls-remote", error.remedy)
+                self.assertIn("git ls-remote", error.remedy)
+
     def test_missing_generator_tool_reports_install_command(self):
         with mock.patch("reproof.simple.generation.shutil.which", return_value=None):
             self.assertIsNone(generator_tool_path("xcodegen"))
