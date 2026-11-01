@@ -43,7 +43,7 @@ ALLOWED_KEYS: dict[str, set[str]] = {
     "project": {"container", "generator", "generator_spec", "scheme", "app_target", "bundle_id", "test_scheme"},
     "simulator": {"device_type", "runtime", "locale", "language", "timezone"},
     "launch": {"arguments", "environment"},
-    "build": {"timeout_seconds"},
+    "build": {"timeout_seconds", "skip_package_validation"},
     "ai": {"claude_consent"},
     "source": {"include"},
 }
@@ -80,6 +80,11 @@ class ProjectConfig:
     claude_consent: bool = False
     source_include: tuple[str, ...] = ()
     """비밀 가능 이름이어도 작업 사본에 넣을 파일의 저장소 기준 상대 경로([source] include)."""
+    skip_package_validation: bool = False
+    """[build] skip_package_validation. true면 xcodebuild에 매크로·플러그인 신뢰 검증 건너뛰기를 넘긴다(기본 false).
+
+    왜 기본 false: 매크로·패키지 플러그인은 빌드 중 임의 코드를 실행하므로, 개발자가 Xcode에서 신뢰(Trust & Enable)하지
+    않은 것을 툴이 대신 허용하면 안 된다. 회사가 검토한 패키지만 쓰는 저장소에서 명시적으로 켠다."""
 
     @property
     def container_kind(self) -> str:
@@ -242,6 +247,8 @@ def _build_config(root: Mapping[str, Any]) -> ProjectConfig:
         launch_arguments=_string_list(launch, "arguments", "launch.arguments"),
         launch_environment=_environment(launch),
         build_timeout_seconds=_field(build, "timeout_seconds", int, default=3600, label="build.timeout_seconds"),
+        skip_package_validation=_field(build, "skip_package_validation", bool, default=False,
+                                       label="build.skip_package_validation"),
         claude_consent=_field(ai, "claude_consent", bool, default=False, label="ai.claude_consent"),
         source_include=_string_list(source, "include", "source.include"),
     )
@@ -395,7 +402,8 @@ def render_config(config: ProjectConfig) -> str:
     ]
     if config.launch_environment:
         blocks.append(["[launch.environment]"] + [f"{_quote(k)} = {_quote(v)}" for k, v in config.launch_environment])
-    blocks.append(["[build]", f"timeout_seconds = {config.build_timeout_seconds}"])
+    blocks.append(["[build]", f"timeout_seconds = {config.build_timeout_seconds}",
+                   f"skip_package_validation = {'true' if config.skip_package_validation else 'false'}"])
     blocks.append(["[ai]", f"claude_consent = {'true' if config.claude_consent else 'false'}"])
     if config.source_include:
         blocks.append(["[source]", f"include = {_render_list(config.source_include)}"])

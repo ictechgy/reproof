@@ -203,6 +203,16 @@ class SimpleConfigTests(unittest.TestCase):
             with self.subTest(label=label):
                 self.assert_invalid(text, "NUL")
 
+    def test_skip_package_validation_defaults_to_false_and_round_trips(self):
+        """[build] skip_package_validation은 기본 false이고, true도 왕복된다. 문자열 등 다른 타입은 거절한다."""
+        self.assertFalse(sample_config().skip_package_validation)
+        config = replace(sample_config(), skip_package_validation=True)
+        self.path.write_text(render_config(config), encoding="utf-8")
+        self.assertEqual(load_config(self.path), config)
+        text = render_config(sample_config()).replace("skip_package_validation = false",
+                                                      'skip_package_validation = "yes"')
+        self.assert_invalid(text, "skip_package_validation")
+
     def test_container_kind_follows_extension(self):
         """container 확장자로 workspace/project를 정한다."""
         self.assertEqual(sample_config().container_kind, "project")

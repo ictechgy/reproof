@@ -59,8 +59,8 @@ class SimpleBuildTests(unittest.TestCase):
 
     def test_build_argv_has_fixed_flags(self):
         argv = simulator_build_argv(self.config, derived_data=Path("/d"), packages_dir=Path("/p"))
-        for flag in ("-disableAutomaticPackageResolution", "-skipMacroValidation", "-skipPackagePluginValidation",
-                     "COMPILER_INDEX_STORE_ENABLE=NO", "-onlyUsePackageVersionsFromResolvedFile"):
+        for flag in ("-disableAutomaticPackageResolution", "COMPILER_INDEX_STORE_ENABLE=NO",
+                     "-onlyUsePackageVersionsFromResolvedFile"):
             self.assertIn(flag, argv)
         self.assertEqual(argv[argv.index("-configuration") + 1], "Debug")
         self.assertEqual(argv[argv.index("-project") + 1], "MixedShop.xcodeproj")
@@ -192,22 +192,44 @@ class SimpleBuildTests(unittest.TestCase):
         self.assertTrue(prepared.directory.is_absolute())
         self.assertTrue(prepared.products.app_path.is_dir())
 
-    def test_pinned_build_skips_validation_unpinned_does_not(self):
-        pinned = simulator_build_argv(self.config, derived_data=Path("/d"), packages_dir=Path("/p"), is_pinned=True)
-        unpinned = simulator_build_argv(self.config, derived_data=Path("/d"), packages_dir=Path("/p"), is_pinned=False)
-        for flag in ("-skipMacroValidation", "-skipPackagePluginValidation"):
-            self.assertIn(flag, pinned)
-            self.assertNotIn(flag, unpinned)
+    def test_macro_and_plugin_validation_is_skipped_only_when_opted_in(self):
+        """기본은 고정 여부와 상관없이 매크로·플러그인 검증을 건너뛰지 않고, [build] skip_package_validation = true일 때만
+        건너뛴다.
 
-    def test_unpinned_validation_failure_maps_to_package_validation_required(self):
+        왜: Package.resolved가 있다는 것은 개발자가 그 매크로·플러그인(빌드 중 임의 코드 실행)을 신뢰했다는 뜻이 아니다.
+        처음 받는 의존성이나 자동으로 갱신된 resolved도 Xcode의 신뢰 확인 없이 실행되면 안 된다.
+        """
+        flags = ("-skipMacroValidation", "-skipPackagePluginValidation")
+        opted_in = dataclasses.replace(self.config, skip_package_validation=True)
+        for is_pinned in (True, False):
+            with self.subTest(is_pinned=is_pinned):
+                default = simulator_build_argv(self.config, derived_data=Path("/d"), packages_dir=Path("/p"),
+                                               is_pinned=is_pinned)
+                skipped = simulator_build_argv(opted_in, derived_data=Path("/d"), packages_dir=Path("/p"),
+                                               is_pinned=is_pinned)
+                for flag in flags:
+                    self.assertNotIn(flag, default)
+                    self.assertIn(flag, skipped)
+
+    def test_validation_failure_maps_to_package_validation_required_even_when_pinned(self):
+        """검증 실패 문구는 고정된 빌드에서도 package_validation_required로 바꾸고, Xcode 신뢰와 설정 두 방법을 안내한다."""
         failure = ToolFailure("xcodebuild", log_path=None,
                               output_tail="error: Macro \"M\" must be enabled before it can be used")
         def raise_failure(argv, cwd, env_extra):
             raise failure
-        with self.assertRaises(SimpleError) as raised:
-            prepare_build(self.source, self.config, workspace_root=self.workspace,
-                          runner=self._runner(raise_failure), progress=lambda _: None)
-        self.assertEqual(raised.exception.code, "package_validation_required")
+        for pinned in (False, True):
+            with self.subTest(pinned=pinned):
+                if pinned:
+                    resolved = (self.source / "MixedShop.xcodeproj" / "project.xcworkspace" / "xcshareddata" /
+                                "swiftpm" / "Package.resolved")
+                    resolved.parent.mkdir(parents=True)
+                    resolved.write_text('{"pins": []}')
+                with self.assertRaises(SimpleError) as raised:
+                    prepare_build(self.source, self.config, workspace_root=self.workspace,
+                                  runner=self._runner(raise_failure), progress=lambda _: None)
+                self.assertEqual(raised.exception.code, "package_validation_required")
+                self.assertIn("Xcode", raised.exception.remedy)
+                self.assertIn("skip_package_validation", raised.exception.remedy)
 
     def test_only_specific_marker_counts_as_validation_failure(self):
         """"must be enabled before it can be used" 문구만 검증 실패로 보고, macro·trust·enable 낱말 조합은 보지 않는지 본다.

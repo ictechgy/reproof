@@ -151,6 +151,7 @@ reproof app inspect [--point X,Y] [--output FILE]
 | `[launch]` | `arguments` | 앱 실행 인자 목록 |
 | `[launch.environment]` | `KEY = "값"` | 앱 실행 환경 변수 |
 | `[build]` | `timeout_seconds` | 패키지 해석·빌드 제한 시간(기본 3600) |
+| `[build]` | `skip_package_validation` | 기본 `false`. `true`면 Swift 매크로·패키지 플러그인 신뢰 검증을 건너뛴다(`-skipMacroValidation -skipPackagePluginValidation`). 매크로·플러그인은 빌드 중 코드를 실행하므로, 기본은 Xcode에서 한 번 신뢰(Trust & Enable)한 것만 쓴다. 회사가 검토한 패키지만 쓸 때만 켠다 |
 | `[ai]` | `claude_consent` | AI 수정 동의(기본 false, 다음 단계에서 사용) |
 | `[source]` | `include` | 비밀 가능 이름이어도 작업 사본에 넣을 파일의 저장소 기준 상대 경로 목록(선택; 빈 값·절대 경로·`..`·NUL 불가). 아래 "작업 사본에서 빼는 파일" 참고 |
 
@@ -238,6 +239,7 @@ git ls-remote git@github.com:회사/비공개-패키지.git     # 목록이 나�
 | `config_missing` | 상위 폴더에도 reproof.toml 없음 | 앱 폴더에서 `init` 또는 `--config` 지정 |
 | `<도구> 실행이 실패했습니다(종료 코드 N). 마지막 출력: …` | 빌드·도구 오류 | `마지막 출력:` 줄과 안내된 `로그:` 파일 끝부분을 확인(패키지 인증, 서명 설정, 누락된 파일 등) |
 | `<도구> 실행이 시간 제한 N초를 넘겼습니다` | 시간 초과 | 빌드·패키지 단계면 `reproof.toml`의 `[build] timeout_seconds`를 늘리고, 아니면 네트워크·Simulator 상태 확인 |
+| `package_validation_required` | 매크로·패키지 플러그인을 아직 신뢰하지 않음 | Xcode에서 프로젝트를 열어 Trust & Enable, 또는 `[build] skip_package_validation = true` |
 | `point_invalid` | `--point` 형식 오류 | `--point 195,420`처럼 숫자 두 개 |
 | `runner_start_failed` | 실행기 세션이 시작되지 않음 | `inspect-session.log`를 확인하고, Simulator가 부팅됐는지 `xcrun simctl list devices`로 확인 |
 | `project_busy` / `runner_busy` / `simulator_busy` / `package_cache_busy` | 다른 터미널에서 같은 프로젝트(또는 실행기 준비, 같은 Simulator, 같은 Swift 패키지 캐시)가 실행 중 | 그 실행이 끝난 뒤 다시 실행(잠금은 실행이 끝나면 자동으로 풀림) |

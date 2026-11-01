@@ -14,11 +14,12 @@ from .workcopy import tree_digest
 # DerivedData 안에서 Debug Simulator 산출물이 놓이는 상대 경로.
 PRODUCTS_SUBPATH = Path("Build") / "Products" / "Debug-iphonesimulator"
 
-BUILD_RECIPE_VERSION = 2
+BUILD_RECIPE_VERSION = 3
 """Simulator 빌드 방법(simulator_build_argv 규칙)의 버전. 산출물이 달라지는 방법 변경 때마다 1씩 올린다.
 
 빌드 ID에 들어가므로, 올리면 이전 완성 빌드를 재사용하지 않고 새로 빌드한다.
-기록: 1 = 서명 끔(CODE_SIGNING_ALLOWED=NO), 2 = ad-hoc 서명(App Group 등 entitlement 유지).
+기록: 1 = 서명 끔(CODE_SIGNING_ALLOWED=NO), 2 = ad-hoc 서명(App Group 등 entitlement 유지),
+3 = 매크로·플러그인 검증을 기본으로 유지(건너뛰기는 [build] skip_package_validation = true일 때만).
 """
 
 # xcodebuild -version 제한 시간(초).
@@ -42,9 +43,9 @@ def simulator_build_argv(config: ProjectConfig, *, derived_data: Path, packages_
 
     config: 프로젝트 설정. derived_data: 산출물 폴더. packages_dir: 해석된 패키지 캐시.
     is_pinned: Package.resolved가 있을 때만 그 버전만 쓰도록 강제한다(없으면 해석 결과를 그대로 쓴다).
-    왜 macro·plugin 검증을 건너뛰는가: AI는 Package.swift·Package.resolved를 바꿀 수 없으므로
-    버전이 고정(is_pinned)되어 있으면 실행되는 macro·plugin은 회사가 이미 쓰던 것으로 고정된다.
-    그래서 고정된 경우에만 검증을 건너뛴다. 고정되지 않았다면 버전이 바뀔 수 있어 건너뛰는 것이 안전하지 않다.
+    macro·plugin 검증은 기본으로 유지하고, config.skip_package_validation이 true일 때만 건너뛴다. 왜: Package.resolved가
+    있다는 것은 개발자가 그 매크로·플러그인(빌드 중 임의 코드 실행)을 신뢰했다는 뜻이 아니다. 처음 받는 의존성이나
+    자동으로 갱신된 resolved도 있으므로, 신뢰는 Xcode의 확인(Trust & Enable)이나 설정의 명시적 동의로만 정한다.
     서명은 인증서가 필요 없는 ad-hoc(`CODE_SIGN_IDENTITY=-`, Xcode의 "Sign to Run Locally")으로 한다.
     왜 끄지 않나: Simulator에서도 App Group 같은 entitlement는 서명 단계에서 실행 파일에 들어가므로,
     CODE_SIGNING_ALLOWED=NO로 끄면 App Group 컨테이너를 쓰는 앱이 시작하자마자 죽는다(Wikipedia에서 확인).
@@ -56,7 +57,9 @@ def simulator_build_argv(config: ProjectConfig, *, derived_data: Path, packages_
             "-derivedDataPath", str(derived_data), "-clonedSourcePackagesDirPath", str(packages_dir),
             "-disableAutomaticPackageResolution"]
     if is_pinned:
-        argv += ["-onlyUsePackageVersionsFromResolvedFile", "-skipMacroValidation", "-skipPackagePluginValidation"]
+        argv.append("-onlyUsePackageVersionsFromResolvedFile")
+    if config.skip_package_validation:
+        argv += ["-skipMacroValidation", "-skipPackagePluginValidation"]
     argv += ["CODE_SIGN_IDENTITY=-", "COMPILER_INDEX_STORE_ENABLE=NO"]
     return argv
 
@@ -95,11 +98,13 @@ def is_validation_failure(failure: ToolFailure) -> bool:
 
 
 def validation_required_error(failure: ToolFailure) -> SimpleError:
-    """검증 실패를 package_validation_required 오류로 바꾼다. 해결 방법은 버전 고정 또는 Xcode에서 신뢰."""
+    """검증 실패를 package_validation_required 오류로 바꾼다. 해결 방법은 Xcode에서 신뢰하거나 설정으로 명시적으로 건너뛰기."""
     return SimpleError("package_validation_required",
-                       "Package.resolved가 없어 패키지 버전이 고정되지 않았고, 매크로·플러그인 신뢰 확인이 필요합니다.",
-                       "Package.resolved를 저장소에 커밋해 버전을 고정하거나, Xcode에서 프로젝트를 한 번 열어 "
-                       "해당 매크로·플러그인을 신뢰한 뒤 다시 실행하세요.", log_path=failure.log_path)
+                       "이 프로젝트의 Swift 매크로·패키지 플러그인은 신뢰 확인이 필요합니다(빌드 중 코드를 실행하므로 "
+                       "툴이 대신 허용하지 않습니다).",
+                       "Xcode에서 프로젝트를 한 번 열어 해당 매크로·플러그인을 신뢰(Trust & Enable)한 뒤 다시 실행하세요. "
+                       "회사가 검토한 패키지만 쓴다면 reproof.toml의 [build]에 skip_package_validation = true를 넣어 "
+                       "검증을 건너뛸 수도 있습니다.", log_path=failure.log_path)
 
 
 def _bundle_identifier(app: Path) -> str | None:
@@ -146,7 +151,7 @@ def build_for_simulator(working_copy: Path, config: ProjectConfig, *, derived_da
     try:
         runner.run(argv, cwd=working_copy, timeout=config.build_timeout_seconds, log_path=log_path)
     except ToolFailure as failure:
-        if not packages.is_pinned and is_validation_failure(failure):
+        if not config.skip_package_validation and is_validation_failure(failure):
             raise validation_required_error(failure) from failure
         if failure.timeout_seconds is not None:
             failure.remedy = CONFIG_TIMEOUT_REMEDY  # 이 단계의 제한 시간은 설정의 build.timeout_seconds다.
