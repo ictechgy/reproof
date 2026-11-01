@@ -44,6 +44,8 @@ jobs:
         run: python scripts/release-check.py --goal SOURCE_SNAPSHOT_SCALE --effects filesystem,process
       - name: Run iOS snapshot observation host contracts without Xcode
         run: python scripts/release-check.py --goal IOS_SNAPSHOT_CONTRACTS --effects filesystem,process
+      - name: Run iOS simple mode host contracts without Xcode
+        run: python scripts/release-check.py --goal IOS_SIMPLE_CONTRACTS --effects filesystem,process,loopback
       - name: Measure end-to-end synthetic iOS snapshot scale once without Xcode
         if: matrix.python-version == '3.12'
         run: python scripts/release-check.py --goal IOS_SNAPSHOT_SCALE --effects filesystem,process

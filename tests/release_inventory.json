@@ -1665,6 +1665,28 @@
         }
       ]
     },
+    "IOS_SIMPLE_CONTRACTS": {
+      "available": true,
+      "checks": [
+        {
+          "id": "simple-process",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_simple_process"
+          ],
+          "environment": "local-python-synthetic-no-native-execution",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        }
+      ]
+    },
     "IOS_SNAPSHOT_SCALE": {
       "available": true,
       "checks": [
