@@ -2179,6 +2179,25 @@
           "timeoutSeconds": 600,
           "evidence": "unittest-summary",
           "gate": "environment"
+        },
+        {
+          "id": "simple-native-private-spm",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_simple_native_private_spm"
+          ],
+          "environment": "local-xcode-xcodegen-loopback-authenticated-git-server-temp-home",
+          "effects": [
+            "filesystem",
+            "process",
+            "native-compile",
+            "loopback"
+          ],
+          "timeoutSeconds": 600,
+          "evidence": "unittest-summary",
+          "gate": "environment"
         }
       ]
     }
