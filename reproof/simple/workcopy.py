@@ -6,10 +6,12 @@
 """
 import contextlib
 import errno
+import fnmatch
 import hashlib
 import os
 import shutil
 import stat
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +25,17 @@ _PERMISSION_BITS = 0o777
 EXCLUDED_NAMES = frozenset({".git", "DerivedData", ".build", "xcuserdata", ".reproof"})
 # 루트 바로 아래에서만 제외하는 이름. 하위의 build는 소스 폴더일 수 있어 남긴다.
 ROOT_ONLY_EXCLUDED_NAMES = frozenset({"build"})
+
+CREDENTIAL_NAME_PATTERNS = (
+    ".env", ".env.*", ".git-credentials", ".netrc", ".npmrc", "*.p8", "*.p12", "*.pfx", "*.pem", "*.key",
+    "*.keystore", "*.jks", "*.mobileprovision", "*.provisionprofile", "id_rsa*", "id_ed25519*", "*.cer",
+)
+"""비밀(토큰·서명 키·인증서·프로비저닝 프로필)이 들어 있을 수 있는 파일 이름(fnmatch, 소문자로 비교).
+
+왜: 작업 사본은 작업 공간(~/.reproof)에 남고 나중 단계에서 AI가 읽을 수 있다. gitignore된 .env나 Fastlane .p8 키가
+그대로 복사되면 '툴은 인증 값을 읽거나 저장하지 않는다'는 약속이 깨지므로 기본으로 열지도 않고 뺀다. 빌드에 꼭 필요한
+파일은 reproof.toml `[source] include`로 경로를 지정해 넣는다. identity.py가 dirty.patch에서도 같은 이름을 뺀다.
+"""
 
 
 @dataclass(frozen=True)
@@ -43,6 +56,14 @@ class WorkingCopy:
     manifest_digest: str
     file_count: int
     total_bytes: int
+    excluded_paths: tuple[str, ...] = ()
+    """비밀 가능 이름이라 복사하지 않은 파일·링크의 상대 경로(정렬됨). 빌드 식별에 넣어 무엇이 빠졌는지 남긴다."""
+
+
+def is_credential_name(name: str) -> bool:
+    """파일 이름이 CREDENTIAL_NAME_PATTERNS 중 하나와 맞으면 True. 대소문자는 구분하지 않는다(APFS 기본과 같게)."""
+    lowered = name.lower()
+    return any(fnmatch.fnmatchcase(lowered, pattern) for pattern in CREDENTIAL_NAME_PATTERNS)
 
 
 class _Manifest:
@@ -59,6 +80,12 @@ class _Manifest:
         """복사 중일 때 사본 루트. 링크를 사본 안으로 다시 계산할 때 쓴다."""
         self.links: list[Path] = []
         """복사 중에 사본에 만든 링크들. 복사가 끝난 뒤 사본 안으로 풀리는지 한꺼번에 확인한다."""
+        self.include_paths: Collection[str] = frozenset()
+        """비밀 가능 이름이어도 복사할 상대 경로(reproof.toml [source] include)."""
+        self.excluded: list[str] = []
+        """복사하지 않은 비밀 가능 파일의 상대 경로."""
+        self.notice: Callable[[str], None] = print
+        """제외한 파일을 알리는 함수(파일마다 한 번)."""
         self.directory_modes: list[tuple[Path, int]] = []
         self.lines: list[tuple[bytes, str]] = []
         self.file_count = 0
@@ -220,10 +247,27 @@ def _walk(directory: Path, destination: Path | None, root: Path, manifest: _Mani
         with os.scandir(current) as entries:
             children = sorted(entries, key=lambda entry: entry.name)
         for entry in children:
-            if manifest.is_copy and _is_excluded(entry.name, current == root):
+            if manifest.is_copy and _is_skipped_in_copy(entry, current == root, root, manifest):
                 continue
             child_target = target / entry.name if target else None
             _visit(entry, child_target, root, manifest, source_root, stack)
+
+
+def _is_skipped_in_copy(entry: os.DirEntry, is_root: bool, root: Path, manifest: _Manifest) -> bool:
+    """복사할 때 빼는 항목인지 본다: 빌드·VCS 부산물 이름이거나 비밀 가능 파일(include 제외)."""
+    return _is_excluded(entry.name, is_root) or _skips_credential(entry, root, manifest)
+
+
+def _skips_credential(entry: os.DirEntry, root: Path, manifest: _Manifest) -> bool:
+    """비밀 가능 이름의 파일·링크(디렉터리는 아님)이고 include에 없으면 기록·알림 후 True를 돌려준다(열지 않는다)."""
+    if entry.is_dir(follow_symlinks=False) or not is_credential_name(entry.name):
+        return False
+    relative = Path(os.path.relpath(entry.path, root)).as_posix()
+    if relative in manifest.include_paths:
+        return False
+    manifest.excluded.append(relative)
+    manifest.notice(f"제외함(비밀 가능 파일): {relative}")
+    return True
 
 
 def _visit(entry: os.DirEntry, child_target: Path | None, root: Path, manifest: _Manifest,
@@ -269,17 +313,21 @@ def _visit_regular_file(path: Path, relative: str, info: os.stat_result, child_t
     manifest.count_file(size)
 
 
-def materialize_working_copy(source: Path, destination: Path, limits: CopyLimits = CopyLimits()) -> WorkingCopy:
-    """source를 destination으로 복사한다(빌드·VCS 부산물 제외, 실행 권한 보존).
+def materialize_working_copy(source: Path, destination: Path, limits: CopyLimits = CopyLimits(), *,
+                             include_paths: Collection[str] = frozenset(),
+                             notice: Callable[[str], None] = print) -> WorkingCopy:
+    """source를 destination으로 복사한다(빌드·VCS 부산물과 비밀 가능 파일 제외, 실행 권한 보존).
 
+    include_paths: 비밀 가능 이름이어도 복사할 상대 POSIX 경로(reproof.toml [source] include, 검증된 값).
+    notice: 제외한 비밀 가능 파일을 파일마다 한 번 '제외함(비밀 가능 파일): <경로>'로 알리는 함수.
     destination은 존재하면 안 된다(남은 이전 결과를 섞어 쓰지 않으려는 것). 실패하면 만들다 만
     destination을 지워 반쯤 복사된 사본이 재사용되지 않게 하고 오류는 그대로 다시 던진다.
-    반환: WorkingCopy. 주의: 소스 밖을 가리키는 링크·특수 파일·상한 초과는 SimpleError.
+    반환: WorkingCopy(excluded_paths는 정렬됨). 주의: 소스 밖을 가리키는 링크·특수 파일·상한 초과는 SimpleError.
     """
     source_root = Path(os.path.realpath(source))
     _validate_paths(source_root, destination)
     manifest = _Manifest(limits, is_copy=True)
-    manifest.copy_root = destination
+    manifest.copy_root, manifest.include_paths, manifest.notice = destination, include_paths, notice
     destination.mkdir(parents=True)
     manifest.directory_modes.append((destination, stat.S_IMODE(os.stat(source_root).st_mode) & _PERMISSION_BITS))
     try:
@@ -289,7 +337,8 @@ def materialize_working_copy(source: Path, destination: Path, limits: CopyLimits
     except BaseException as error:
         _discard_partial_copy(destination, error)
         raise
-    return WorkingCopy(destination, manifest.digest(), manifest.file_count, manifest.total_bytes)
+    return WorkingCopy(destination, manifest.digest(), manifest.file_count, manifest.total_bytes,
+                       tuple(sorted(manifest.excluded)))
 
 
 def _apply_directory_modes(directory_modes: list[tuple[Path, int]]) -> None:

@@ -148,6 +148,7 @@ reproof app inspect [--point X,Y] [--output FILE]
 | `[launch.environment]` | `KEY = "값"` | 앱 실행 환경 변수 |
 | `[build]` | `timeout_seconds` | 패키지 해석·빌드 제한 시간(기본 3600) |
 | `[ai]` | `claude_consent` | AI 수정 동의(기본 false, 다음 단계에서 사용) |
+| `[source]` | `include` | 비밀 가능 이름이어도 작업 사본에 넣을 파일의 저장소 기준 상대 경로 목록(선택; 빈 값·절대 경로·`..`·NUL 불가). 아래 "작업 사본에서 빼는 파일" 참고 |
 
 ### 비밀 값은 `env:`로
 
@@ -165,6 +166,22 @@ reproof app inspect
 ```
 
 없으면 `env_missing` 오류가 어떤 변수를 설정해야 하는지 알려 준다.
+
+### 작업 사본에서 빼는 파일
+
+작업 사본은 작업 공간(`~/.reproof`)에 남고 다음 단계에서 AI가 읽을 수 있으므로, 비밀이 들어 있을 수 있는 이름의 파일은
+**열지도 않고** 빼며 파일마다 한 번 `제외함(비밀 가능 파일): <경로>`를 출력한다. 이름 규칙(어느 폴더든, 대소문자 무시):
+`.env`, `.env.*`, `.git-credentials`, `.netrc`, `.npmrc`, `*.p8`, `*.p12`, `*.pfx`, `*.pem`, `*.key`, `*.keystore`, `*.jks`,
+`*.mobileprovision`, `*.provisionprofile`, `id_rsa*`, `id_ed25519*`, `*.cer`. 뺀 목록은 빌드 식별(`identity.json`의
+`excludedPaths`)에 들어가고, 이런 파일의 변경은 `dirty.patch`에도 넣지 않는다.
+
+빌드에 꼭 필요한 파일(예: 개발용 설정 `Config/Dev.env`)은 경로를 지정해 넣는다. 지정한 파일은 작업 사본에 복사되지만
+`dirty.patch`에는 여전히 들어가지 않는다(내용은 작업 사본 digest로 식별에 반영된다).
+
+```toml
+[source]
+include = ["Config/Dev.env"]
+```
 
 ## 비공개 SPM 패키지
 

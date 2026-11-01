@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .errors import ToolFailure
 from .process import ToolRunner
+from .workcopy import CREDENTIAL_NAME_PATTERNS
 
 # git 호출 제한 시간(초). 큰 저장소의 status도 이 안에 끝나야 한다.
 _GIT_TIMEOUT_SECONDS = 120
@@ -19,6 +20,7 @@ class BuildIdentity:
     dirty_patch_digest: 추적 파일 변경 patch의 sha256(없으면 None).
     untracked_paths: 추적되지 않는 파일 경로(정렬됨). config_digest/source_manifest_digest: 호출자가 계산한 지문.
     build_recipe: 툴의 빌드 방법(argv 규칙) 버전. xcode_version: `xcodebuild -version` 출력.
+    excluded_paths: 비밀 가능 이름이라 작업 사본에 넣지 않은 파일의 상대 경로(정렬됨). 빌드된 트리에 무엇이 빠졌는지 남긴다.
     왜 빌드 방법·Xcode까지 넣나: 소스와 설정이 같아도 빌드 방법(예: 서명 방식)이나 Xcode가 바뀌면 산출물이 달라지므로,
     같은 ID로 옛 산출물을 재사용하지 않게 하려는 것이다.
     """
@@ -31,6 +33,7 @@ class BuildIdentity:
     source_manifest_digest: str
     build_recipe: int
     xcode_version: str
+    excluded_paths: tuple[str, ...] = ()
 
     def to_document(self) -> dict:
         """JSON으로 저장할 수 있는 dict를 만든다. untracked_paths는 리스트로 바꾼다."""
@@ -43,6 +46,7 @@ class BuildIdentity:
             "sourceManifestDigest": self.source_manifest_digest,
             "buildRecipe": self.build_recipe,
             "xcodeVersion": self.xcode_version,
+            "excludedPaths": list(self.excluded_paths),
         }
 
     def build_id(self) -> str:
@@ -109,15 +113,22 @@ def _relative_to_source_root(paths: list[str], prefix: str) -> list[str]:
     return [path[len(prefix):] if path.startswith(prefix) else path for path in paths]
 
 
+_CREDENTIAL_PATHSPECS = tuple(f":(exclude,glob,icase)**/{pattern}" for pattern in CREDENTIAL_NAME_PATTERNS)
+"""dirty.patch에서 비밀 가능 파일(workcopy.CREDENTIAL_NAME_PATTERNS, 어느 깊이든·대소문자 무시)을 빼는 git pathspec."""
+
+
 def _write_dirty_patch(runner: ToolRunner, source_root: Path, output_dir: Path) -> str | None:
     """추적 파일 변경을 dirty.patch로 쓰고 파일 바이트의 sha256을 돌려준다. 변경이 없으면 None.
 
     왜: 러너 stdout은 UTF-8로 복호화되며 손실되므로(EUC-KR 등) git이 파일에 직접 쓰게 한다.
     --relative와 '-- .'로 source_root 밖의 변경은 제외하고 경로를 source_root 기준으로 만든다.
+    비밀 가능 파일(.env·키 등)의 변경은 pathspec으로 빼서 작업 공간에 비밀이 남지 않게 한다([source] include로
+    작업 사본에 넣은 파일도 patch에는 넣지 않는다. 그 내용은 사본 매니페스트 digest로 식별에 들어간다).
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     patch_path = output_dir / "dirty.patch"
-    _run_git(runner, source_root, ["diff", "--binary", "--relative", f"--output={patch_path}", "HEAD", "--", "."])
+    _run_git(runner, source_root, ["diff", "--binary", "--relative", f"--output={patch_path}", "HEAD", "--", ".",
+                                   *_CREDENTIAL_PATHSPECS])
     patch_bytes = patch_path.read_bytes()
     if not patch_bytes:
         patch_path.unlink()
@@ -127,10 +138,11 @@ def _write_dirty_patch(runner: ToolRunner, source_root: Path, output_dir: Path) 
 
 def capture_build_identity(source_root: Path, *, config_digest: str, source_manifest_digest: str,
                            output_dir: Path, runner: ToolRunner, build_recipe: int,
-                           xcode_version: str) -> BuildIdentity:
+                           xcode_version: str, excluded_paths: tuple[str, ...] = ()) -> BuildIdentity:
     """source_root 범위의 git 상태를 읽어 BuildIdentity를 만든다. 추적 파일 변경이 있으면 dirty.patch를 쓴다.
 
     build_recipe·xcode_version은 호출자가 정한 빌드 방법 버전과 Xcode 버전으로, 그대로 식별에 넣는다.
+    excluded_paths는 작업 사본에서 뺀 비밀 가능 파일 목록(WorkingCopy.excluded_paths)이다.
 
     git 저장소가 아니거나 커밋이 없거나 추적 내용이 아니면 commit_sha=None, 변경 없음(오류 아님).
     상위 저장소의 source_root 밖 변경은 무시하고 경로는 source_root 기준이다. 삭제된 추적 파일도 변경이다.
@@ -146,4 +158,4 @@ def capture_build_identity(source_root: Path, *, config_digest: str, source_mani
         untracked = _relative_to_source_root(untracked, prefix)
         patch_digest = _write_dirty_patch(runner, source_root, output_dir) if changed else None
     return BuildIdentity(commit_sha, bool(changed or untracked), patch_digest, tuple(sorted(untracked)),
-                         config_digest, source_manifest_digest, build_recipe, xcode_version)
+                         config_digest, source_manifest_digest, build_recipe, xcode_version, tuple(excluded_paths))

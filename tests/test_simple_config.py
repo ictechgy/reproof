@@ -133,6 +133,16 @@ class SimpleConfigTests(unittest.TestCase):
                 with self.subTest(field=field, value=value):
                     self.assert_rejected(f"project.{field}", **{field: value})
 
+    def test_source_include_round_trips_and_rejects_unsafe_paths(self):
+        """[source] include는 저장소 기준 상대 경로 목록이다. 절대 경로·'..'·빈 값·NUL은 거절한다."""
+        config = replace(sample_config(), source_include=("Config/.env.dev", "certs/dev.p12"))
+        self.path.write_text(render_config(config), encoding="utf-8")
+        self.assertEqual(load_config(self.path), config)
+        for bad in ("/abs/.env", "../.env", "a/../../.env", "", "  ", "a\0b"):
+            with self.subTest(bad=bad):
+                self.assert_rejected("source.include", source_include=(bad,))
+        self.assert_invalid(render_config(sample_config()) + "\n[source]\ninclude = [1]\n", "source.include")
+
     def test_container_kind_follows_extension(self):
         """container 확장자로 workspace/project를 정한다."""
         self.assertEqual(sample_config().container_kind, "project")

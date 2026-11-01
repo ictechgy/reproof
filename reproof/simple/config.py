@@ -33,12 +33,13 @@ ENV_NAME_PREFIX = "REPROOF_APP_"
 호스트의 비밀(AWS 키 등)은 이 접두사로 이름을 붙여 명시적으로 내보낸 것만 앱에 전달한다."""
 
 ALLOWED_KEYS: dict[str, set[str]] = {
-    "": {"schema", "name", "project", "simulator", "launch", "build", "ai"},
+    "": {"schema", "name", "project", "simulator", "launch", "build", "ai", "source"},
     "project": {"container", "generator", "generator_spec", "scheme", "app_target", "bundle_id", "test_scheme"},
     "simulator": {"device_type", "runtime", "locale", "language", "timezone"},
     "launch": {"arguments", "environment"},
     "build": {"timeout_seconds"},
     "ai": {"claude_consent"},
+    "source": {"include"},
 }
 """표별로 허용하는 키. 여기에 없는 키는 오타로 보고 거절한다."""
 
@@ -71,6 +72,8 @@ class ProjectConfig:
     launch_environment: tuple[tuple[str, str], ...] = ()
     build_timeout_seconds: int = 3600
     claude_consent: bool = False
+    source_include: tuple[str, ...] = ()
+    """비밀 가능 이름이어도 작업 사본에 넣을 파일의 저장소 기준 상대 경로([source] include)."""
 
     @property
     def container_kind(self) -> str:
@@ -182,6 +185,18 @@ def _validate_project_paths(config: ProjectConfig) -> None:
                            f"project.{field} 값을 채우거나 `reproof app init --force`로 설정을 다시 만드세요.")
 
 
+def _check_include_path(value: str) -> None:
+    """[source] include 항목이 저장소 안의 상대 POSIX 경로(빈 값·절대 경로·'..'·NUL 불가)인지 확인한다.
+
+    왜: 이 목록의 파일은 비밀 가능 이름이어도 작업 사본에 들어가므로, 소스 밖이나 모호한 경로를 받으면 안 된다.
+    """
+    path = PurePosixPath(value)
+    if not value.strip() or "\0" in value or path.is_absolute() or ".." in path.parts:
+        raise _invalid(f"reproof.toml의 source.include 항목 {value!r}은(는) 저장소 안의 상대 경로여야 합니다"
+                       "(빈 값·절대 경로·'..'·NUL 불가).",
+                       '저장소 루트 기준 파일 경로로 고치세요. 예: include = ["Config/Dev.env"]')
+
+
 def _validate_project(config: ProjectConfig) -> None:
     """이름 규칙, 생성기 값, 생성기-스펙 조합, 경로·필수 이름 등 값 자체의 규칙을 검사한다."""
     if not NAME_PATTERN.fullmatch(config.name):
@@ -198,6 +213,8 @@ def _validate_project(config: ProjectConfig) -> None:
         raise _invalid("build.timeout_seconds는 1 이상이어야 합니다.")
     for key, value in config.launch_environment:
         _env_reference_name(key, value)
+    for value in config.source_include:
+        _check_include_path(value)
 
 
 def _build_config(root: Mapping[str, Any]) -> ProjectConfig:
@@ -205,6 +222,7 @@ def _build_config(root: Mapping[str, Any]) -> ProjectConfig:
     project, sim = _section(root, "project"), _section(root, "simulator")
     launch = _section(root, "launch", required=False)
     build, ai = _section(root, "build", required=False), _section(root, "ai", required=False)
+    source = _section(root, "source", required=False)
     return ProjectConfig(
         name=_field(root, "name", str),
         container=_field(project, "container", str, label="project.container"),
@@ -219,6 +237,7 @@ def _build_config(root: Mapping[str, Any]) -> ProjectConfig:
         launch_environment=_environment(launch),
         build_timeout_seconds=_field(build, "timeout_seconds", int, default=3600, label="build.timeout_seconds"),
         claude_consent=_field(ai, "claude_consent", bool, default=False, label="ai.claude_consent"),
+        source_include=_string_list(source, "include", "source.include"),
     )
 
 
@@ -280,7 +299,7 @@ def render_config(config: ProjectConfig) -> str:
     """ProjectConfig를 정해진 키 순서의 TOML 문자열로 쓴다.
 
     왜 직접 쓰나: 표준 라이브러리에는 TOML writer가 없고, 키 순서가 고정돼야 diff가 안정적이다.
-    환경 변수 표는 비어 있으면 생략하며, load_config로 읽으면 같은 설정이 된다.
+    환경 변수 표와 [source] 표는 비어 있으면 생략하며, load_config로 읽으면 같은 설정이 된다.
     """
     sim = config.simulator
     blocks = [
@@ -294,6 +313,8 @@ def render_config(config: ProjectConfig) -> str:
         blocks.append(["[launch.environment]"] + [f"{_quote(k)} = {_quote(v)}" for k, v in config.launch_environment])
     blocks.append(["[build]", f"timeout_seconds = {config.build_timeout_seconds}"])
     blocks.append(["[ai]", f"claude_consent = {'true' if config.claude_consent else 'false'}"])
+    if config.source_include:
+        blocks.append(["[source]", f"include = {_render_list(config.source_include)}"])
     return "\n\n".join("\n".join(block) for block in blocks) + "\n"
 
 

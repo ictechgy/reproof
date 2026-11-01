@@ -171,6 +171,43 @@ class SimpleIdentityTests(unittest.TestCase):
             self.assertIn(b"caf\xe9", patch_bytes)
             self.assertEqual(identity.dirty_patch_digest, hashlib.sha256(patch_bytes).hexdigest())
 
+    def test_dirty_patch_never_contains_credential_files(self):
+        """추적 중인 .env·키 파일의 변경은 dirty.patch에 넣지 않는다(작업 공간에 비밀이 남지 않게).
+
+        변경 자체는 작업 중 변경으로 센다(is_dirty). 그런 파일만 바뀌었으면 patch 파일을 만들지 않는다.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, out = make_repository(Path(tmp)), Path(tmp) / "out"
+            (repo / "Config").mkdir()
+            for name in (".env", "Config/AuthKey_X.p8"):
+                (repo / name).write_text("A=1\n")
+            git(repo, "add", "-A")
+            git(repo, "commit", "-q", "-m", "secrets")
+            for name in (".env", "Config/AuthKey_X.p8"):
+                (repo / name).write_text("A=SECRET\n")
+            only_secrets = self.capture(repo, Path(tmp) / "only")
+            self.assertTrue(only_secrets.is_dirty)
+            self.assertIsNone(only_secrets.dirty_patch_digest)
+            self.assertFalse((Path(tmp) / "only" / "dirty.patch").exists())
+            (repo / "a.swift").write_text("changed\n")
+            self.capture(repo, out)
+            patch = (out / "dirty.patch").read_text()
+            self.assertIn("a.swift", patch)
+            self.assertNotIn("SECRET", patch)
+
+    def test_excluded_paths_are_part_of_identity(self):
+        """작업 사본에서 뺀 파일 목록이 식별에 들어가 build_id를 바꾼다(사본에 무엇이 빠졌는지 기록)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repository(Path(tmp))
+            base = self.capture(repo, Path(tmp) / "o1")
+            excluded = capture_build_identity(repo, config_digest="c1", source_manifest_digest="m1",
+                                              output_dir=Path(tmp) / "o2", runner=RUNNER, build_recipe=2,
+                                              xcode_version="Xcode 27.0\nBuild version 27A266a",
+                                              excluded_paths=(".env",))
+            self.assertEqual(excluded.to_document()["excludedPaths"], [".env"])
+            self.assertEqual(base.to_document()["excludedPaths"], [])
+            self.assertNotEqual(base.build_id(), excluded.build_id())
+
     def test_rename_entry_skips_source_path(self):
         changed, untracked = parse_porcelain_status("R  new name.swift\0old.swift\0?? z.swift\0?? b.swift\0")
         self.assertEqual(changed, ["new name.swift"])

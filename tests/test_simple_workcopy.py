@@ -124,6 +124,46 @@ class WorkingCopyTests(unittest.TestCase):
         self.assertEqual((dest / "tool").stat().st_mode & 0o7777, 0o755)
         self.assertEqual((dest / "shared").stat().st_mode & 0o7777, 0o777)
 
+    CREDENTIAL_PATHS = (".env", "config/.env.production", ".git-credentials", ".netrc", ".npmrc",
+                        "fastlane/AuthKey_AB12.p8", "certs/dev.p12", "certs/dev.pfx", "certs/server.pem",
+                        "certs/server.key", "android/release.keystore", "android/release.jks",
+                        "profiles/App.mobileprovision", "profiles/App.provisionprofile", "keys/id_rsa",
+                        "keys/id_ed25519.pub", "certs/apple.cer", "certs/UPPER.P12")
+    """비밀이 들어 있을 수 있는 파일 이름 예(대문자 확장자 포함)."""
+
+    def test_credential_files_are_excluded_without_opening_and_reported_once(self):
+        """비밀 가능 파일은 열지도 않고 빼며, 파일마다 한 번 '제외함(비밀 가능 파일): <경로>'를 알린다.
+
+        왜: 작업 사본은 ~/.reproof에 남고 나중에 AI가 읽을 수 있으므로 .env·서명 키가 들어가면 안 된다.
+        권한 0을 줘 열면 PermissionError가 나게 해 '열지 않음'을 확인한다.
+        """
+        source, dest = self.tmp / "src", self.tmp / "dest"
+        write(source / "Keychain.swift")
+        write(source / "environment.swift")
+        for name in self.CREDENTIAL_PATHS:
+            write(source / name, "SECRET", 0o000)
+        os.symlink("Keychain.swift", source / "certs" / "linked.pem")
+        notices = []
+        copy = materialize_working_copy(source, dest, notice=notices.append)
+        expected = tuple(sorted((*self.CREDENTIAL_PATHS, "certs/linked.pem")))
+        for name in expected:
+            self.assertFalse(os.path.lexists(dest / name), name)
+        self.assertEqual(copy.excluded_paths, expected)
+        self.assertEqual(sorted(notices), [f"제외함(비밀 가능 파일): {name}" for name in expected])
+        self.assertTrue((dest / "Keychain.swift").exists())
+        self.assertTrue((dest / "environment.swift").exists())
+        self.assertEqual(copy.manifest_digest, tree_digest(dest))
+
+    def test_included_credential_file_is_copied(self):
+        """[source] include로 지정한 상대 경로의 파일은 비밀 가능 이름이어도 복사한다."""
+        source, dest = self.tmp / "src", self.tmp / "dest"
+        write(source / "Config" / ".env.dev", "MODE=dev")
+        write(source / ".env", "SECRET")
+        copy = materialize_working_copy(source, dest, include_paths=frozenset({"Config/.env.dev"}),
+                                        notice=lambda _: None)
+        self.assertEqual((dest / "Config" / ".env.dev").read_text(), "MODE=dev")
+        self.assertEqual(copy.excluded_paths, (".env",))
+
     def test_file_count_limit_reports_limit_and_remedy(self):
         source, dest = self.tmp / "src", self.tmp / "dest"
         for name in "abc":

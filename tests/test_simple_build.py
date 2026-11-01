@@ -111,6 +111,21 @@ class SimpleBuildTests(unittest.TestCase):
         self.assertEqual(len(list(prepared.directory.parent.glob("*.partial"))), 0)
         self.assertEqual(list(prepared.directory.parent.parent.glob("staging-*")), [])
 
+    def test_credential_files_are_left_out_of_build_and_recorded(self):
+        """비밀 가능 파일(.env)은 작업 사본에 넣지 않고, 알림·identity.json에 남기며, include로 지정하면 넣는다."""
+        (self.source / ".env").write_text("TOKEN=SECRET\n")
+        messages = []
+        prepared = prepare_build(self.source, self.config, workspace_root=self.workspace, runner=self._runner(),
+                                 progress=messages.append)
+        self.assertFalse(os.path.lexists(prepared.working_copy.root / ".env"))
+        self.assertIn("제외함(비밀 가능 파일): .env", messages)
+        document = json.loads((prepared.directory / "identity.json").read_text(encoding="utf-8"))
+        self.assertEqual(document["excludedPaths"], [".env"])
+        included = prepare_build(self.source, dataclasses.replace(self.config, source_include=(".env",)),
+                                 workspace_root=self.workspace, runner=self._runner(), progress=lambda _: None)
+        self.assertTrue((included.working_copy.root / ".env").exists())
+        self.assertNotEqual(included.build_id, prepared.build_id)
+
     def test_second_prepare_reuses_completed_build_without_xcodebuild(self):
         first = prepare_build(self.source, self.config, workspace_root=self.workspace, runner=self._runner(),
                               progress=lambda _: None)

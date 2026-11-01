@@ -76,7 +76,7 @@ def _load_completed(directory: Path, identity: BuildIdentity, build_id: str) -> 
 
 def _copy_info(directory: Path, identity: BuildIdentity) -> WorkingCopy:
     """완성 폴더의 source를 가리키는 WorkingCopy를 만든다. 개수·크기는 재사용 시 다시 세지 않아 0이다."""
-    return WorkingCopy(directory / "source", identity.source_manifest_digest, 0, 0)
+    return WorkingCopy(directory / "source", identity.source_manifest_digest, 0, 0, identity.excluded_paths)
 
 
 def _rebase(prepared_source: WorkingCopy, products: BuildProducts, partial: Path, final: Path):
@@ -84,7 +84,7 @@ def _rebase(prepared_source: WorkingCopy, products: BuildProducts, partial: Path
     def move(path: Path) -> Path:
         return final / path.relative_to(partial)
     working_copy = WorkingCopy(move(prepared_source.root), prepared_source.manifest_digest,
-                               prepared_source.file_count, prepared_source.total_bytes)
+                               prepared_source.file_count, prepared_source.total_bytes, prepared_source.excluded_paths)
     return working_copy, BuildProducts(move(products.app_path), products.bundle_id, move(products.derived_data),
                                        products.products_digest)
 
@@ -106,13 +106,17 @@ def _run_build_steps(partial: Path, working_copy: WorkingCopy, config: ProjectCo
                                runner=runner, log_path=logs / "build.log")
 
 
-def _stage_working_copy(source_root: Path, project_dir: Path, progress: Callable[[str], None]):
-    """staging 폴더에 작업 사본을 만든다. build_id는 사본의 manifest digest가 있어야 정해지기 때문이다."""
+def _stage_working_copy(source_root: Path, project_dir: Path, config: ProjectConfig, progress: Callable[[str], None]):
+    """staging 폴더에 작업 사본을 만든다. build_id는 사본의 manifest digest가 있어야 정해지기 때문이다.
+
+    비밀 가능 파일은 빼고(설정의 [source] include는 넣는다) 뺀 파일마다 progress로 알린다.
+    """
     _remove_stale_staging(project_dir)
     progress("작업 사본 만드는 중")
     staging = (project_dir / f"staging-{uuid.uuid4().hex}.partial").absolute()
     try:
-        return staging, materialize_working_copy(source_root, staging / "source")
+        return staging, materialize_working_copy(source_root, staging / "source",
+                                                 include_paths=frozenset(config.source_include), notice=progress)
     except BaseException:
         _remove_tree(staging)
         raise
@@ -143,12 +147,12 @@ def _prepare_locked(source_root: Path, config: ProjectConfig, workspace_root: Pa
     """프로젝트 잠금을 쥔 상태에서 식별 → 작업 사본 → (재사용 또는) 빌드를 한다. 흐름은 prepare_build 설명과 같다."""
     project_dir = workspace_root / "projects" / config.name
     builds_dir = project_dir / "builds"
-    staging, copy = _stage_working_copy(source_root, project_dir, progress)
+    staging, copy = _stage_working_copy(source_root, project_dir, config, progress)
     try:
         identity = capture_build_identity(source_root, config_digest=config_digest(config),
                                           source_manifest_digest=copy.manifest_digest, output_dir=staging,
                                           runner=runner, build_recipe=BUILD_RECIPE_VERSION,
-                                          xcode_version=xcode_version)
+                                          xcode_version=xcode_version, excluded_paths=copy.excluded_paths)
         build_id = identity.build_id()
         final, partial = builds_dir / build_id, builds_dir / f"{build_id}.partial"
         cached = _load_completed(final, identity, build_id)
@@ -170,7 +174,8 @@ def _finish_build(partial: Path, final: Path, build_id: str, identity: BuildIden
                   config: ProjectConfig, workspace_root: Path, runner: ToolRunner,
                   progress: Callable[[str], None]) -> PreparedBuild:
     """partial에서 빌드하고 기록 파일을 쓴 뒤 final로 rename한다. 실패하면 partial을 남기고 예외를 그대로 던진다."""
-    working_copy = WorkingCopy(partial / "source", copy.manifest_digest, copy.file_count, copy.total_bytes)
+    working_copy = WorkingCopy(partial / "source", copy.manifest_digest, copy.file_count, copy.total_bytes,
+                               copy.excluded_paths)
     products = _run_build_steps(partial, working_copy, config, workspace_root / "cache", runner, progress)
     (partial / "identity.json").write_text(json.dumps(identity.to_document(), ensure_ascii=False, indent=2),
                                            encoding="utf-8")
