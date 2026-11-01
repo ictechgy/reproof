@@ -281,16 +281,40 @@ def _open_config(path: Path) -> int:
         raise
 
 
+def _current_uid() -> int:
+    """현재 사용자의 uid. 테스트에서 다른 소유자 상황을 흉내 내려고 함수로 분리했다."""
+    return os.getuid()
+
+
+def _check_opened_config(path: Path, info: os.stat_result) -> None:
+    """연 설정 파일(fstat)이 일반 파일이고, 현재 사용자 소유이며, 하드 링크가 하나뿐인지 확인한다.
+
+    왜 연 파일로 보나: 경로 검사(lstat)와 여는 사이에 파일이 바뀌어도 실제로 읽을 파일을 기준으로 거절하려는 것이다.
+    하드 링크는 lstat로 구분되지 않아, 다른 사람이 쓸 수 있는 곳의 설정과 연결돼 있으면 그 내용을 따르게 된다.
+    주의: 일반 파일이 아니면 config_invalid, 소유자·하드 링크 문제는 config_untrusted.
+    """
+    if not stat.S_ISREG(info.st_mode):
+        raise _invalid(f"{path}은(는) 일반 파일이 아닙니다(장치·FIFO·폴더 등).",
+                       "reproof.toml을 일반 텍스트 파일로 만든 뒤 다시 실행하세요.")
+    if info.st_uid != _current_uid():
+        raise SimpleError("config_untrusted", f"{path}의 소유자가 현재 사용자가 아닙니다.",
+                          "내용을 확인한 뒤 `chown`으로 소유자를 바꾸거나, 본인 계정으로 `reproof app init --force`를 실행하세요.")
+    if info.st_nlink > 1:
+        raise SimpleError("config_untrusted",
+                          f"다른 파일과 하드 링크로 연결된 설정 파일은 쓰지 않습니다: {path}(링크 수 {info.st_nlink}).",
+                          "내용을 확인한 뒤 `cp`로 독립된 파일을 만들어 바꾸거나(`cp reproof.toml x && mv x reproof.toml`) "
+                          "`reproof app init --force`로 새로 만든 뒤 다시 실행하세요.")
+
+
 def read_config_bytes(path: Path) -> bytes:
-    """reproof.toml을 안전하게 읽는다: 링크 거절, 일반 파일만, MAX_CONFIG_BYTES(256 KiB) 이하.
+    """reproof.toml을 안전하게 읽는다: 링크 거절, 연 파일이 일반 파일·내 소유·하드 링크 1개, 256 KiB 이하.
 
     왜: 링크를 따라가면 다른 저장소가 내 다른 설정(리터럴 비밀 값 포함)을 가리키게 할 수 있고, FIFO·장치·거대한
-    파일은 읽다가 멈추거나 메모리를 채운다. 반환: 파일 바이트. 주의: 규칙을 어기면 SimpleError.
+    파일은 읽다가 멈추거나 메모리를 채운다. 검사한 디스크립터에서 그대로 읽는다. 반환: 파일 바이트.
+    주의: 규칙을 어기면 SimpleError(_check_opened_config 참고).
     """
     with os.fdopen(_open_config(path), "rb") as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise _invalid(f"{path}은(는) 일반 파일이 아닙니다(장치·FIFO·폴더 등).",
-                           "reproof.toml을 일반 텍스트 파일로 만든 뒤 다시 실행하세요.")
+        _check_opened_config(path, os.fstat(stream.fileno()))
         data = stream.read(MAX_CONFIG_BYTES + 1)
     if len(data) > MAX_CONFIG_BYTES:
         raise _invalid(f"{path}이(가) 설정 크기 상한({MAX_CONFIG_BYTES // 1024} KiB)을 넘습니다.",

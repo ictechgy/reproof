@@ -160,6 +160,30 @@ class SimpleConfigTests(unittest.TestCase):
             load_config(self.path)
         self.assertEqual(caught.exception.code, "config_invalid")
 
+    def test_hardlinked_config_is_untrusted(self):
+        """다른 파일과 하드 링크로 연결된 설정(st_nlink > 1)은 config_untrusted로 거절한다.
+
+        왜: 하드 링크는 lstat로 링크인지 알 수 없어, 남이 쓸 수 있는 위치의 다른 설정을 그대로 따르게 될 수 있다.
+        """
+        import os
+        real = self.path.with_name("other.toml")
+        real.write_text(render_config(sample_config()), encoding="utf-8")
+        os.link(real, self.path)
+        with self.assertRaises(SimpleError) as caught:
+            load_config(self.path)
+        self.assertEqual(caught.exception.code, "config_untrusted")
+        self.assertIn("하드 링크", caught.exception.cause)
+
+    def test_config_owned_by_another_user_is_untrusted_on_the_opened_file(self):
+        """연 파일(fstat)의 소유자가 현재 사용자가 아니면 config_untrusted(경로 검사와 여는 사이에 바뀌어도 막는다)."""
+        import os
+        from unittest import mock
+        self.path.write_text(render_config(sample_config()), encoding="utf-8")
+        with mock.patch("reproof.simple.config._current_uid", return_value=os.getuid() + 1):
+            with self.assertRaises(SimpleError) as caught:
+                load_config(self.path)
+        self.assertEqual(caught.exception.code, "config_untrusted")
+
     def test_oversized_config_is_refused(self):
         """256 KiB를 넘는 설정은 읽지 않고 config_invalid로 거절한다(실수로 지정한 큰 파일·장치로 메모리를 채우지 않게)."""
         self.path.write_text(render_config(sample_config()) + "#" * (256 * 1024), encoding="utf-8")
