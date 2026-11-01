@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from reproof.simple.errors import SimpleError  # noqa: E402  (저장소 루트를 경로에 넣은 뒤 가져온다)
+from reproof.simple.packages import redact_url  # noqa: E402
 
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 """pin 커밋 형식: 소문자 16진수 40자. 짧은 SHA·브랜치 이름은 시간이 지나면 다른 커밋을 가리킬 수 있어 받지 않는다."""
@@ -50,7 +51,8 @@ def load_pin(path: Path) -> Pin:
     """pin.json을 읽고 검증해 Pin으로 돌려준다. 읽기·JSON·형식 오류는 pin_invalid.
 
     왜 주소 형식을 제한하나: 값이 `-`로 시작하는 등 git 옵션으로 해석되는 입력이나 ext:: 같은 명령 실행 transport를
-    처음부터 막으려는 것이다.
+    처음부터 막으려는 것이다. 사용자 정보(user@, user:비밀번호@)도 거절한다: pin.json은 커밋되는 파일이라 토큰이
+    들어가면 안 되고, 거절 문구에도 주소를 싣지 않는다(판별은 로그 가리기와 같은 redact_url 규칙).
     """
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -59,6 +61,9 @@ def load_pin(path: Path) -> Pin:
     repository, commit = (document.get(key) if isinstance(document, dict) else None for key in ("repository", "commit"))
     if not isinstance(repository, str) or not repository.startswith(ALLOWED_SCHEMES):
         raise _invalid_pin(path, f"repository는 {', '.join(ALLOWED_SCHEMES)} 주소여야 합니다.")
+    if redact_url(repository) != repository:
+        raise _invalid_pin(path, "repository에 사용자 정보(user@ 또는 user:비밀번호@)를 넣을 수 없습니다. "
+                                 "인증이 필요하면 git 자격 증명 도우미나 SSH 에이전트를 쓰세요.")
     if not isinstance(commit, str) or not COMMIT_PATTERN.fullmatch(commit):
         raise _invalid_pin(path, "commit은 소문자 16진수 40자 SHA여야 합니다.")
     return Pin(repository, commit)
@@ -74,10 +79,22 @@ def refuse_existing(output: Path) -> None:
                           "다른 --output 경로를 지정하거나, 필요 없는 폴더임을 확인해 직접 지운 뒤 다시 실행하세요.")
 
 
+def _failure_reason(error: Exception) -> str:
+    """git 실패 이유를 짧게 만든다. 명령 argv(저장소 주소 포함)는 싣지 않는다.
+
+    왜: CalledProcessError의 기본 문구는 argv 전체를 담아, 주소에 섞인 자격 증명이 안내문에 그대로 나올 수 있다.
+    """
+    if isinstance(error, subprocess.CalledProcessError):
+        return f"종료 코드 {error.returncode}"
+    if isinstance(error, subprocess.TimeoutExpired):
+        return f"제한 시간 {GIT_TIMEOUT_SECONDS}초 초과"
+    return getattr(error, "strerror", None) or type(error).__name__
+
+
 def run_git(arguments: list[str], *, is_captured: bool = False) -> str:
     """git을 argv 목록으로 실행한다. is_captured면 stdout을 돌려주고, 아니면 진행 출력을 터미널에 그대로 보여 준다.
 
-    GIT_TERMINAL_PROMPT=0으로 인증 입력을 기다리며 멈추지 않게 한다. 실패·시간 초과는 git_failed.
+    GIT_TERMINAL_PROMPT=0으로 인증 입력을 기다리며 멈추지 않게 한다. 실패·시간 초과는 git_failed(argv 없이 단계·이유만).
     """
     environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
     subcommand = arguments[2] if arguments[0] == "-C" else arguments[0]
@@ -85,7 +102,7 @@ def run_git(arguments: list[str], *, is_captured: bool = False) -> str:
         result = subprocess.run(["git", *arguments], env=environment, timeout=GIT_TIMEOUT_SECONDS, check=True,
                                 stdout=subprocess.PIPE if is_captured else None, text=True)
     except (OSError, subprocess.SubprocessError) as error:
-        raise SimpleError("git_failed", f"git {subcommand} 실행이 실패했습니다: {error}",
+        raise SimpleError("git_failed", f"git {subcommand} 실행이 실패했습니다({_failure_reason(error)}).",
                           "위 git 출력에서 원인(네트워크, 저장소 주소, 커밋 존재 여부)을 확인한 뒤 다시 실행하세요.") from error
     return result.stdout or ""
 

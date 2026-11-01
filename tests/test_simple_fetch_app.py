@@ -51,10 +51,13 @@ class SimpleFetchAppTests(unittest.TestCase):
         self.tag_object = git("rev-parse", "v1", cwd=bare)
         self.output = self.tmp / "받은 앱" / "app"
 
-    def run_fetch(self, commit: str) -> subprocess.CompletedProcess:
-        """pin 파일을 쓰고 스크립트를 별도 프로세스로 실행해 결과(종료 코드·출력)를 돌려준다."""
+    def run_fetch(self, commit: str, repository: str | None = None) -> subprocess.CompletedProcess:
+        """pin 파일을 쓰고 스크립트를 별도 프로세스로 실행해 결과(종료 코드·출력)를 돌려준다.
+
+        repository를 주지 않으면 setUp의 로컬 bare 저장소를 쓴다.
+        """
         pin = self.tmp / "pin.json"
-        pin.write_text(json.dumps({"repository": self.repository, "commit": commit}), encoding="utf-8")
+        pin.write_text(json.dumps({"repository": repository or self.repository, "commit": commit}), encoding="utf-8")
         return subprocess.run([sys.executable, str(SCRIPT), "--pin", str(pin), "--output", str(self.output)],
                               env=GIT_ENVIRONMENT, capture_output=True, text=True, timeout=120)
 
@@ -92,6 +95,32 @@ class SimpleFetchAppTests(unittest.TestCase):
         self.assertIn(self.first_commit, result.stderr)
         self.assertFalse(self.output.exists(), "pin과 다른 소스가 받은 앱으로 남으면 안 됩니다.")
 
+
+    def test_refuses_repository_with_userinfo(self) -> None:
+        """저장소 주소에 사용자 정보(user@, user:비밀번호@)가 있으면 git을 실행하지 않고 거절하며 비밀 값을 출력하지 않는다.
+
+        왜: pin.json은 저장소에 커밋되는 파일이라 토큰이 들어가면 안 되고, 오류·로그에도 남기지 않으려는 것이다.
+        로컬 주소(file://)를 써서 네트워크에 나가지 않는다.
+        """
+        for repository in ("file://reproof:s3cret-token@localhost/no/app.git", "file://s3cret-user@localhost/no/app.git"):
+            result = self.run_fetch(self.first_commit, repository)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("문제:", result.stderr)
+            self.assertNotIn("s3cret", result.stderr + result.stdout)
+            self.assertFalse(self.output.exists())
+
+    def test_git_failure_message_omits_command_and_repository(self) -> None:
+        """git이 실패하면 안내문(문제: 줄)에 git argv·저장소 주소 대신 단계와 종료 코드만 싣는다."""
+        missing = (self.tmp / "없는 저장소.git").as_uri()
+        result = self.run_fetch(self.first_commit, missing)
+        self.assertEqual(result.returncode, 2)
+        problem = [line for line in result.stderr.splitlines() if line.startswith("문제:")]
+        self.assertEqual(len(problem), 1, result.stderr)
+        self.assertIn("git clone", problem[0])
+        self.assertIn("종료 코드", problem[0])
+        self.assertNotIn(missing, problem[0])
+        self.assertNotIn("--filter", problem[0])
+        self.assertFalse(self.output.exists())
 
 if __name__ == "__main__":
     unittest.main()
