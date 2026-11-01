@@ -78,6 +78,52 @@ class WorkingCopyTests(unittest.TestCase):
         self.assertEqual(os.readlink(dest / "deep" / "er" / "link.swift"), "../../a.swift")
         self.assertEqual(copy.manifest_digest, tree_digest(dest))
 
+    def test_file_swapped_for_symlink_after_lstat_is_not_followed(self):
+        """lstat 뒤 open 전에 파일이 밖을 가리키는 링크로 바뀌어도 그 대상을 읽지 않고 source_changed로 멈춘다."""
+        from unittest import mock
+        source, dest = self.tmp / "src", self.tmp / "dest"
+        write(source / "a.swift", "original")
+        write(self.tmp / "outside" / "secret.txt", "SECRET")
+        target, real_lstat, swapped = source / "a.swift", os.lstat, []
+        real_target = Path(os.path.realpath(target))
+
+        def swapping_lstat(path, *arguments, **options):
+            result = real_lstat(path, *arguments, **options)
+            if Path(path) == real_target and not swapped:
+                swapped.append(True)
+                os.unlink(target)
+                os.symlink(self.tmp / "outside" / "secret.txt", target)
+            return result
+
+        with mock.patch("reproof.simple.workcopy.os.lstat", side_effect=swapping_lstat):
+            with self.assertRaises(SimpleError) as caught:
+                materialize_working_copy(source, dest)
+        self.assertEqual(caught.exception.code, "source_changed")
+        self.assertFalse(dest.exists())
+
+    def test_make_tree_writable_refuses_symlink_root(self):
+        """정리 대상 루트가 링크면 링크 너머 폴더의 권한을 바꾸지 않고 거절한다."""
+        from reproof.simple.workcopy import _make_tree_writable
+        victim = self.tmp / "victim" / "locked"
+        victim.mkdir(parents=True)
+        victim.chmod(0o500)
+        self._make_removable_on_cleanup(self.tmp / "victim")
+        os.symlink(self.tmp / "victim", self.tmp / "link")
+        with self.assertRaises(SimpleError) as caught:
+            _make_tree_writable(self.tmp / "link")
+        self.assertEqual(caught.exception.code, "workspace_symlink")
+        self.assertEqual(victim.stat().st_mode & 0o777, 0o500)
+
+    def test_setuid_setgid_and_sticky_bits_are_not_copied(self):
+        """복사한 파일·폴더에는 setuid·setgid·sticky 비트를 남기지 않는다(실행 비트는 그대로)."""
+        source, dest = self.tmp / "src", self.tmp / "dest"
+        write(source / "tool", "#!/bin/sh\n", 0o4755)
+        (source / "shared").mkdir()
+        (source / "shared").chmod(0o1777)
+        materialize_working_copy(source, dest)
+        self.assertEqual((dest / "tool").stat().st_mode & 0o7777, 0o755)
+        self.assertEqual((dest / "shared").stat().st_mode & 0o7777, 0o777)
+
     def test_file_count_limit_reports_limit_and_remedy(self):
         source, dest = self.tmp / "src", self.tmp / "dest"
         for name in "abc":

@@ -4,6 +4,8 @@
 에셋·스크립트가 섞여 있으므로 빌드·VCS 부산물만 빼고 전부 복사하며, 실행 권한을 보존하고,
 복사본이 원본과 같은지 확인할 수 있는 안정적인 digest를 남긴다.
 """
+import contextlib
+import errno
 import hashlib
 import os
 import shutil
@@ -14,6 +16,8 @@ from pathlib import Path
 from reproof.simple.errors import SimpleError
 
 CHUNK_BYTES = 1024 * 1024
+_PERMISSION_BITS = 0o777
+"""사본에 옮기는 권한 비트(rwx). setuid·setgid·sticky는 옮기지 않는다."""
 
 # 어느 깊이에서든 제외하는 이름. 빌드 산출물·VCS·사용자별 Xcode 상태라 소스가 아니다.
 EXCLUDED_NAMES = frozenset({".git", "DerivedData", ".build", "xcuserdata", ".reproof"})
@@ -143,27 +147,65 @@ def _reject_special_file(path: Path, root: Path) -> None:
     )
 
 
-def _copy_file(source_file: Path, destination_file: Path | None, max_file_bytes: int | None) -> tuple[str, int]:
+_READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+"""원본 파일을 여는 플래그. 링크는 따라가지 않고(ELOOP), 그 사이 FIFO로 바뀌었어도 쓰는 쪽을 기다리며 멈추지 않는다."""
+
+_WRITE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+"""사본 파일을 만드는 플래그. 이미 있는 파일·링크에는 쓰지 않는다."""
+
+
+def _source_changed_error(source_file: Path) -> SimpleError:
+    """복사 도중 원본 항목이 바뀌었음(링크·다른 파일로 교체)을 알리는 source_changed 오류를 만든다."""
+    return SimpleError("source_changed", f"복사하는 동안 '{source_file}'가 다른 파일이나 링크로 바뀌었습니다.",
+                       "파일을 바꾸는 작업(빌드·동기화·git checkout 등)이 끝난 뒤 다시 실행하세요.")
+
+
+def _open_unchanged(source_file: Path, expected: os.stat_result) -> int:
+    """링크를 따라가지 않고 열어, lstat 때와 같은 일반 파일(같은 장치·inode)인지 확인한 디스크립터를 돌려준다.
+
+    왜: lstat로 일반 파일임을 본 뒤 open 전에 링크로 바뀌면, 그대로 열 경우 소스 밖 파일이 사본에 들어간다.
+    주의: 바뀌었으면 source_changed. 그 밖의 OSError(권한 등)는 그대로 던진다.
+    """
+    try:
+        descriptor = os.open(source_file, _READ_FLAGS)
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise _source_changed_error(source_file) from error
+        raise
+    opened = os.fstat(descriptor)
+    if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (expected.st_dev, expected.st_ino):
+        os.close(descriptor)
+        raise _source_changed_error(source_file)
+    return descriptor
+
+
+def _open_sink(destination_file: Path | None):
+    """사본 파일을 새로(0600) 만들어 쓰기용으로 연다. destination_file이 없으면 아무것도 하지 않는 context를 준다."""
+    if destination_file is None:
+        return contextlib.nullcontext(None)
+    return os.fdopen(os.open(destination_file, _WRITE_FLAGS, 0o600), "wb")
+
+
+def _copy_file(source_file: Path, expected: os.stat_result, destination_file: Path | None,
+               max_file_bytes: int | None) -> tuple[str, int]:
     """파일을 1 MiB씩 읽으며 sha256을 계산하고, destination_file이 있으면 함께 쓴다.
 
+    expected: 순회 때의 lstat 결과. 연 파일이 이것과 다르면 source_changed(_open_unchanged 참고).
+    사본 권한은 원본의 rwx 비트만 옮긴다(setuid·setgid·sticky는 버린다). 왜: 작업 사본은 빌드 재료일 뿐이라
+    특수 권한 비트가 필요 없고, 남기면 사본의 실행 파일이 다른 권한으로 실행될 여지가 생긴다.
     반환: (hex digest, 바이트 수). 크기 상한은 읽는 도중에도 검사해 stat 이후 커진 파일도 막는다.
     """
     hasher, size = hashlib.sha256(), 0
-    sink = open(destination_file, "wb") if destination_file else None
-    try:
-        with open(source_file, "rb") as reader:
-            while chunk := reader.read(CHUNK_BYTES):
-                size += len(chunk)
-                if max_file_bytes is not None:
-                    _check_limit(f"파일 '{source_file.name}'의 크기", size, max_file_bytes, " 바이트")
-                hasher.update(chunk)
-                if sink:
-                    sink.write(chunk)
-    finally:
+    with os.fdopen(_open_unchanged(source_file, expected), "rb") as reader, _open_sink(destination_file) as sink:
+        while chunk := reader.read(CHUNK_BYTES):
+            size += len(chunk)
+            if max_file_bytes is not None:
+                _check_limit(f"파일 '{source_file.name}'의 크기", size, max_file_bytes, " 바이트")
+            hasher.update(chunk)
+            if sink:
+                sink.write(chunk)
         if sink:
-            sink.close()
-    if destination_file:
-        shutil.copymode(source_file, destination_file)
+            os.fchmod(sink.fileno(), stat.S_IMODE(expected.st_mode) & _PERMISSION_BITS)
     return hasher.hexdigest(), size
 
 
@@ -188,17 +230,18 @@ def _visit(entry: os.DirEntry, child_target: Path | None, root: Path, manifest: 
            source_root: Path, stack: list) -> None:
     """항목 하나(디렉터리·링크·일반 파일·특수 파일)를 종류별로 처리한다."""
     path, relative = Path(entry.path), os.path.relpath(entry.path, root)
-    mode = os.lstat(path).st_mode
+    info = os.lstat(path)
+    mode = info.st_mode
     if stat.S_ISDIR(mode):
         manifest.add(relative, "dir", 0, "")
         if child_target:
             child_target.mkdir()
-            manifest.directory_modes.append((child_target, stat.S_IMODE(mode)))
+            manifest.directory_modes.append((child_target, stat.S_IMODE(mode) & _PERMISSION_BITS))
         stack.append((path, child_target))
     elif stat.S_ISLNK(mode):
         _visit_link(path, relative, child_target, manifest, source_root)
     elif stat.S_ISREG(mode):
-        _visit_regular_file(path, relative, mode, child_target, manifest)
+        _visit_regular_file(path, relative, info, child_target, manifest)
     else:
         _reject_special_file(path, root)
 
@@ -215,13 +258,14 @@ def _visit_link(path: Path, relative: str, child_target: Path | None, manifest: 
     manifest.count_file(0)
 
 
-def _visit_regular_file(path: Path, relative: str, mode: int, child_target: Path | None, manifest: _Manifest) -> None:
-    """일반 파일의 크기 상한을 검사하고 복사·해시한 뒤 매니페스트에 기록한다."""
+def _visit_regular_file(path: Path, relative: str, info: os.stat_result, child_target: Path | None,
+                        manifest: _Manifest) -> None:
+    """일반 파일의 크기 상한을 검사하고 복사·해시한 뒤 매니페스트에 기록한다. info: 순회 때의 lstat 결과."""
     max_file = manifest.limits.max_file_bytes if manifest.limits else None
     if max_file is not None:
-        _check_limit(f"파일 '{relative}'의 크기", os.lstat(path).st_size, max_file, " 바이트")
-    content_hash, size = _copy_file(path, child_target, max_file)
-    manifest.add(relative, "file", mode & 0o111, content_hash)
+        _check_limit(f"파일 '{relative}'의 크기", info.st_size, max_file, " 바이트")
+    content_hash, size = _copy_file(path, info, child_target, max_file)
+    manifest.add(relative, "file", info.st_mode & 0o111, content_hash)
     manifest.count_file(size)
 
 
@@ -237,7 +281,7 @@ def materialize_working_copy(source: Path, destination: Path, limits: CopyLimits
     manifest = _Manifest(limits, is_copy=True)
     manifest.copy_root = destination
     destination.mkdir(parents=True)
-    manifest.directory_modes.append((destination, stat.S_IMODE(os.stat(source_root).st_mode)))
+    manifest.directory_modes.append((destination, stat.S_IMODE(os.stat(source_root).st_mode) & _PERMISSION_BITS))
     try:
         _walk(source_root, destination, source_root, manifest, source_root)
         _verify_links_inside_copy(manifest.links, destination)
@@ -259,7 +303,15 @@ def _apply_directory_modes(directory_modes: list[tuple[Path, int]]) -> None:
 
 
 def _make_tree_writable(root: Path) -> None:
-    """삭제가 가능하도록 root 아래 모든 디렉터리에 u+rwx를 복구한다(링크는 따라가지 않는다)."""
+    """삭제가 가능하도록 root 아래 모든 디렉터리에 u+rwx를 복구한다(링크는 따라가지 않는다).
+
+    주의: root 자체가 링크면 workspace_symlink로 거절한다. 왜: 링크를 따라 chmod하면 작업 공간 밖 폴더 전체의
+    권한이 바뀌고, 이어지는 삭제가 링크 너머를 지울 수 있기 때문이다.
+    """
+    if stat.S_ISLNK(os.lstat(root).st_mode):
+        raise SimpleError("workspace_symlink",
+                          f"지우려던 '{root}'가 심볼릭 링크입니다. 링크가 가리키는 폴더는 건드리지 않았습니다.",
+                          "링크가 가리키는 곳을 확인한 뒤 링크만 직접 지우고(rm) 다시 실행하세요.")
     stack = [root]
     while stack:
         directory = stack.pop()
@@ -277,7 +329,7 @@ def _discard_partial_copy(destination: Path, original: BaseException) -> None:
     try:
         _make_tree_writable(destination)
         shutil.rmtree(destination)
-    except OSError as cleanup_error:
+    except (OSError, SimpleError) as cleanup_error:
         message = f"실패한 작업 사본 '{destination}'를 정리하지 못했습니다({cleanup_error}). 직접 삭제한 뒤 다시 실행하세요."
         original.add_note(message)
         if isinstance(original, SimpleError):
