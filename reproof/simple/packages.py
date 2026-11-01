@@ -6,7 +6,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
-from urllib.parse import urlsplit, urlunsplit
 
 from .config import ProjectConfig, config_digest
 from .errors import SimpleError, ToolFailure
@@ -26,6 +25,7 @@ _LOG_SCAN_BYTES = 64 * 1024
 
 # 실패 문구에서 저장소 주소를 찾는 패턴: 스킴 URL 먼저, 없으면 scp 형식(git@host:org/repo).
 _SCHEME_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"<>]+")
+_USERINFO_PATTERN = re.compile(r"(://)[^\s'\"]*@")
 _SCP_URL = re.compile(r"[\w.-]+@[\w.-]+:[\w./~-]+")
 
 
@@ -89,19 +89,12 @@ def resolve_packages(working_copy: Path, config: ProjectConfig, *, cache_root: P
 
 
 def redact_url(url: str) -> str:
-    """URL의 userinfo(사용자:비밀번호, 토큰)를 지운다. scp 형식(git@host:path)과 URL이 아닌 글은 그대로 둔다.
+    """'://' 뒤부터 같은 토큰의 마지막 '@'까지를 지운다. scp 형식(git@host:path)과 URL이 아닌 글은 그대로 둔다.
 
-    왜: 오류 문구와 로그에 토큰이 남지 않게 하려는 것이다. 파싱에 실패하는 입력은 원문 유출을 피해 그대로 두지 않고 userinfo 패턴만 지운다.
+    왜 urlsplit을 쓰지 않는가: 비밀번호·토큰에 `/`, `?`, `#`가 있으면 urlsplit이 netloc을 일찍 끊어
+    자격 증명이 그대로 남기 때문이다. 공백·따옴표 전까지 가장 긴 구간(마지막 '@')을 지워 안전 쪽으로 기운다.
     """
-    if "://" not in url:
-        return url
-    try:
-        parts = urlsplit(url)
-    except ValueError:
-        return re.sub(r"(://)[^/@\s]*@", r"\1", url)
-    if "@" not in parts.netloc:
-        return url
-    return urlunsplit(parts._replace(netloc=parts.netloc.rsplit("@", 1)[1]))
+    return _USERINFO_PATTERN.sub(r"\1", url)
 
 
 def _failure_text(failure: ToolFailure) -> str:

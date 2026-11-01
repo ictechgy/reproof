@@ -99,6 +99,22 @@ class SimplePackagesTests(unittest.TestCase):
         self.assertEqual(redact_url("git@github.com:org/a.git"), "git@github.com:org/a.git")
         self.assertEqual(redact_url("not a url"), "not a url")
 
+    def test_redact_url_handles_special_characters_in_userinfo(self):
+        for leaky in ("https://user:pa/ss@host.com/x.git", "https://tok?en@host.com/x.git",
+                      "https://tok#en@host.com/x.git"):
+            self.assertEqual(redact_url(leaky), "https://host.com/x.git")
+
+    def test_token_only_in_log_file_is_redacted_in_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "a.log"
+            log.write_text("fatal: Authentication failed for 'https://bot:t0k/en#x@git.corp/x/Kit.git'\n",
+                           encoding="utf-8")
+            error = classify_package_failure(ToolFailure("xcodebuild", log_path=log, output_tail=""))
+            self.assertEqual(error.code, "package_auth_failed")
+            self.assertIn("https://git.corp/x/Kit.git", error.user_message())
+            for secret in ("t0k", "en#x", "bot:"):
+                self.assertNotIn(secret, error.user_message())
+
     def test_missing_generator_tool_reports_install_command(self):
         with mock.patch("reproof.simple.generation.shutil.which", return_value=None):
             self.assertIsNone(generator_tool_path("xcodegen"))
