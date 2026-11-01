@@ -6,7 +6,7 @@ import json
 import re
 import tomllib
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from reproof.simple.errors import SimpleError
@@ -145,8 +145,45 @@ def _env_reference_name(key: str, value: str) -> str | None:
     return name
 
 
+CONTAINER_SUFFIXES = (".xcodeproj", ".xcworkspace")
+"""project.container가 끝나야 하는 확장자."""
+
+SPEC_SUFFIXES = {"xcodegen": (".yml", ".yaml"), "tuist": (".swift",)}
+"""생성기별 project.generator_spec 확장자."""
+
+_REQUIRED_NAMES = ("scheme", "app_target", "bundle_id")
+
+
+def _check_inside_copy(value: str, label: str, suffixes: tuple[str, ...], example: str) -> None:
+    """value가 작업 사본 안을 가리키는(빈 값·절대 경로·'..'가 아닌) 상대 POSIX 경로이고 suffixes로 끝나는지 확인한다.
+
+    왜: 빌드·패키지 해석·생성은 작업 사본 기준 상대 경로로 돈다. 바깥을 가리키면 원본 저장소나 다른 폴더의
+    프로젝트를 빌드·생성하게 되어, 원본을 건드리지 않는다는 약속이 깨진다.
+    """
+    path = PurePosixPath(value)
+    if not value.strip() or path.is_absolute() or ".." in path.parts:
+        raise _invalid(f"reproof.toml의 {label} '{value}'은(는) 저장소 안의 상대 경로여야 합니다(빈 값·절대 경로·'..' 불가).",
+                       f"저장소 루트 기준 경로로 고치세요. 예: {example}")
+    if not value.endswith(suffixes):
+        raise _invalid(f"reproof.toml의 {label} '{value}'은(는) {' 또는 '.join(suffixes)}로 끝나야 합니다.",
+                       f"올바른 파일 경로로 고치세요. 예: {example}")
+
+
+def _validate_project_paths(config: ProjectConfig) -> None:
+    """container·generator_spec 경로와 scheme·app_target·bundle_id 빈 값 여부를 검사한다."""
+    _check_inside_copy(config.container, "project.container", CONTAINER_SUFFIXES, 'container = "App.xcodeproj"')
+    if config.generator_spec is not None:
+        _check_inside_copy(config.generator_spec, "project.generator_spec", SPEC_SUFFIXES[config.generator],
+                           'generator_spec = "project.yml"' if config.generator == "xcodegen"
+                           else 'generator_spec = "Project.swift"')
+    for field in _REQUIRED_NAMES:
+        if not getattr(config, field).strip():
+            raise _invalid(f"reproof.toml의 project.{field}이(가) 비어 있습니다.",
+                           f"project.{field} 값을 채우거나 `reproof app init --force`로 설정을 다시 만드세요.")
+
+
 def _validate_project(config: ProjectConfig) -> None:
-    """이름 규칙, 생성기 값, 생성기-스펙 조합 등 값 자체의 규칙을 검사한다."""
+    """이름 규칙, 생성기 값, 생성기-스펙 조합, 경로·필수 이름 등 값 자체의 규칙을 검사한다."""
     if not NAME_PATTERN.fullmatch(config.name):
         raise _invalid(f"name '{config.name}'은(는) 소문자·숫자·하이픈만 쓸 수 있고 40자 이하여야 합니다.",
                        "예: name = \"my-app\" 처럼 고치세요.")
@@ -156,6 +193,7 @@ def _validate_project(config: ProjectConfig) -> None:
     if config.generator == "none" and config.generator_spec is not None:
         raise _invalid("project.generator_spec은 generator가 none이면 쓸 수 없습니다.",
                        "generator_spec 줄을 지우거나 generator를 xcodegen/tuist로 바꾸세요.")
+    _validate_project_paths(config)
     if config.build_timeout_seconds <= 0:
         raise _invalid("build.timeout_seconds는 1 이상이어야 합니다.")
     for key, value in config.launch_environment:

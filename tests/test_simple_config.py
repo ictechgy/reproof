@@ -78,6 +78,61 @@ class SimpleConfigTests(unittest.TestCase):
         text = render_config(sample_config()).replace("timeout_seconds = 3600", 'timeout_seconds = "x"')
         self.assert_invalid(text, "timeout_seconds")
 
+    def write_with(self, **changes):
+        """sample_config에서 일부 값만 바꿔 쓴 뒤 읽어 결과(설정 또는 SimpleError)를 돌려준다."""
+        self.path.write_text(render_config(replace(sample_config(), **changes)), encoding="utf-8")
+        try:
+            return load_config(self.path)
+        except SimpleError as error:
+            return error
+
+    def assert_rejected(self, key, **changes):
+        """changes로 쓴 설정이 config_invalid로 거절되고 안내문에 key가 나오는지 확인한다."""
+        result = self.write_with(**changes)
+        self.assertIsInstance(result, SimpleError, f"{changes}가 통과하면 안 됩니다.")
+        self.assertEqual(result.code, "config_invalid")
+        self.assertIn(key, result.user_message())
+
+    def test_container_outside_working_copy_is_rejected(self):
+        """container가 상위 폴더·절대 경로·빈 값이면 거절한다(원본 저장소를 빌드하지 않게).
+
+        왜: 빌드·패키지 해석·생성은 작업 사본 기준 상대 경로로 돈다. `..`나 절대 경로는 원본 저장소나 다른 폴더를 가리킨다.
+        """
+        for container in ("../../Outside.xcodeproj", "/etc/Abs.xcodeproj", "App/../../Out.xcworkspace", "", "  "):
+            with self.subTest(container=container):
+                self.assert_rejected("project.container", container=container)
+
+    def test_container_must_be_xcodeproj_or_xcworkspace(self):
+        """container 확장자는 .xcodeproj나 .xcworkspace여야 한다."""
+        for container in ("App", "App.xcodeprojx", "App.xcodeproj/", "Package.swift"):
+            with self.subTest(container=container):
+                self.assert_rejected("project.container", container=container)
+
+    def test_container_in_subfolder_is_accepted(self):
+        """작업 사본 안의 하위 폴더 경로는 그대로 받는다."""
+        self.assertEqual(self.write_with(container="Apps/회사 앱.xcworkspace").container, "Apps/회사 앱.xcworkspace")
+
+    def test_generator_spec_outside_working_copy_is_rejected(self):
+        """generator_spec이 상위 폴더·절대 경로·빈 값이면 거절한다."""
+        for spec in ("../../../tmp/project.yml", "/abs/project.yml", "Specs/../../project.yml", ""):
+            with self.subTest(spec=spec):
+                self.assert_rejected("project.generator_spec", generator_spec=spec)
+
+    def test_generator_spec_extension_follows_generator(self):
+        """xcodegen 스펙은 .yml/.yaml, tuist 스펙은 .swift여야 한다."""
+        self.assertEqual(self.write_with(generator_spec="Specs/app.yaml").generator_spec, "Specs/app.yaml")
+        self.assert_rejected("project.generator_spec", generator_spec="project.swift")
+        self.assert_rejected("project.generator_spec", generator="tuist", generator_spec="project.yml")
+        self.assertEqual(self.write_with(generator="tuist", generator_spec="Project.swift").generator_spec,
+                         "Project.swift")
+
+    def test_empty_scheme_target_or_bundle_id_is_rejected(self):
+        """scheme·app_target·bundle_id가 비었거나 공백뿐이면 그 키 이름과 함께 거절한다."""
+        for field in ("scheme", "app_target", "bundle_id"):
+            for value in ("", "   "):
+                with self.subTest(field=field, value=value):
+                    self.assert_rejected(f"project.{field}", **{field: value})
+
     def test_container_kind_follows_extension(self):
         """container 확장자로 workspace/project를 정한다."""
         self.assertEqual(sample_config().container_kind, "project")
