@@ -25,3 +25,26 @@ class FakeToolRunner:
                     raise response
                 return response
         raise AssertionError(f"일치하는 응답이 없습니다: {argv}")
+
+
+def sample_config():
+    """MixedShop 예제와 같은 유효한 ProjectConfig를 만든다.
+
+    왜: 설정 관련 테스트들이 같은 기준 값을 쓰고, 필요한 필드만 replace로 바꾸게 하려는 것이다.
+    반환: 모든 선택 필드가 채워진 ProjectConfig.
+    """
+    from reproof.simple.config import ProjectConfig, SimulatorSettings
+
+    return ProjectConfig(
+        name="mixedshop",
+        container="MixedShop.xcodeproj",
+        generator="xcodegen",
+        generator_spec="project.yml",
+        scheme="MixedShop",
+        app_target="MixedShop",
+        bundle_id="io.reproof.example.mixedshop",
+        test_scheme="MixedShopTests",
+        simulator=SimulatorSettings(device_type="iPhone 16", runtime="latest"),
+        launch_arguments=("-AppleLanguages", "(ko)"),
+        launch_environment=(("API_TOKEN", "env:REPROOF_API_TOKEN"),),
+    )
