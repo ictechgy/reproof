@@ -6,6 +6,12 @@
 
 이 폴더의 코드는 버림용이라 테스트가 없고, 배포 패키지(`reproof*`)에 들어가지 않는다.
 
+> **주의: Release 제외는 빌드·확인하지 않았다.** `apply.py`가 사본 `project.yml`의 Release 구성에
+> `EXCLUDED_SOURCE_FILE_NAMES`를 넣고 두 파일 안에 `#if DEBUG`도 두지만, Release 구성은 빌드하지 않는다는 작업 규칙에 따라
+> Release 빌드에 프로브가 정말 빠지는지는 한 번도 확인하지 않았다. 확인한 것은 Debug 빌드에 프로브 클래스가 들어갔다는
+> 것뿐이다(`measure.py build`). 이 프로브는 비공개 API(`_AXSSetAutomationEnabled`)와 sendEvent 교체를 쓰므로, 이 방식을
+> 실제 앱에 옮길 때는 Release 산출물에 없다는 것을 따로 검증해야 한다.
+
 ## 파일
 
 | 파일 | 역할 |

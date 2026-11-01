@@ -222,6 +222,27 @@ MixedShop 사본에 적용한 변경(`spikes/locator-coverage/edits.py`, 대상:
 4. 일치한 20건은 앱 안 `accessibilityFrame`이 실행기 계층 frame과 같았다(네 값의 최대 차 0). 순수 SwiftUI 요약 화면은
    가장자리 탭 8개를 포함해 12/12였다. 좌표를 포함하는 같은 깊이의 접근성 요소가 둘 이상인 경우는 없었다.
 5. 앱 안 해석 시간은 터치 하나에 중앙값 약 1 ms, 최대 18.1 ms(활성화 selfcheck에서 화면별 첫 질의)였다.
+6. **탭 30개는 스트레스 세트다.** 구조가 까다로운 요소(List 행 Text 5, TextField 3, Toggle 스위치 부분 2, 가장자리 15)에
+   무게를 두었으므로 66.7%는 실제 녹화에서 기대할 비율이 아니다. 다만 기본 조건(XCUITest 없음)이 0/30이라 결정은 이 비율과
+   상관없이 같다.
+
+### 계획 2 지침
+
+변환 실행의 전제:
+
+- 녹화(원본 실행)는 터치의 좌표·시각만 그대로 기록하고, 요소는 나중에 변환 실행에서 XCUITest로 그 좌표를 조회해 정한다.
+  녹화 순간에는 locator가 없다.
+- 변환 실행은 녹화와 같은 시작 조건이어야 한다: 매번 초기화한 `reproof-` 전용 Simulator에 새로 설치, 녹화와 같은 launch
+  인자·환경 변수·로케일, 고정된 콘텐츠(고정 응답·시드 데이터 등).
+
+알려진 한계:
+
+- 네트워크 콘텐츠에 기대는 화면은 실행마다 내용이 달라 "같은 화면"이라는 전제가 깨진다(S1: 온보딩 관심사 화면은 두
+  실행에서 같은 문서 0개, 홈 피드는 요소 수 73개·157개). 이런 화면의 단계는 변환할 수 없거나 "확인 필요"로 남긴다.
+- 앱이 idle이 되지 않는 화면에서는 XCUITest가 탭 하나에 최대 약 2분을 기다린다(S1 발견 1: Wikipedia 홈 이후 탭 4번이
+  61–121초). 변환 실행 시간과 명령 제한 시간을 따로 정해야 한다.
+- 녹화 때 앱 안에서 label·frame도 남기려면 접근성 활성화가 필요하다. `_AXSSetAutomationEnabled(1)`은 iOS 27.0
+  Simulator에서만 확인했고(물리 iPhone 미검증), 비공개 API라 Debug 빌드에만 둔다.
 
 ### 결과: 탭별 (활성화 taps)
 
@@ -347,19 +368,23 @@ B는 측정 전에 정한 참고값이고 판정에 쓰지 않는다. B로 판�
 adjustable이라 하나로 정해지지 않는다(이번 화면에는 없음). header trait만 있는 요소(내비게이션 제목 `UILabel` `옵션`)는
 other가 되지만 실행기 계층에서는 staticText다(이번 탭 30개에는 없음). 비공개 비트 이름은 공개 문서에 없어 추정이다.
 
-### 발견 (계획 2에서 다룰 것, 이번에는 툴을 고치지 않음)
+### 발견 (계획 2에서 다룰 것. 3번만 이번에 고침)
 
 1. **직접 터치(실행기 없음)에서는 앱 안 접근성 트리가 기본으로 비어 있다.** SwiftUI든 UIKit이든 `isAccessibilityElement`가
    모두 false였다. 변환 실행을 쓰더라도 녹화 때 앱 안에서 label·trait을 함께 남기려면 활성화가 필요하다. iOS 27.0
    Simulator에서는 `_AXSSetAutomationEnabled(1)`로 됐다(비공개 API, Debug 전용). 물리 iPhone에서 되는지는 재지 않았다.
 2. **권고(추정, 측정 안 함): 앱 안 기록을 변환 실행의 대조 근거로 쓴다.** 접근성을 켜면 앱 안 기록은 A로 20/30(요약 화면
-   12/12)에서 실행기 계층과 같은 (종류, label, frame)을, B로는 28/30에서 같은 (종류, label)을 줬다. 변환 실행이 "원본 화면과 다르게 흘러갔는지" 판단할 때, 녹화
-   때 앱 안에서 본 label·frame과 변환 실행에서 XCUITest가 찾은 요소를 비교하는 방법이 있다.
-3. **iOS 27 탭 바에서 `element_at`이 탭 버튼 대신 장식용 `other`를 고른다.** 화면 이동 탭 2개(UIKit 탭 버튼 `요약`,
+   12/12)에서 실행기 계층과 같은 (종류, label, frame)을, B로는 28/30에서 같은 (종류, label)을 줬다. 변환 실행이
+   "원본 화면과 다르게 흘러갔는지" 판단할 때, 녹화 때 앱 안에서 본 label·frame과 변환 실행에서 XCUITest가 찾은 요소를
+   비교하는 방법이 있다.
+3. **iOS 27 탭 바에서 `element_at`이 탭 버튼 대신 장식용 `other`를 골랐다(`46a3031`에서 고침).** 화면 이동 탭 2개(UIKit 탭 버튼 `요약`,
    `장바구니`)에서 `element_at`은 `other ''`를 돌려줬다. 실행기 계층에서 탭 버튼(깊이 11)보다 깊은 label 없는 `other`
    (깊이 12·15, 같은 영역)가 있기 때문이다. 앱 안 프로브는 `_UITabButton` `요약`(button)을 찾았다. 측정 30개 밖(UIKit)이라
-   일치율에는 넣지 않았다. `inspect --point`와 녹화의 요소 고르기에 영향이 있으므로, 계획 2에서 "더 깊은 label 없는
-   other보다 interactive 요소 우선" 같은 규칙을 정해야 한다.
+   일치율에는 넣지 않았다. `inspect --point`와 녹화의 요소 고르기에 영향이 있어, 가장 깊은 요소가 장식용(비interactive,
+   label·identifier·value가 모두 빔)이면 좌표를 포함하는 가장 깊은 interactive를 먼저 고르도록 고쳤다(픽스처
+   `tests/fixtures/simple/hierarchy-tabbar-ios27.json`, 테스트 4개). S1·S2에 저장된 계층 105개의 모든 요소 중심 8,583곳에서
+   전후를 비교하면 바뀐 2,516곳은 모두 장식용 요소에서 그 좌표를 포함하는 interactive(탭 버튼, 키보드 추천 막대 버튼,
+   Wikipedia 탭·온보딩 버튼, 셀)로 바뀐 경우였고, S2 측정 30개의 정답은 바뀌지 않았다.
 4. **SwiftUI Toggle의 스위치 부분을 누르면 `element_at`이 label 없는 안쪽 `switch`를 고른다.** 그러면 녹화 locator가 빈
    label 근거가 된다(S1 지침의 "확인 필요"). 같은 Toggle의 행을 누르면 label 있는 바깥 `switch '선물 포장'`이다. 계획
    2에서 두 switch를 하나로 볼지 정해야 한다.
@@ -371,7 +396,7 @@ other가 되지만 실행기 계층에서는 staticText다(이번 탭 30개에�
 ### 이 spike가 남긴 것
 
 커밋: `spikes/inapp-touch/`(`TouchProbe.swift`, `TouchProbeBootstrap.m`, `apply.py`, `measure.py`, README), 이 절, 설계 문서
-7장 spike 2의 잠정 결정. 툴 코드는 바꾸지 않았다.
+7장 spike 2의 잠정 결정. 툴 수정은 `element_at` 하나다(`46a3031`, 위 발견 3).
 
 이 Mac에 남은 것: `~/.reproof/spikes/s2/`(약 464 MB: 프로브를 넣은 사본 소스, 빌드 3개, run 4개의 JSONL·탭 직전 계층·세션
 로그, `report.md`(전체 탭별 표), `details.json`). 세션 폴더는 모두 정상 종료로 지워졌다. Simulator `reproof-mixedshop`은
