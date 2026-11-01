@@ -5,6 +5,7 @@ import io
 import os
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -66,9 +67,10 @@ class SimpleProcessTests(unittest.TestCase):
 
     def test_failure_cause_output_is_limited_to_300_characters(self):
         """아주 긴 출력도 원인에는 300자까지만 싣는지 본다(안내문 도배 방지)."""
-        failure = self.run_failing("printf 'x%.0s' $(seq 1 1000) >&2; exit 1")
-        self.assertIn("xxx", failure.cause)
-        self.assertLessEqual(failure.cause.count("x"), 300)
+        failure = self.run_failing("printf 'word %.0s' $(seq 1 1000) >&2; exit 1")
+        summary = failure.cause.split("마지막 출력: ", 1)[1]
+        self.assertIn("word word", summary)
+        self.assertLessEqual(len(summary), 300)
 
     def test_timeout_is_reported_with_limit_and_distinct_remedy(self):
         """시간 초과는 종료 코드 실패와 구분해 "시간 제한 N초"로 알리고, timeout_seconds에 제한 값을 남기는지 본다."""
@@ -161,6 +163,17 @@ class ToolOutputMaskingTests(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertEqual(summarize_tool_output(line), line)
         self.assertEqual(summarize_tool_output(lines[4]), "~/.reproof/projects/my-app/builds/***/logs")
+
+    def test_adversarial_long_input_is_processed_quickly(self):
+        """긴 적대적 입력도 1초 안에 처리하는지 본다(ReDoS 회귀 방지, 보안 검토 지시).
+
+        왜 이 입력들인가: 소문자 연속 뒤에 실패하는 꼬리(숫자)가 오는 조각은 예전 낱말 정규식에서 지수 시간
+        역추적을 일으켰다. 첫 조각에 두어 낱말 검사가 반드시 그 조각부터 보게 한다. 하나라도 1초를 넘으면 바로 멈춘다.
+        """
+        for line in ("a" * 50000 + "!", "a" * 27 + "1/src", "a" * 250 + "1/src", "a" * 50000 + "1/src"):
+            started = time.perf_counter()
+            summarize_tool_output(line)
+            self.assertLess(time.perf_counter() - started, 1.0, f"{len(line)}자 입력: {line[-8:]!r}")
 
     def test_host_runner_summary_masks_secrets_end_to_end(self):
         """실제 실행 실패의 안내문에서도 토큰이 가려지는지 본다(URL 사용자 정보 가리기와 함께)."""
