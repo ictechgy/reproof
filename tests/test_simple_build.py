@@ -53,16 +53,25 @@ class SimpleBuildTests(unittest.TestCase):
             (("xcodebuild", "build"), build_response or _build_callback(self.builds)),
         ])
 
-    def test_build_argv_has_fixed_flags_and_no_signing(self):
+    def test_build_argv_has_fixed_flags(self):
         argv = simulator_build_argv(self.config, derived_data=Path("/d"), packages_dir=Path("/p"))
         for flag in ("-disableAutomaticPackageResolution", "-skipMacroValidation", "-skipPackagePluginValidation",
-                     "CODE_SIGNING_ALLOWED=NO", "COMPILER_INDEX_STORE_ENABLE=NO",
-                     "-onlyUsePackageVersionsFromResolvedFile"):
+                     "COMPILER_INDEX_STORE_ENABLE=NO", "-onlyUsePackageVersionsFromResolvedFile"):
             self.assertIn(flag, argv)
         self.assertEqual(argv[argv.index("-configuration") + 1], "Debug")
         self.assertEqual(argv[argv.index("-project") + 1], "MixedShop.xcodeproj")
         unpinned = simulator_build_argv(self.config, derived_data=Path("/d"), packages_dir=Path("/p"), is_pinned=False)
         self.assertNotIn("-onlyUsePackageVersionsFromResolvedFile", unpinned)
+
+    def test_build_argv_ad_hoc_signs_so_simulator_entitlements_are_embedded(self):
+        """서명을 끄지 않고 인증서 없는 ad-hoc 서명(`-`)을 쓰는지 확인한다.
+
+        왜: CODE_SIGNING_ALLOWED=NO면 entitlement(App Group 등)가 실행 파일에 들어가지 않아, App Group 컨테이너를 쓰는
+        앱(Wikipedia: MWKDataStore)이 Simulator에서 시작하자마자 죽는다. ad-hoc은 키체인 인증서·프로필을 쓰지 않는다.
+        """
+        argv = simulator_build_argv(self.config, derived_data=Path("/d"), packages_dir=Path("/p"))
+        self.assertIn("CODE_SIGN_IDENTITY=-", argv)
+        self.assertNotIn("CODE_SIGNING_ALLOWED=NO", argv)
 
     def test_find_app_bundle_matches_bundle_identifier(self):
         products = self.tmp / "products"

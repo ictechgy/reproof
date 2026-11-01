@@ -35,7 +35,10 @@ def simulator_build_argv(config: ProjectConfig, *, derived_data: Path, packages_
     왜 macro·plugin 검증을 건너뛰는가: AI는 Package.swift·Package.resolved를 바꿀 수 없으므로
     버전이 고정(is_pinned)되어 있으면 실행되는 macro·plugin은 회사가 이미 쓰던 것으로 고정된다.
     그래서 고정된 경우에만 검증을 건너뛴다. 고정되지 않았다면 버전이 바뀔 수 있어 건너뛰는 것이 안전하지 않다.
-    서명은 끈다(Simulator는 서명이 필요 없고, 개발자의 서명 자격 증명을 건드리지 않기 위해서다).
+    서명은 인증서가 필요 없는 ad-hoc(`CODE_SIGN_IDENTITY=-`, Xcode의 "Sign to Run Locally")으로 한다.
+    왜 끄지 않나: Simulator에서도 App Group 같은 entitlement는 서명 단계에서 실행 파일에 들어가므로,
+    CODE_SIGNING_ALLOWED=NO로 끄면 App Group 컨테이너를 쓰는 앱이 시작하자마자 죽는다(Wikipedia에서 확인).
+    ad-hoc 서명은 키체인의 개발자 인증서와 프로비저닝 프로필을 쓰지 않으므로 서명 자격 증명은 건드리지 않는다.
     """
     argv = ["xcodebuild", "build", f"-{config.container_kind}", config.container, "-scheme", config.scheme,
             "-configuration", "Debug", "-sdk", "iphonesimulator",
@@ -44,7 +47,7 @@ def simulator_build_argv(config: ProjectConfig, *, derived_data: Path, packages_
             "-disableAutomaticPackageResolution"]
     if is_pinned:
         argv += ["-onlyUsePackageVersionsFromResolvedFile", "-skipMacroValidation", "-skipPackagePluginValidation"]
-    argv += ["CODE_SIGNING_ALLOWED=NO", "COMPILER_INDEX_STORE_ENABLE=NO"]
+    argv += ["CODE_SIGN_IDENTITY=-", "COMPILER_INDEX_STORE_ENABLE=NO"]
     return argv
 
 

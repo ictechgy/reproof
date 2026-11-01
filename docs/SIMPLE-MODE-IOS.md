@@ -84,7 +84,9 @@ reproof app doctor [--config FILE]
 reproof app build [--config FILE] [--workspace DIR]
 ```
 
-소스를 작업 사본으로 복사해 Debug로 Simulator용 빌드를 한다. 서명은 하지 않고 Release는 만들지
+소스를 작업 사본으로 복사해 Debug로 Simulator용 빌드를 한다. 서명은 인증서가 필요 없는 ad-hoc
+서명(Xcode의 "Sign to Run Locally")만 하고 Release는 만들지 않는다. ad-hoc 서명을 하는 이유는 App Group 같은
+entitlement가 있어야 Simulator에서도 앱이 정상 실행되기 때문이며, 키체인의 개발자 인증서·프로비저닝 프로필은 쓰지
 않는다. 소스와 설정이 같으면 이전 빌드를 재사용한다. 끝나면 `빌드 ID: ...`를 보여 준다.
 산출물과 로그는 `~/.reproof/projects/<이름>/builds/<빌드 ID>/`(`logs/` 포함)에 있다.
 `REPROOF_HOME` 환경 변수나 `--workspace`로 위치를 바꿀 수 있다.
