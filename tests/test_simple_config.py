@@ -58,6 +58,11 @@ class SimpleConfigTests(unittest.TestCase):
         text = render_config(sample_config()).replace('name = "mixedshop"', 'name = "My App"')
         self.assert_invalid(text, "name")
 
+    def test_name_with_trailing_newline_is_rejected(self):
+        """끝에 개행이 붙은 이름은 거절한다($ 앵커 우회 방지)."""
+        text = render_config(sample_config()).replace('name = "mixedshop"', 'name = "abc\\n"')
+        self.assert_invalid(text, "name")
+
     def test_generator_must_be_known_value(self):
         """generator는 none|xcodegen|tuist만 허용한다."""
         text = render_config(sample_config()).replace('generator = "xcodegen"', 'generator = "cocoapods"')

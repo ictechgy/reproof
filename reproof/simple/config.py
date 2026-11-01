@@ -20,8 +20,10 @@ SCHEMA_VERSION = 1
 GENERATORS = ("none", "xcodegen", "tuist")
 """허용하는 프로젝트 생성기 목록."""
 
-NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
-"""프로젝트 이름 규칙. 디렉터리·시뮬레이터 이름에 안전하게 쓰려는 소문자 slug."""
+NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
+"""프로젝트 이름 규칙. 디렉터리·시뮬레이터 이름에 안전하게 쓰려는 소문자 slug.
+
+fullmatch로만 쓴다: `$`는 끝의 개행을 허용해 "abc\\n"이 통과하기 때문이다."""
 
 ENV_PREFIX = "env:"
 """launch.environment 값이 이 접두사로 시작하면 실행 시점 환경 변수에서 읽는다(비밀 값을 파일에 두지 않으려는 것)."""
@@ -128,7 +130,7 @@ def _environment(table: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
 
 def _validate_project(config: ProjectConfig) -> None:
     """이름 규칙, 생성기 값, 생성기-스펙 조합 등 값 자체의 규칙을 검사한다."""
-    if not NAME_PATTERN.match(config.name):
+    if not NAME_PATTERN.fullmatch(config.name):
         raise _invalid(f"name '{config.name}'은(는) 소문자·숫자·하이픈만 쓸 수 있고 40자 이하여야 합니다.",
                        "예: name = \"my-app\" 처럼 고치세요.")
     if config.generator not in GENERATORS:
