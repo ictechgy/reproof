@@ -747,18 +747,7 @@ Wikipedia는 `Package.resolved`가 있어 버전 고정 빌드(`-skipMacroValida
 저장소에 커밋한 것: `examples/simple-ios/wikipedia/pin.json`, `scripts/simple-fetch-app.py`와 테스트, 이 문서, 툴 수정.
 Wikipedia 소스와 빌드 산출물은 커밋하지 않았다.
 
-이 Mac에 남은 것(정리 여부는 사용자 판단):
-
-- `~/.reproof/sources/wikipedia-ios` — 받은 소스 + `reproof.toml` + 위 xcconfig·patch
-- `~/.reproof/projects/wikipedia-ios/builds/` — 완성 빌드 2개(빌드 ID 수정 전 `9edc8552bee13db5`, 수정 후
-  `80392764bf5f8c1b`, 각 약 3.8 GB), 실패한 partial 2개(1.1 GB)
-- `~/.reproof/cache/spm/` 1.1 GB, `~/.reproof/runner/` 155 MB
-- `~/Library/Developer/Xcode/DerivedData/Wikipedia-*` 7개(init이 만든 1.1 GB짜리 2개, build의 패키지 해석과 init 수정 전
-  확인 실험이 만든 8 KB짜리 5개). MixedShop 쪽 `MixedShop-*` 폴더는 이 절 아래 "이 Mac에 남은 것 (전체 목록)"에 따로 센다.
-- `~/Library/Caches/org.swift.swiftpm/repositories`의 Wikipedia 의존성 6개(Xcode가 평소 쓰는 공용 캐시)
-- `~/Library/Logs/DiagnosticReports/`의 `Wikipedia-2026-11-01-151617.ips`, `WidgetsExtension-2026-11-01-1516*.ips` 5개
-- Simulator `reproof-wikipedia-ios`(켜 둠, 문서의 기본 동작). 다른 Simulator는 건드리지 않았다.
-- inspect 1 실패 때 남은 세션 폴더(토큰이 들어 있을 수 있음)는 빌드 폴더 `9edc8552bee13db5`와 함께 지웠다.
+이 Mac에 남은 것은 문서 끝 "이 Mac에 남은 것 (전체 목록)"에 한 곳으로 모았다. (inspect 1 실패 때 남은 세션 폴더는 빌드 폴더 `9edc8552bee13db5`와 함께 지웠다.)
 
 ## 계획 2에 넘기는 결정
 
@@ -831,11 +820,11 @@ Wikipedia 소스와 빌드 산출물은 커밋하지 않았다.
 계획 1 검증을 끝낸 시점(2026-11-01)의 목록이다. **아무것도 지우지 않았다.** 정리는 사용자가 정한다. 각 줄 끝은 지울 때의 비용이다.
 앞 절들의 "이 Mac에 남은 것" 줄과 다르면 이 목록이 맞다.
 
-- `~/.reproof` 11 GB: `projects` 8.6 GB(앱별 빌드 산출물, 지우면 다음 build가 처음부터), `spikes` 1.2 GB(측정 원자료, 지우면 이 문서의
+- `~/.reproof` 11 GB(같은 시점 스냅샷): `projects` 8.6 GB(앱별 빌드 산출물, Wikipedia 완성 빌드 2개 각 약 3.8 GB 포함, 지우면 다음 build가 처음부터), `spikes` 1.2 GB(측정 원자료, 지우면 이 문서의
   수치를 다시 재야 확인 가능), `cache` 1.1 GB(SwiftPM 캐시, 지우면 다음 패키지 해석이 다시 내려받음), `sources` 225 MB(받은 Wikipedia 소스와
   검증 앱 설정, 지우면 `scripts/simple-fetch-app.py`로 다시 받고 xcconfig·patch를 다시 적용), `runner` 155 MB(실행기 빌드, 지우면 다음 inspect가
   실행기를 다시 빌드, 약 46초), `logs`·`tmp` 0 B.
-- `~/Library/Developer/Xcode/DerivedData`(전체 항목 119개):
+- `~/Library/Developer/Xcode/DerivedData`(전체 항목 119개). **아래 개수·크기는 2026-11-01 17:57경 한 시점에 잰 스냅샷이다**(이후 Xcode나 테스트를 쓰면 달라진다):
   - `SimpleRunner-*` 10개, 합계 약 3.3 MB — 실행기 테스트의 결과물. 지워도 영향 없음.
   - `MixedShop-*` 98개, 합계 약 1.0 MB, 대부분 `Logs`만 든 작은 폴더 — 추정: build의 `-resolvePackageDependencies`와 native 테스트의
     xcodebuild 호출이 호출마다(빌드 ID·임시 작업 사본 경로마다) 새 폴더를 만든 것이다. 확인은 하지 않았다. 지워도 영향 없음.
@@ -847,6 +836,8 @@ Wikipedia 소스와 빌드 산출물은 커밋하지 않았다.
   (앱이 실행 직후 종료된 Wikipedia spike의 충돌 보고서) — 지워도 영향 없음.
 - Simulator(`xcrun simctl list devices`): `reproof-wikipedia-ios`(**Booted**, 지우면 다음 inspect가 새로 만들고 부팅하는 약 34초), `reproof-mixedshop`
   (Shutdown, 같음). 둘 다 이 툴이 만든 `reproof-` 기기다.
-- iOS 27.0 Simulator 런타임(24A434, 약 8 GB): 계획 1 Task 0에서 승인받아 설치했다. 지우면 Simulator 기반 기능을 쓸 때 다시 내려받아야 한다.
+- iOS 27.0 Simulator 런타임(24A434, 설치 때 내려받은 크기 8.05 GB(Task 0 다운로드 로그), 설치 후 디스크 크기는 재지 않았다): 계획 1 Task 0에서 승인받아 설치했다. 지우면 Simulator 기반 기능을 쓸 때 다시 내려받아야 한다.
   사용자가 원하지 않으면 지워도 되지만 유지를 권한다.
+- SwiftPM 공용 캐시 `~/Library/Caches/org.swift.swiftpm/repositories`의 Wikipedia 의존성 6개 — Xcode가 평소 쓰는 공용 캐시. 지우면 다음 패키지 해석이 다시 내려받음.
+- `/private/tmp/t17`(52 KB): 이번 마무리 검증의 로그와 `python3` 심볼릭 링크(3.11·3.12). 우리가 만든 것이며 지워도 안전하다.
 - 이 작업이 만들지 않은 것(기존): Simulator `BaroChart-tests`, uv Python 3.11, XcodeGen. 건드리지 않았다.
