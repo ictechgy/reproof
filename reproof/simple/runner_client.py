@@ -32,7 +32,7 @@ from .hierarchy import Element, parse_hierarchy
 from .locking import runner_lock
 from .pipeline import make_private_directory
 from .process import ToolRunner, build_default_environment
-from .workcopy import tree_digest
+from .workcopy import open_private_log, tree_digest
 
 # 실행기 소스의 리소스 경로 접두사. 복사할 때 이 부분을 떼고 runner-src 아래에 둔다.
 RUNNER_PREFIX = "ios/SimpleRunner/"
@@ -440,9 +440,10 @@ class RunnerSession:
         self.client = RunnerClient(self._port, token=self._token)
 
     def _prepare_files(self) -> BinaryIO:
-        """세션 폴더(0700)와 로그 파일(0600, 추가 모드)을 만든다. 만들 수 없으면 runner_files_unwritable.
+        """세션 폴더(0700)와 로그 파일(새 0600 파일, 추가 모드)을 만든다. 만들 수 없으면 runner_files_unwritable.
 
         왜 권한을 좁히나: 세션 폴더의 결과 묶음과 로그에 비밀 값·입력한 글자가 남을 수 있어 소유자만 읽게 한다.
+        왜 새 파일인가: 기존 로그를 열어 자르면 하드·심볼릭 링크로 연결된 다른 파일이 지워진다(open_private_log 참고).
         """
         folder = self._log_path.parent
         try:
@@ -450,12 +451,11 @@ class RunnerSession:
             self.session_dir = folder / f"{_SESSION_DIR_PREFIX}{uuid.uuid4().hex}"
             self.session_dir.mkdir(mode=0o700)
             os.chmod(self.session_dir, 0o700)  # umask와 상관없이 0700으로 맞춘다.
-            descriptor = os.open(self._log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_APPEND, 0o600)
+            return open_private_log(self._log_path)
         except OSError as error:
             raise SimpleError("runner_files_unwritable", f"실행기 로그·세션 폴더를 만들지 못했습니다({folder}): {error}",
                               "출력 폴더가 쓰기 가능한지, 같은 이름의 파일이 폴더 자리를 차지하고 있지 않은지 "
                               "확인한 뒤 다시 실행하세요.") from error
-        return open(descriptor, "ab")
 
     def _spawn(self) -> subprocess.Popen:
         """xcodebuild 세션을 띄운다. stdout/stderr는 로그로 보낸다. 실행 자체가 안 되면 runner_start_failed."""

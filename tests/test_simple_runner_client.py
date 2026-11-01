@@ -494,6 +494,24 @@ class RunnerClientTests(unittest.TestCase):
         self.assertIn(str(self.log_path.parent), raised.exception.cause)
         popen.assert_not_called()
 
+    def test_session_log_never_truncates_a_linked_file(self):
+        """세션 로그 자리가 하드·심볼릭 링크여도 연결된 파일을 자르지 않고, 새 0600 파일을 그 자리에 둔다."""
+        self.log_path.parent.mkdir(parents=True)
+        victim = self.tmp / "victim.txt"
+        for make in (os.link, os.symlink):
+            with self.subTest(link=make.__name__):
+                victim.write_text("건드리면 안 됨", encoding="utf-8")
+                self.log_path.unlink(missing_ok=True)
+                make(victim, self.log_path)
+                session = self.session(free_loopback_port())
+                stream = session._prepare_files()
+                stream.write(b"[reproof] test\n")
+                stream.close()
+                self.assertEqual(victim.read_text(encoding="utf-8"), "건드리면 안 됨")
+                info = os.lstat(self.log_path)
+                self.assertEqual((stat.S_ISREG(info.st_mode), info.st_nlink, info.st_mode & 0o777), (True, 1, 0o600))
+                self.assertEqual(self.log_path.read_bytes(), b"[reproof] test\n")
+
     # --- RunnerSession: 종료·정리 ---
 
     def test_session_exit_sends_stop_and_kills_process_group(self):

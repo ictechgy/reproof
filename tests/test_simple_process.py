@@ -102,6 +102,27 @@ class SimpleProcessTests(unittest.TestCase):
         self.assertIn("simctl", failure.cause)
         self.assertIn("시작하지 못했습니다", failure.cause)
 
+    def test_tool_log_replaces_link_without_touching_linked_file(self):
+        """도구 로그 자리에 하드·심볼릭 링크가 있어도 연결된 다른 파일을 자르거나 덮어쓰지 않고 새 0600 파일로 바꿔 넣는다.
+
+        왜: 로그 파일을 열어 자르면(O_TRUNC·write_bytes) 하드 링크로 연결된 사용자 파일까지 내용이 사라진다.
+        """
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            victim = Path(tmp) / "victim.txt"
+            victim.write_text("건드리면 안 됨", encoding="utf-8")
+            for name, make in (("hard.log", os.link), ("soft.log", os.symlink)):
+                with self.subTest(link=name):
+                    log = Path(tmp) / name
+                    make(victim, log)
+                    HostToolRunner().run(["/bin/echo", "출력"], cwd=Path(tmp), timeout=30, log_path=log)
+                    self.assertEqual(victim.read_text(encoding="utf-8"), "건드리면 안 됨")
+                    self.assertFalse(log.is_symlink())
+                    self.assertEqual((os.stat(log).st_nlink, os.stat(log).st_mode & 0o777), (1, 0o600))
+                    self.assertIn("출력", log.read_text(encoding="utf-8"))
+            self.assertEqual(sorted(path.name for path in Path(tmp).iterdir()), ["hard.log", "soft.log", "victim.txt"])
+
     def test_host_runner_passes_git_terminal_prompt_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
             output = HostToolRunner().run(["/bin/sh", "-c", "echo $GIT_TERMINAL_PROMPT"], cwd=Path(tmp), timeout=10)

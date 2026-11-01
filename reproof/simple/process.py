@@ -12,6 +12,7 @@ from typing import Protocol
 from ..repair import CommandError, run_command
 from .errors import ToolFailure
 from .redaction import mask_secrets
+from .workcopy import replacing_file
 
 # 실패 시 오류에 싣는 로그 끝부분 크기(바이트).
 _TAIL_BYTES = 4096
@@ -145,12 +146,15 @@ def _tool_failure(argv: list[str], error: CommandError, timeout: int, log_path: 
 
 @contextlib.contextmanager
 def _output_log(log_path: Path | None) -> Iterator[Path]:
-    """호출자 로그가 있으면 그것을, 없으면 시스템 임시 폴더의 0600 임시 로그를 주고 끝나면 지운다.
+    """run_command에 넘길 로그 경로를 준다. 호출자 로그가 있으면 그 옆의 새 0600 파일을 주고 끝나면 그 자리로 바꿔 넣고,
+    없으면 시스템 임시 폴더의 0600 임시 로그를 주고 끝나면 지운다.
 
-    왜 임시 로그인가: simctl·git처럼 로그 없이 부르는 명령도 실패 원인 줄을 안내문에 실으려는 것이다.
+    왜 새 파일인가: run_command는 경로를 열어 자르며 쓰므로(링크를 따라감), 호출자 로그 자리에 하드·심볼릭 링크가 있으면
+    연결된 다른 파일을 덮어쓴다. 왜 임시 로그인가: simctl·git처럼 로그 없이 부르는 명령도 실패 원인 줄을 안내문에 실으려는 것이다.
     """
     if log_path is not None:
-        yield log_path
+        with replacing_file(Path(log_path)) as fresh_log:
+            yield fresh_log
         return
     handle, name = tempfile.mkstemp(prefix="reproof-tool-", suffix=".log")
     os.close(handle)

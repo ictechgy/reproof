@@ -37,7 +37,7 @@ from .pipeline import (PreparedBuild, _remove_tree, default_workspace_root, make
 from .process import HostToolRunner, ToolRunner
 from .runner_client import RunnerClient, RunnerSession, build_runner, free_loopback_port
 from .simulator import SimulatorManager, launch_locale_settings, owned_device_name
-from .workcopy import materialize_working_copy
+from .workcopy import materialize_working_copy, write_private_file
 
 LAUNCH_SETTLE_SECONDS = 3.0
 """앱 실행 후 화면이 자리 잡을 때까지 기다리는 시간(초). 첫 화면 전환·로딩 중 계층을 읽지 않으려는 것이다."""
@@ -345,8 +345,9 @@ def _write_config(target: Path, config: ProjectConfig) -> None:
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
             stream.write(render_config(config))
+            # mkstemp의 0600 대신 일반 소스 파일 권한으로 둬 팀이 함께 읽게 한다. 경로 대신 연 파일에 적용해 링크를 따라가지 않는다.
+            os.fchmod(stream.fileno(), 0o644)
         load_config(temp_path)
-        os.chmod(temp_path, 0o644)  # mkstemp의 0600 대신 일반 소스 파일 권한으로 둬 팀이 함께 읽게 한다.
         os.replace(temp_path, target)
     except BaseException:
         temp_path.unlink(missing_ok=True)
@@ -442,21 +443,12 @@ def launch_app(client: RunnerClient, config: ProjectConfig, launch_environment: 
 
 
 def write_private_text(path: Path, text: str) -> None:
-    """text를 path에 소유자만 읽는(0600) UTF-8 파일로 쓴다. 이미 있는 파일도 0600으로 좁히고, 링크는 따라가지 않는다.
+    """text를 path에 소유자만 읽는(0600) UTF-8 파일로 쓴다. 새 파일에 쓴 뒤 바꿔 넣는다(workcopy.write_private_file).
 
-    왜: 화면 계층에는 로그인한 회사 앱 화면의 모든 글자가 들어 있어 다른 계정이 읽으면 안 되고, 저장 위치에 미리 둔
-    링크를 따라가 다른 파일을 덮어쓰면 안 된다. 주의: 링크면 output_symlink.
+    왜: 화면 계층에는 로그인한 회사 앱 화면의 모든 글자가 들어 있어 다른 계정이 읽으면 안 되고, 저장 위치의 기존 파일을
+    열어 자르면 하드·심볼릭 링크로 연결된 다른 파일까지 지워진다. 링크 자리는 새 파일로 바뀌고 연결된 파일은 그대로다.
     """
-    try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
-    except OSError as error:
-        if error.errno == errno.ELOOP:
-            raise SimpleError("output_symlink", f"저장 위치 {path}가 심볼릭 링크라 쓰지 않았습니다.",
-                              "링크를 지우거나 --output으로 다른 경로를 지정한 뒤 다시 실행하세요.") from error
-        raise
-    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-        os.fchmod(stream.fileno(), 0o600)
-        stream.write(text)
+    write_private_file(path, text.encode("utf-8"))
 
 
 def save_hierarchy(client: RunnerClient, output: Path) -> Element:

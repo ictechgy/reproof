@@ -6,12 +6,14 @@
 """
 import contextlib
 import errno
+import fcntl
 import fnmatch
 import hashlib
 import os
 import shutil
 import stat
-from collections.abc import Callable, Collection
+import tempfile
+from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -409,3 +411,79 @@ def tree_digest(root: Path) -> str:
     resolved = Path(os.path.realpath(root))
     _walk(resolved, None, resolved, manifest, resolved)
     return manifest.digest()
+
+
+# ---------- 작업 공간 파일 쓰기: 기존 파일(inode)을 열어 자르지 않고, 새 파일을 만들어 바꿔 넣는다 ----------
+
+def _create_private_temp(directory: Path) -> tuple[int, Path]:
+    """directory 안에 새 0600 임시 파일을 O_EXCL로 만든다(tempfile.mkstemp). 반환: (읽기·쓰기 디스크립터, 경로).
+
+    왜 같은 폴더인가: os.replace는 같은 파일 시스템 안에서만 원자적으로 이름을 바꿀 수 있다.
+    """
+    descriptor, name = tempfile.mkstemp(prefix=".reproof-", suffix=".tmp", dir=directory)
+    return descriptor, Path(name)
+
+
+def write_private_file(path: Path, data: bytes) -> None:
+    """data를 새 0600 임시 파일에 쓴 뒤 os.replace로 path 자리에 바꿔 넣는다.
+
+    왜: 기존 path를 열어 자르면(O_TRUNC) 하드 링크로 연결된 다른 파일까지 지워지고, 링크를 따라가면 다른 파일을 덮어쓴다.
+    바꿔 넣기는 path의 이름만 새 파일로 옮기므로 연결된 파일은 그대로다. 실패하면 임시 파일을 지우고 오류를 다시 던진다.
+    """
+    descriptor, temp = _create_private_temp(path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+        os.replace(temp, path)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+
+
+def open_private_log(path: Path):
+    """새 0600 파일을 만들어 path 자리로 바꿔 넣고, 그 파일에 이어 쓰는(O_APPEND) 바이너리 스트림을 돌려준다.
+
+    왜: 세션 로그처럼 자식 프로세스가 계속 쓰는 파일도 기존 inode를 자르지 않고 새 파일로 시작하려는 것이다(write_private_file 참고).
+    O_APPEND는 자식 프로세스와 reproof 진단 줄이 서로 덮어쓰지 않게 한다.
+    """
+    descriptor, temp = _create_private_temp(path.parent)
+    try:
+        os.replace(temp, path)
+        fcntl.fcntl(descriptor, fcntl.F_SETFL, fcntl.fcntl(descriptor, fcntl.F_GETFL) | os.O_APPEND)
+    except BaseException:
+        os.close(descriptor)
+        temp.unlink(missing_ok=True)
+        raise
+    return os.fdopen(descriptor, "ab")
+
+
+def _publish_temp(temp: Path, path: Path, in_flight: BaseException | None) -> None:
+    """temp를 path 자리로 바꿔 넣는다. 실패하면 temp를 지우고, 진행 중인 예외가 있으면 그 예외에 사정을 덧붙인다.
+
+    왜: 로그를 남기지 못한 문제가 원래 실패(빌드 오류·Ctrl-C)를 가리면 안 되고, 원래 실패가 없으면 그대로 알려야 한다.
+    """
+    try:
+        os.replace(temp, path)
+    except OSError as error:
+        temp.unlink(missing_ok=True)
+        if in_flight is None:
+            raise
+        in_flight.add_note(f"로그 {path}를 남기지 못했습니다: {error}")
+
+
+@contextlib.contextmanager
+def replacing_file(path: Path) -> Iterator[Path]:
+    """path 옆에 새 0600 임시 파일을 만들어 그 경로를 주고, 끝나면(예외로 끝나도) path 자리로 바꿔 넣는다.
+
+    왜: 외부 함수(repair.run_command)가 로그를 경로로만 받아 쓰므로, 그 함수가 기존 파일·링크를 열어 자르지 않도록
+    항상 이번에 만든 새 파일 경로를 넘긴다. 폴더가 없으면 만든다.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp = _create_private_temp(path.parent)
+    os.close(descriptor)
+    try:
+        yield temp
+    except BaseException as error:
+        _publish_temp(temp, path, error)
+        raise
+    _publish_temp(temp, path, None)
