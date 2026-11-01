@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping
 
-from .build import BuildProducts, build_for_simulator
+from .build import BUILD_RECIPE_VERSION, BuildProducts, build_for_simulator, read_xcode_version
 from .config import ProjectConfig, config_digest
 from .generation import generate_project
 from .identity import BuildIdentity, capture_build_identity
@@ -120,19 +120,23 @@ def prepare_build(source_root: Path, config: ProjectConfig, *, workspace_root: P
                   progress: Callable[[str], None] = print) -> PreparedBuild:
     """소스를 식별하고 Simulator용 Debug 빌드를 만든다. 같은 build_id의 완성 빌드가 있으면 재사용한다.
 
+    build_id에는 소스·설정 지문과 함께 빌드 방법 버전(BUILD_RECIPE_VERSION)과 Xcode 버전이 들어간다.
+
     흐름: 작업 사본을 staging에 만들고 build_id를 정한 뒤 `<build_id>.partial/`에서 작업하고,
     성공해야 `<build_id>/`로 rename한다. 도중에 실패·중단되면 partial을 남기고 예외를 그대로 던지며,
     다음 실행이 partial을 지우고 처음부터 다시 한다(끊긴 빌드를 완성으로 착각하지 않으려는 것).
     """
     workspace_root = workspace_root.expanduser().absolute()  # xcodebuild는 cwd 기준으로 경로를 풀기 때문
     progress("빌드 식별 중")
+    xcode_version = read_xcode_version(runner)  # 복사 전에 확인해 Xcode가 없으면 바로 멈춘다.
     project_dir = workspace_root / "projects" / config.name
     builds_dir = project_dir / "builds"
     staging, copy = _stage_working_copy(source_root, project_dir, progress)
     try:
         identity = capture_build_identity(source_root, config_digest=config_digest(config),
                                           source_manifest_digest=copy.manifest_digest, output_dir=staging,
-                                          runner=runner)
+                                          runner=runner, build_recipe=BUILD_RECIPE_VERSION,
+                                          xcode_version=xcode_version)
         build_id = identity.build_id()
         final, partial = builds_dir / build_id, builds_dir / f"{build_id}.partial"
         cached = _load_completed(final, identity, build_id)

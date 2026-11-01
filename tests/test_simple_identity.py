@@ -29,9 +29,11 @@ def make_repository(root: Path, *, commit: bool = True) -> Path:
 
 
 class SimpleIdentityTests(unittest.TestCase):
-    def capture(self, repo: Path, out: Path, config_digest: str = "c1") -> BuildIdentity:
+    def capture(self, repo: Path, out: Path, config_digest: str = "c1", *, build_recipe: int = 2,
+                xcode_version: str = "Xcode 27.0\nBuild version 27A266a") -> BuildIdentity:
         return capture_build_identity(repo, config_digest=config_digest, source_manifest_digest="m1",
-                                      output_dir=out, runner=RUNNER)
+                                      output_dir=out, runner=RUNNER, build_recipe=build_recipe,
+                                      xcode_version=xcode_version)
 
     def test_clean_repository_has_commit_and_not_dirty(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -96,6 +98,21 @@ class SimpleIdentityTests(unittest.TestCase):
             self.assertEqual(len(first.build_id()), 16)
             self.assertNotEqual(first.build_id(), second.build_id())
             self.assertEqual(first.build_id(), replace(first).build_id())
+
+    def test_build_id_depends_on_build_recipe_and_xcode_version(self):
+        """빌드 방법 버전이나 Xcode가 바뀌면 다른 빌드 ID가 되어 이전 산출물을 재사용하지 않는다.
+
+        왜: 서명 방식 같은 빌드 방법이 바뀌었는데 같은 ID로 옛 앱(App Group 없음)을 재사용하면 실행 직후 죽는다.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repository(Path(tmp))
+            base = self.capture(repo, Path(tmp) / "o1")
+            new_recipe = self.capture(repo, Path(tmp) / "o2", build_recipe=3)
+            new_xcode = self.capture(repo, Path(tmp) / "o3", xcode_version="Xcode 27.1\nBuild version 27B1")
+            self.assertEqual(len({base.build_id(), new_recipe.build_id(), new_xcode.build_id()}), 3)
+            document = base.to_document()
+            self.assertEqual(document["buildRecipe"], 2)
+            self.assertEqual(document["xcodeVersion"], "Xcode 27.0\nBuild version 27A266a")
 
     def make_nested(self, tmp: str) -> tuple[Path, Path]:
         """a.swift는 app/ 안, o는 other/ 안에 커밋된 저장소를 만들고 (루트, app)을 돌려준다."""

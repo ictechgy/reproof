@@ -14,6 +14,16 @@ from .workcopy import tree_digest
 # DerivedData 안에서 Debug Simulator 산출물이 놓이는 상대 경로.
 PRODUCTS_SUBPATH = Path("Build") / "Products" / "Debug-iphonesimulator"
 
+BUILD_RECIPE_VERSION = 2
+"""Simulator 빌드 방법(simulator_build_argv 규칙)의 버전. 산출물이 달라지는 방법 변경 때마다 1씩 올린다.
+
+빌드 ID에 들어가므로, 올리면 이전 완성 빌드를 재사용하지 않고 새로 빌드한다.
+기록: 1 = 서명 끔(CODE_SIGNING_ALLOWED=NO), 2 = ad-hoc 서명(App Group 등 entitlement 유지).
+"""
+
+# xcodebuild -version 제한 시간(초).
+_VERSION_TIMEOUT_SECONDS = 60
+
 
 @dataclass(frozen=True)
 class BuildProducts:
@@ -49,6 +59,19 @@ def simulator_build_argv(config: ProjectConfig, *, derived_data: Path, packages_
         argv += ["-onlyUsePackageVersionsFromResolvedFile", "-skipMacroValidation", "-skipPackagePluginValidation"]
     argv += ["CODE_SIGN_IDENTITY=-", "COMPILER_INDEX_STORE_ENABLE=NO"]
     return argv
+
+
+def read_xcode_version(runner: ToolRunner) -> str:
+    """`xcodebuild -version` 출력(앞뒤 공백 제거)을 돌려준다. 실패하면 xcode_version_unavailable.
+
+    왜: Xcode가 바뀌면 같은 소스라도 산출물이 달라지므로 빌드 ID에 넣는다. 현재 폴더에서 실행한다(프로젝트를 읽지 않는다).
+    """
+    try:
+        return runner.run(["xcodebuild", "-version"], cwd=Path.cwd(), timeout=_VERSION_TIMEOUT_SECONDS).strip()
+    except ToolFailure as failure:
+        raise SimpleError("xcode_version_unavailable", "Xcode 버전을 확인하지 못했습니다(`xcodebuild -version` 실패).",
+                          "`xcode-select -p`로 선택된 Xcode를 확인하고 `reproof app doctor`로 점검한 뒤 다시 실행하세요.",
+                          log_path=failure.log_path) from failure
 
 
 # 매크로·플러그인 신뢰 검증 실패를 뜻하는 출력 문구(소문자 비교).

@@ -1,12 +1,14 @@
 """Simulator 빌드 argv, .app 탐색, 빌드 파이프라인(재사용·끊긴 빌드 폐기) 테스트. Xcode 없이 FakeToolRunner로 실행된다."""
 import dataclasses
+import json
 import os
 import plistlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from reproof.simple.build import PRODUCTS_SUBPATH, find_app_bundle, simulator_build_argv
+from reproof.simple.build import BUILD_RECIPE_VERSION, PRODUCTS_SUBPATH, find_app_bundle, simulator_build_argv
 from reproof.simple.errors import SimpleError, ToolFailure
 from reproof.simple.pipeline import default_workspace_root, prepare_build
 from tests.simple_support import FakeToolRunner, sample_config
@@ -45,10 +47,11 @@ class SimpleBuildTests(unittest.TestCase):
         self.config = dataclasses.replace(sample_config(), generator="none", generator_spec=None)
         self.builds = []
 
-    def _runner(self, build_response=None):
+    def _runner(self, build_response=None, *, xcode_version="Xcode 16.0\nBuild version 16A"):
         git_failure = ToolFailure("git", log_path=None, output_tail="not a git repository")
         return FakeToolRunner([
             (("git",), git_failure),
+            (("xcodebuild", "-version"), xcode_version + "\n"),
             (("xcodebuild", "-resolvePackageDependencies"), ""),
             (("xcodebuild", "build"), build_response or _build_callback(self.builds)),
         ])
@@ -116,9 +119,35 @@ class SimpleBuildTests(unittest.TestCase):
                                progress=reuse_messages.append)
         self.assertEqual(second.build_id, first.build_id)
         self.assertEqual(second.products, first.products)
-        self.assertFalse([c for c in runner.calls if c["argv"][0] == "xcodebuild"])
+        self.assertEqual([c["argv"] for c in runner.calls if c["argv"][0] == "xcodebuild"],
+                         [["xcodebuild", "-version"]])  # 빌드 ID 계산용 버전 확인만 하고 빌드는 하지 않는다.
         self.assertEqual(reuse_messages[-1], f"빌드 완료: {second.products.app_path}")
         self.assertEqual(list(first.directory.parent.parent.glob("staging-*")), [])
+
+    def test_new_xcode_or_build_recipe_does_not_reuse_completed_build(self):
+        """Xcode 버전이나 빌드 방법 버전이 바뀌면 완성 빌드를 재사용하지 않고 새로 빌드한다."""
+        first = prepare_build(self.source, self.config, workspace_root=self.workspace, runner=self._runner(),
+                              progress=lambda _: None)
+        newer_xcode = prepare_build(self.source, self.config, workspace_root=self.workspace,
+                                    runner=self._runner(xcode_version="Xcode 99.0\nBuild version 99A"),
+                                    progress=lambda _: None)
+        with mock.patch("reproof.simple.pipeline.BUILD_RECIPE_VERSION", BUILD_RECIPE_VERSION + 1):
+            newer_recipe = prepare_build(self.source, self.config, workspace_root=self.workspace,
+                                         runner=self._runner(), progress=lambda _: None)
+        self.assertEqual(len(self.builds), 3)
+        self.assertEqual(len({first.build_id, newer_xcode.build_id, newer_recipe.build_id}), 3)
+        document = json.loads((first.directory / "identity.json").read_text(encoding="utf-8"))
+        self.assertEqual(document["buildRecipe"], BUILD_RECIPE_VERSION)
+        self.assertEqual(document["xcodeVersion"], "Xcode 16.0\nBuild version 16A")
+
+    def test_missing_xcode_version_stops_before_copying_source(self):
+        """`xcodebuild -version`이 실패하면 작업 사본을 만들기 전에 xcode_version_unavailable로 멈춘다."""
+        runner = FakeToolRunner([(("xcodebuild", "-version"), ToolFailure("xcodebuild", log_path=None, output_tail=""))])
+        with self.assertRaises(SimpleError) as raised:
+            prepare_build(self.source, self.config, workspace_root=self.workspace, runner=runner,
+                          progress=lambda _: None)
+        self.assertEqual(raised.exception.code, "xcode_version_unavailable")
+        self.assertFalse((self.workspace / "projects").exists())
 
     def test_prepare_build_discards_partial_directory_from_interrupted_run(self):
         interrupted = self._runner(lambda argv, cwd, env: (_ for _ in ()).throw(KeyboardInterrupt()))

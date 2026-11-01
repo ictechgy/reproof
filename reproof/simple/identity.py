@@ -18,6 +18,9 @@ class BuildIdentity:
     commit_sha: HEAD 커밋(git이 아니거나 커밋이 없으면 None). is_dirty: 커밋 이후 변경 여부.
     dirty_patch_digest: 추적 파일 변경 patch의 sha256(없으면 None).
     untracked_paths: 추적되지 않는 파일 경로(정렬됨). config_digest/source_manifest_digest: 호출자가 계산한 지문.
+    build_recipe: 툴의 빌드 방법(argv 규칙) 버전. xcode_version: `xcodebuild -version` 출력.
+    왜 빌드 방법·Xcode까지 넣나: 소스와 설정이 같아도 빌드 방법(예: 서명 방식)이나 Xcode가 바뀌면 산출물이 달라지므로,
+    같은 ID로 옛 산출물을 재사용하지 않게 하려는 것이다.
     """
 
     commit_sha: str | None
@@ -26,6 +29,8 @@ class BuildIdentity:
     untracked_paths: tuple[str, ...]
     config_digest: str
     source_manifest_digest: str
+    build_recipe: int
+    xcode_version: str
 
     def to_document(self) -> dict:
         """JSON으로 저장할 수 있는 dict를 만든다. untracked_paths는 리스트로 바꾼다."""
@@ -36,6 +41,8 @@ class BuildIdentity:
             "untrackedPaths": list(self.untracked_paths),
             "configDigest": self.config_digest,
             "sourceManifestDigest": self.source_manifest_digest,
+            "buildRecipe": self.build_recipe,
+            "xcodeVersion": self.xcode_version,
         }
 
     def build_id(self) -> str:
@@ -119,8 +126,11 @@ def _write_dirty_patch(runner: ToolRunner, source_root: Path, output_dir: Path) 
 
 
 def capture_build_identity(source_root: Path, *, config_digest: str, source_manifest_digest: str,
-                           output_dir: Path, runner: ToolRunner) -> BuildIdentity:
+                           output_dir: Path, runner: ToolRunner, build_recipe: int,
+                           xcode_version: str) -> BuildIdentity:
     """source_root 범위의 git 상태를 읽어 BuildIdentity를 만든다. 추적 파일 변경이 있으면 dirty.patch를 쓴다.
+
+    build_recipe·xcode_version은 호출자가 정한 빌드 방법 버전과 Xcode 버전으로, 그대로 식별에 넣는다.
 
     git 저장소가 아니거나 커밋이 없거나 추적 내용이 아니면 commit_sha=None, 변경 없음(오류 아님).
     상위 저장소의 source_root 밖 변경은 무시하고 경로는 source_root 기준이다. 삭제된 추적 파일도 변경이다.
@@ -136,4 +146,4 @@ def capture_build_identity(source_root: Path, *, config_digest: str, source_mani
         untracked = _relative_to_source_root(untracked, prefix)
         patch_digest = _write_dirty_patch(runner, source_root, output_dir) if changed else None
     return BuildIdentity(commit_sha, bool(changed or untracked), patch_digest, tuple(sorted(untracked)),
-                         config_digest, source_manifest_digest)
+                         config_digest, source_manifest_digest, build_recipe, xcode_version)
