@@ -119,13 +119,28 @@ class SimpleDiscoveryTests(unittest.TestCase):
         self.assertEqual(guess_test_scheme(("App", "OtherTests", "BTests"), "App"), "BTests")
         self.assertEqual(guess_test_scheme(("ZTests", "AppZTests", "AppATests"), "App"), "AppATests")
 
-    def test_read_app_settings_missing_bundle_id_is_user_error(self):
-        entry = build_settings_entry("App", APP_TYPE, "x")
-        del entry["buildSettings"]["PRODUCT_BUNDLE_IDENTIFIER"]
-        fake = FakeToolRunner([(("xcodebuild",), json.dumps([entry, "junk"]))])
+    def test_guess_test_scheme_app_named_beats_earlier_sorted_candidate(self):
+        self.assertEqual(guess_test_scheme(("App", "AAATests", "AppTests"), "App"), "AppTests")
+
+    def assert_invalid_build_settings(self, entries):
+        """주어진 showBuildSettings 배열이 build_settings_invalid 로 거부되는지 확인한다."""
+        fake = FakeToolRunner([(("xcodebuild",), json.dumps(entries))])
         with self.assertRaises(SimpleError) as caught:
             read_app_settings(Path("/tmp"), "App.xcodeproj", "App", fake)
         self.assertEqual(caught.exception.code, "build_settings_invalid")
+
+    def test_read_app_settings_missing_bundle_id_is_user_error(self):
+        entry = build_settings_entry("App", APP_TYPE, "x")
+        del entry["buildSettings"]["PRODUCT_BUNDLE_IDENTIFIER"]
+        self.assert_invalid_build_settings([entry])
+
+    def test_read_app_settings_missing_target_name_is_user_error(self):
+        entry = build_settings_entry("App", APP_TYPE, "x")
+        del entry["buildSettings"]["TARGET_NAME"]
+        self.assert_invalid_build_settings([entry])
+
+    def test_read_app_settings_non_dict_entry_is_user_error(self):
+        self.assert_invalid_build_settings([build_settings_entry("App", APP_TYPE, "x"), "junk"])
 
 
 if __name__ == "__main__":
