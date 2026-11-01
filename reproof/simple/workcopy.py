@@ -141,17 +141,33 @@ def _outside_link_error(relative: str, target_text: str) -> SimpleError:
     )
 
 
+def _stays_inside_lexically(link_directory: str, target_text: str) -> bool:
+    """상대 링크 문자열을 링크 폴더(소스 루트 기준) 아래에서 글자로만 정리했을 때 소스 루트 안에 머무는지 본다.
+
+    링크를 따라가지 않고 '.'·'..'·중복 '/'만 접는다(os.path.normpath). 절대 경로이거나 루트 위('..')로 나가면 False.
+    """
+    if os.path.isabs(target_text):
+        return False
+    normalized = os.path.normpath(os.path.join(link_directory, target_text))
+    return normalized != ".." and not normalized.startswith("../")
+
+
 def _symlink_text_in_copy(link: Path, source_root: Path, copy_link: Path, copy_root: Path) -> str:
-    """원본 링크가 가리키는 곳을 사본 안의 같은 위치로 옮긴, 사본 링크 위치 기준 상대 링크 문자열을 돌려준다.
+    """사본에 만들 링크 문자열을 돌려준다. 소스 밖으로 풀리는 링크는 source_symlink_outside.
 
     link: 원본의 링크. copy_link: 사본에 만들 링크 경로. copy_root: 사본 루트(source_root에 대응).
-    왜 원문을 그대로 쓰지 않나: '../'를 충분히 쓴 상대 링크는 원본 절대 경로로 돌아갈 수 있어, 사본에서도 원본을
-    가리킨다. 해석한 대상(realpath)을 source_root 기준으로 사본에 옮겨 적으면 사본은 항상 사본 안을 가리킨다.
-    반환: 링크 문자열. 주의: 해석한 대상이 소스 밖이면 source_symlink_outside.
+    상대 링크가 글자상 소스 안에 머물면 원문을 바이트 그대로 쓴다. 왜: 서명된 framework·XCFramework는
+    `Headers -> Versions/Current/Headers` 같은 링크 문자열까지 봉인하므로, 끝까지 푼 경로로 바꾸면 서명 검증이 깨진다.
+    절대 링크와 글자상 소스 밖으로 나가는 상대 링크('../'를 충분히 써서 원본 절대 경로로 돌아가는 모양)만, 해석한 대상
+    (realpath)을 source_root 기준으로 사본에 옮긴 상대 링크로 다시 만든다(사본이 원본을 가리키지 않게).
+    마지막 안전망은 _verify_links_inside_copy다(사본의 실제 해석 결과로 다시 확인).
     """
     resolved = Path(os.path.realpath(link))
+    target_text = os.readlink(link)
     if not _is_inside(resolved, source_root):
-        raise _outside_link_error(str(link.relative_to(source_root)), os.readlink(link))
+        raise _outside_link_error(str(link.relative_to(source_root)), target_text)
+    if _stays_inside_lexically(os.path.relpath(link.parent, source_root), target_text):
+        return target_text
     return os.path.relpath(copy_root / resolved.relative_to(source_root), copy_link.parent)
 
 

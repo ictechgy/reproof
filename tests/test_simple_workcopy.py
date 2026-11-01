@@ -78,6 +78,38 @@ class WorkingCopyTests(unittest.TestCase):
         self.assertEqual(os.readlink(dest / "deep" / "er" / "link.swift"), "../../a.swift")
         self.assertEqual(copy.manifest_digest, tree_digest(dest))
 
+    def test_chained_relative_links_inside_source_are_kept_verbatim(self):
+        """소스 안에 머무는 상대 링크는 바이트 그대로 둔다(링크를 거친 링크도 펼치지 않는다).
+
+        왜: 서명된 framework·XCFramework는 `Headers -> Versions/Current/Headers` 같은 링크 문자열까지 봉인한다.
+        끝까지 푼 `Versions/A/Headers`로 바꾸면 `codesign --verify --strict`가 "sealed resource is missing or invalid"로
+        실패한다.
+        """
+        source, dest = self.tmp / "src", self.tmp / "dest"
+        framework = source / "Vendor" / "Kit.framework"
+        write(framework / "Versions" / "A" / "Headers" / "Kit.h", "// kit")
+        write(framework / "Versions" / "A" / "Kit", "binary")
+        expected = {"Versions/Current": "A", "Headers": "Versions/Current/Headers", "Kit": "Versions/Current/Kit"}
+        for name, text in expected.items():
+            os.symlink(text, framework / name)
+        os.symlink("./Kit.framework/../Kit.framework/Headers/Kit.h", source / "Vendor" / "dotted.h")
+        materialize_working_copy(source, dest)
+        copied = dest / "Vendor" / "Kit.framework"
+        for name in ("Headers", "Kit", "Versions/Current"):
+            with self.subTest(link=name):
+                self.assertEqual(os.readlink(copied / name), expected[name])
+        self.assertEqual(os.readlink(dest / "Vendor" / "dotted.h"), "./Kit.framework/../Kit.framework/Headers/Kit.h")
+        self.assertEqual((copied / "Headers" / "Kit.h").read_text(), "// kit")
+
+    def test_relative_link_that_leaves_source_lexically_is_rewritten_inside_copy(self):
+        """상대 링크가 글자상 소스 밖으로 나갔다 들어오면(`../src/a.swift`) 원문을 쓰지 않고 사본 안 경로로 다시 만든다."""
+        source, dest = self.tmp / "src", self.tmp / "dest"
+        write(source / "a.swift", "original")
+        os.symlink("../src/a.swift", source / "back.swift")
+        materialize_working_copy(source, dest)
+        self.assertEqual(os.readlink(dest / "back.swift"), "a.swift")
+        self.assertEqual(os.path.realpath(dest / "back.swift"), os.path.join(os.path.realpath(dest), "a.swift"))
+
     def test_file_swapped_for_symlink_after_lstat_is_not_followed(self):
         """lstat 뒤 open 전에 파일이 밖을 가리키는 링크로 바뀌어도 그 대상을 읽지 않고 source_changed로 멈춘다."""
         from unittest import mock
