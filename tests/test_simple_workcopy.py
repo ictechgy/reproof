@@ -59,6 +59,25 @@ class WorkingCopyTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "source_symlink_outside")
         self.assertFalse(dest2.exists())
 
+    def test_relative_symlink_through_absolute_path_points_inside_copy(self):
+        """'../'를 충분히 써서 원본 절대 경로로 돌아가는 상대 링크도 사본 안의 같은 파일을 가리켜야 한다.
+
+        왜: 원문 그대로 다시 만들면 사본의 링크가 원본 저장소를 가리켜, 생성기가 그 링크로 원본을 고칠 수 있다.
+        """
+        source, dest = self.tmp / "src", self.tmp / "dest"
+        write(source / "a.swift", "original")
+        (source / "deep" / "er").mkdir(parents=True)
+        absolute = os.path.realpath(source / "a.swift").lstrip("/")
+        os.symlink("../" * 40 + absolute, source / "deep" / "er" / "link.swift")
+        os.symlink(os.path.realpath(source / "deep"), source / "abs-dir")
+        copy = materialize_working_copy(source, dest)
+        real_dest = os.path.realpath(dest)
+        for link, expected in (("deep/er/link.swift", "a.swift"), ("abs-dir", "deep")):
+            with self.subTest(link=link):
+                self.assertEqual(os.path.realpath(dest / link), os.path.join(real_dest, expected))
+        self.assertEqual(os.readlink(dest / "deep" / "er" / "link.swift"), "../../a.swift")
+        self.assertEqual(copy.manifest_digest, tree_digest(dest))
+
     def test_file_count_limit_reports_limit_and_remedy(self):
         source, dest = self.tmp / "src", self.tmp / "dest"
         for name in "abc":

@@ -51,6 +51,10 @@ class _Manifest:
         """
         self.limits = limits
         self.is_copy = is_copy
+        self.copy_root: Path | None = None
+        """복사 중일 때 사본 루트. 링크를 사본 안으로 다시 계산할 때 쓴다."""
+        self.links: list[Path] = []
+        """복사 중에 사본에 만든 링크들. 복사가 끝난 뒤 사본 안으로 풀리는지 한꺼번에 확인한다."""
         self.directory_modes: list[tuple[Path, int]] = []
         self.lines: list[tuple[bytes, str]] = []
         self.file_count = 0
@@ -90,22 +94,44 @@ def _is_excluded(name: str, is_root: bool) -> bool:
     return name in EXCLUDED_NAMES or (is_root and name in ROOT_ONLY_EXCLUDED_NAMES)
 
 
-def _symlink_target_inside(link: Path, source_root: Path) -> str:
-    """링크가 source 안을 가리키면 사본에 쓸 링크 문자열을, 밖이면 오류를 돌려준다.
+def _is_inside(path: Path, root: Path) -> bool:
+    """path가 root 자신이거나 root 아래인지 경로 구성요소로 판단한다(문자열 접두사 비교의 '/a' vs '/ab' 오류 방지)."""
+    return path == root or root in path.parents
 
-    상대 링크는 원문 그대로, 절대 링크는 사본에서도 유효하도록 링크 위치 기준 상대 경로로 바꾼다.
+
+def _outside_link_error(relative: str, target_text: str) -> SimpleError:
+    """앱 소스(또는 작업 사본) 밖을 가리키는 링크를 알리는 source_symlink_outside 오류를 만든다."""
+    return SimpleError(
+        "source_symlink_outside",
+        f"심볼릭 링크 '{relative}'가 앱 소스 밖({target_text})을 가리킵니다.",
+        "링크를 소스 폴더 안의 실제 파일로 바꾸거나 제거한 뒤 다시 실행하세요.",
+    )
+
+
+def _symlink_text_in_copy(link: Path, source_root: Path, copy_link: Path, copy_root: Path) -> str:
+    """원본 링크가 가리키는 곳을 사본 안의 같은 위치로 옮긴, 사본 링크 위치 기준 상대 링크 문자열을 돌려준다.
+
+    link: 원본의 링크. copy_link: 사본에 만들 링크 경로. copy_root: 사본 루트(source_root에 대응).
+    왜 원문을 그대로 쓰지 않나: '../'를 충분히 쓴 상대 링크는 원본 절대 경로로 돌아갈 수 있어, 사본에서도 원본을
+    가리킨다. 해석한 대상(realpath)을 source_root 기준으로 사본에 옮겨 적으면 사본은 항상 사본 안을 가리킨다.
+    반환: 링크 문자열. 주의: 해석한 대상이 소스 밖이면 source_symlink_outside.
     """
-    target_text = os.readlink(link)
     resolved = Path(os.path.realpath(link))
-    if resolved != source_root and source_root not in resolved.parents:
-        raise SimpleError(
-            "source_symlink_outside",
-            f"심볼릭 링크 '{link.relative_to(source_root)}'가 앱 소스 밖({target_text})을 가리킵니다.",
-            "링크를 소스 폴더 안의 실제 파일로 바꾸거나 제거한 뒤 다시 실행하세요.",
-        )
-    if os.path.isabs(target_text):
-        return os.path.relpath(resolved, os.path.realpath(link.parent))
-    return target_text
+    if not _is_inside(resolved, source_root):
+        raise _outside_link_error(str(link.relative_to(source_root)), os.readlink(link))
+    return os.path.relpath(copy_root / resolved.relative_to(source_root), copy_link.parent)
+
+
+def _verify_links_inside_copy(links: list[Path], copy_root: Path) -> None:
+    """사본에 만든 링크가 모두(다른 링크를 거쳐도) 사본 안으로 풀리는지 확인한다. 하나라도 밖이면 source_symlink_outside.
+
+    왜: 링크 문자열을 계산으로 만들었더라도, 모든 항목이 생긴 뒤의 실제 해석 결과로 한 번 더 확인해 원본 저장소를
+    가리키는 링크가 남지 않게 하려는 것이다.
+    """
+    real_root = Path(os.path.realpath(copy_root))
+    for link in links:
+        if not _is_inside(Path(os.path.realpath(link)), real_root):
+            raise _outside_link_error(str(link.relative_to(copy_root)), os.readlink(link))
 
 
 def _reject_special_file(path: Path, root: Path) -> None:
@@ -170,15 +196,23 @@ def _visit(entry: os.DirEntry, child_target: Path | None, root: Path, manifest: 
             manifest.directory_modes.append((child_target, stat.S_IMODE(mode)))
         stack.append((path, child_target))
     elif stat.S_ISLNK(mode):
-        link_text = _symlink_target_inside(path, source_root) if manifest.is_copy else os.readlink(path)
-        manifest.add(relative, "link", 0, link_text)
-        manifest.count_file(0)
-        if child_target:
-            os.symlink(link_text, child_target)
+        _visit_link(path, relative, child_target, manifest, source_root)
     elif stat.S_ISREG(mode):
         _visit_regular_file(path, relative, mode, child_target, manifest)
     else:
         _reject_special_file(path, root)
+
+
+def _visit_link(path: Path, relative: str, child_target: Path | None, manifest: _Manifest, source_root: Path) -> None:
+    """링크 하나를 기록한다. 복사 중이면 사본 안을 가리키도록 다시 계산한 링크를 만들고 나중 검증 목록에 넣는다."""
+    if child_target is None:
+        link_text = os.readlink(path)
+    else:
+        link_text = _symlink_text_in_copy(path, source_root, child_target, manifest.copy_root)
+        os.symlink(link_text, child_target)
+        manifest.links.append(child_target)
+    manifest.add(relative, "link", 0, link_text)
+    manifest.count_file(0)
 
 
 def _visit_regular_file(path: Path, relative: str, mode: int, child_target: Path | None, manifest: _Manifest) -> None:
@@ -201,10 +235,12 @@ def materialize_working_copy(source: Path, destination: Path, limits: CopyLimits
     source_root = Path(os.path.realpath(source))
     _validate_paths(source_root, destination)
     manifest = _Manifest(limits, is_copy=True)
+    manifest.copy_root = destination
     destination.mkdir(parents=True)
     manifest.directory_modes.append((destination, stat.S_IMODE(os.stat(source_root).st_mode)))
     try:
         _walk(source_root, destination, source_root, manifest, source_root)
+        _verify_links_inside_copy(manifest.links, destination)
         _apply_directory_modes(manifest.directory_modes)
     except BaseException as error:
         _discard_partial_copy(destination, error)
