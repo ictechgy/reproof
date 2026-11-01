@@ -136,14 +136,17 @@ def _fake_process(pid=4321, *, exit_code=None, exits_after_stop=False):
     """Popen 대역. poll()은 exit_code(None이면 실행 중)를 돌려준다.
 
     exits_after_stop이 True면 timeout이 있는 wait도 바로 끝나고(stop 뒤 스스로 종료), False면 시간 초과를 낸다.
-    timeout 없는 wait()는 항상 바로 끝난다(SIGKILL 뒤 회수).
+    SIGTERM 유예 대기(2초) 뒤의 wait와 timeout 없는 wait()는 바로 끝난다(SIGKILL 뒤 회수를 흉내 낸다).
     """
     process = mock.Mock(pid=pid)
     process.poll.return_value = exit_code
+    state = {"is_terminated": False}
 
     def wait(timeout=None):
-        if timeout is None or exits_after_stop:
+        if timeout is None or exits_after_stop or state["is_terminated"]:
             return 0
+        if timeout == runner_client._TERMINATE_GRACE_SECONDS:
+            state["is_terminated"] = True  # 다음 wait는 SIGKILL 뒤 회수다.
         raise subprocess.TimeoutExpired("xcodebuild", timeout)
 
     process.wait.side_effect = wait
@@ -522,7 +525,8 @@ class RunnerClientTests(unittest.TestCase):
             with self.session(server.server_address[1]):
                 self.assertEqual(killpg.call_args_list, [])
         self.assertEqual([request["body"]["action"] for request in server.requests], ["status", "stop"])
-        self.assertEqual(process.wait.call_args_list, [mock.call(timeout=10), mock.call(timeout=2), mock.call()])
+        self.assertEqual(process.wait.call_args_list,
+                         [mock.call(timeout=10), mock.call(timeout=2), mock.call(timeout=10)])  # 자연 종료·SIGTERM·SIGKILL 뒤
         self.assertEqual(killpg.call_args_list, [mock.call(4321, signal.SIGTERM), mock.call(4321, signal.SIGKILL)])
 
     def test_session_exit_kills_group_when_runner_keeps_running(self):
@@ -532,7 +536,8 @@ class RunnerClientTests(unittest.TestCase):
         with patched_process(process, server) as (_, killpg):
             with self.session(server.server_address[1]):
                 pass
-        self.assertEqual(process.wait.call_args_list, [mock.call(timeout=10), mock.call(timeout=2), mock.call()])
+        self.assertEqual(process.wait.call_args_list,
+                         [mock.call(timeout=10), mock.call(timeout=2), mock.call(timeout=10)])  # 자연 종료·SIGTERM·SIGKILL 뒤
         self.assertEqual(killpg.call_args_list, [mock.call(4321, signal.SIGTERM), mock.call(4321, signal.SIGKILL)])
         self.assertEqual(self.log_path.read_text(encoding="utf-8").count("[reproof]"), 2)
 
@@ -566,7 +571,7 @@ class RunnerClientTests(unittest.TestCase):
         self.assertTrue(session_dir.is_dir())
         self.assertIn(str(session_dir), raised.exception.remedy)
         self.assertIn("비밀", raised.exception.remedy)
-        self.assertNotIn(mock.call(timeout=10), process.wait.call_args_list)
+        self.assertEqual(process.wait.call_args_list[0], mock.call(timeout=2))  # stop 실패면 자연 종료를 기다리지 않는다.
         written = self.log_path.read_text(encoding="utf-8")
         self.assertGreaterEqual(written.count("[reproof]"), 1)  # 진단이 실제로 쓰였는지 확인해 빈 로그로 통과하지 않게 한다.
         for secret in secrets_of(popen):
@@ -677,9 +682,31 @@ class RunnerClientTests(unittest.TestCase):
         signals = [call.args[1] for call in killpg.call_args_list]
         self.assertIn(signal.SIGTERM, signals)
         self.assertIn(signal.SIGKILL, signals)
-        self.assertEqual(process.wait.call_args_list[-1], mock.call())
+        self.assertEqual(process.wait.call_args_list[-1], mock.call(timeout=10))
         self.assertFalse(session_dir_of(popen).exists())
         self.assertIn("EPERM", self.log_path.read_text(encoding="utf-8"))
+
+    def test_wait_after_sigkill_is_bounded_and_cleanup_finishes(self):
+        """SIGKILL 뒤에도 xcodebuild가 끝나지 않으면 제한 없이 기다리지 않고(최대 10초) 로그에 남긴 뒤 정리를 마친다.
+
+        왜: 제한 없는 wait()는 프로젝트·Simulator 잠금을 쥔 채 inspect를 영원히 멈추게 한다.
+        """
+        server = self.start_fake_runner()
+        process = mock.Mock(pid=4321)
+        process.poll.return_value = None
+
+        def stuck_wait(timeout=None):
+            if timeout is None:
+                raise AssertionError("제한 없는 wait()를 부르면 안 됩니다.")
+            raise subprocess.TimeoutExpired("xcodebuild", timeout)
+
+        process.wait.side_effect = stuck_wait
+        with patched_process(process, server) as (popen, killpg):
+            with self.session(server.server_address[1]):
+                pass
+        self.assertEqual(process.wait.call_args_list[-1], mock.call(timeout=10))
+        self.assertIn("SIGKILL 뒤", self.log_path.read_text(encoding="utf-8"))
+        self.assertFalse(session_dir_of(popen).exists())
 
     # --- 빌드·리소스 ---
 
@@ -763,6 +790,34 @@ class RunnerClientTests(unittest.TestCase):
         newer = build_runner(output, FakeToolRunner([(("xcodebuild", "-version"), "Xcode 27.1\n"),
                                                      (("xcodebuild", "build-for-testing"), build)]))
         self.assertNotEqual(older.xctestrun.parent, newer.xctestrun.parent)
+
+    def test_build_runner_cache_key_changes_with_runner_recipe_version(self):
+        """실행기 빌드 방법 버전(RUNNER_RECIPE_VERSION)이 바뀌면 캐시 키가 달라져 옛 실행기를 재사용하지 않는다."""
+        def build(argv, cwd, env_extra):
+            products = Path(argv[argv.index("-derivedDataPath") + 1]) / "Build" / "Products"
+            products.mkdir(parents=True)
+            (products / "SimpleRunner.xctestrun").write_text("plist")
+            return ""
+
+        output = self.tmp / "out"
+        responses = [(("xcodebuild", "-version"), "Xcode 27.0\n"), (("xcodebuild", "build-for-testing"), build)]
+        older = build_runner(output, FakeToolRunner(responses))
+        with mock.patch.object(runner_client, "RUNNER_RECIPE_VERSION", 99, create=True):
+            newer = build_runner(output, FakeToolRunner(responses))
+        self.assertNotEqual(older.xctestrun.parent, newer.xctestrun.parent)
+
+    def test_build_runner_refuses_symlinked_runner_folder(self):
+        """runner-src·runner-dd 자리에 링크가 있으면 링크 너머를 지우지 않고 workspace_symlink로 멈춘다."""
+        victim = self.tmp / "victim"
+        victim.mkdir()
+        (victim / "keep.txt").write_text("지우면 안 됨", encoding="utf-8")
+        output = self.tmp / "out"
+        output.mkdir()
+        (output / "runner-src").symlink_to(victim)
+        with self.assertRaises(SimpleError) as raised:
+            build_runner(output, FakeToolRunner([]))
+        self.assertEqual(raised.exception.code, "workspace_symlink")
+        self.assertTrue((victim / "keep.txt").is_file())
 
     def test_build_runner_without_runner_source_raises_simple_error(self):
         """실행기 소스 리소스를 읽지 못하면 xcodebuild를 부르기 전에 runner_source_missing을 내는지 본다."""

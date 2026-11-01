@@ -353,16 +353,21 @@ def _apply_directory_modes(directory_modes: list[tuple[Path, int]]) -> None:
         os.chmod(directory, mode)
 
 
+def refuse_symlinked_tree(root: Path) -> None:
+    """지우거나 권한을 고칠 트리의 루트가 심볼릭 링크면 workspace_symlink로 거절한다(링크 너머는 건드리지 않는다)."""
+    if stat.S_ISLNK(os.lstat(root).st_mode):
+        raise SimpleError("workspace_symlink",
+                          f"지우려던 '{root}'가 심볼릭 링크입니다. 링크가 가리키는 폴더는 건드리지 않았습니다.",
+                          "링크가 가리키는 곳을 확인한 뒤 링크만 직접 지우고(rm) 다시 실행하세요.")
+
+
 def _make_tree_writable(root: Path) -> None:
     """삭제가 가능하도록 root 아래 모든 디렉터리에 u+rwx를 복구한다(링크는 따라가지 않는다).
 
     주의: root 자체가 링크면 workspace_symlink로 거절한다. 왜: 링크를 따라 chmod하면 작업 공간 밖 폴더 전체의
     권한이 바뀌고, 이어지는 삭제가 링크 너머를 지울 수 있기 때문이다.
     """
-    if stat.S_ISLNK(os.lstat(root).st_mode):
-        raise SimpleError("workspace_symlink",
-                          f"지우려던 '{root}'가 심볼릭 링크입니다. 링크가 가리키는 폴더는 건드리지 않았습니다.",
-                          "링크가 가리키는 곳을 확인한 뒤 링크만 직접 지우고(rm) 다시 실행하세요.")
+    refuse_symlinked_tree(root)
     stack = [root]
     while stack:
         directory = stack.pop()

@@ -32,7 +32,7 @@ from .hierarchy import Element, parse_hierarchy
 from .locking import runner_lock
 from .pipeline import make_private_directory
 from .process import ToolRunner, build_default_environment
-from .workcopy import open_private_log, tree_digest
+from .workcopy import open_private_log, refuse_symlinked_tree, tree_digest
 
 # 실행기 소스의 리소스 경로 접두사. 복사할 때 이 부분을 떼고 runner-src 아래에 둔다.
 RUNNER_PREFIX = "ios/SimpleRunner/"
@@ -63,6 +63,8 @@ _PROBE_TIMEOUT = 5.0
 _POLL_INTERVAL = 0.5
 # SIGTERM 뒤 SIGKILL까지 기다리는 시간(초).
 _TERMINATE_GRACE_SECONDS = 2
+# SIGKILL 뒤 회수를 기다리는 최대 시간(초). 넘으면 로그에 남기고 정리를 이어 간다(잠금을 쥔 채 멈추지 않게).
+_KILL_REAP_SECONDS = 10
 # stop 성공 뒤 xcodebuild가 스스로 끝나기를 기다리는 시간(초). 결과 정리를 마치게 해 BUILD INTERRUPTED를 피한다.
 _NATURAL_EXIT_SECONDS = 10
 # duration이 있는 제스처 명령의 응답 대기 여유(초). 제스처 시간 + 이 값까지 기다린다.
@@ -98,15 +100,32 @@ def runner_build_argv(derived_data: Path) -> list[str]:
             "-derivedDataPath", str(derived_data), "CODE_SIGNING_ALLOWED=NO"]
 
 
+RUNNER_RECIPE_VERSION = 1
+"""실행기 빌드 방법(runner_build_argv 규칙)의 버전. 산출물이 달라지는 방법 변경 때마다 1씩 올린다.
+
+캐시 키에 들어가므로, 올리면 옛 실행기 빌드를 재사용하지 않고 새로 빌드한다. 기록: 1 = 서명 끔(CODE_SIGNING_ALLOWED=NO).
+"""
+
+
 def runner_cache_key(xcode_version: str, source_digest: str) -> str:
-    """(xcodebuild -version 출력, 실행기 소스 tree_digest)의 sha256 앞 16자. Xcode나 소스가 바뀌면 키도 바뀐다."""
-    return hashlib.sha256(f"{xcode_version}\n{source_digest}".encode("utf-8")).hexdigest()[:16]
+    """(빌드 방법 버전, xcodebuild -version 출력, 실행기 소스 tree_digest)의 sha256 앞 16자.
+
+    Xcode·소스·빌드 방법 중 하나라도 바뀌면 키가 바뀐다. 왜 빌드 방법까지: 소스가 같아도 argv(빌드 설정)가 바뀌면 산출물이
+    달라지므로 옛 캐시를 재사용하면 안 된다(앱 빌드의 BUILD_RECIPE_VERSION과 같은 이유).
+    """
+    material = f"{RUNNER_RECIPE_VERSION}\n{xcode_version}\n{source_digest}"
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
 def _remove_tree(path: Path) -> None:
-    """path가 있으면 트리째 지운다. 실행기 폴더는 이 모듈이 만든 것뿐이라 권한 복구는 필요 없다."""
-    if path.exists():
-        shutil.rmtree(path)
+    """path가 있으면 트리째 지운다. 실행기 폴더는 이 모듈이 만든 것뿐이라 권한 복구는 필요 없다.
+
+    주의: path 자체가 링크면 workspace_symlink로 거절한다(링크 너머 폴더를 지우지 않게).
+    """
+    if not os.path.lexists(path):
+        return
+    refuse_symlinked_tree(path)
+    shutil.rmtree(path)
 
 
 def _read_runner_file(name: str) -> bytes:
@@ -575,7 +594,7 @@ class RunnerSession:
             self._log.close()
 
     def _stop_process_group(self) -> None:
-        """SIGTERM → 최대 2초 대기 → SIGKILL. 부모가 끝나도 그룹의 자식이 남을 수 있어 SIGKILL은 항상 보낸다.
+        """SIGTERM → 최대 2초 대기 → SIGKILL → 최대 10초 회수 대기. 부모가 끝나도 그룹의 자식이 남을 수 있어 SIGKILL은 항상 보낸다.
 
         SIGKILL은 finally에 둔다: 대기 중 Ctrl-C나 로그 쓰기 오류가 나도 그룹이 남지 않게 하려는 것이다.
         """
@@ -587,7 +606,19 @@ class RunnerSession:
                 self._note(f"xcodebuild가 {_TERMINATE_GRACE_SECONDS}초 안에 끝나지 않아 SIGKILL로 정리합니다.")
         finally:
             self._signal_group(signal.SIGKILL)
-            self._process.wait()
+            self._reap_after_kill()
+
+    def _reap_after_kill(self) -> None:
+        """SIGKILL 뒤 최대 10초 회수를 기다린다. 넘으면 로그에 남기고 돌아간다.
+
+        왜 제한을 두나: 신호가 EPERM으로 닿지 않았거나 커널이 늦게 정리하면 제한 없는 wait()가 프로젝트·Simulator 잠금을
+        쥔 채 inspect를 영원히 멈추게 한다. 남았을 수 있는 프로세스는 로그 안내로 알린다.
+        """
+        try:
+            self._process.wait(timeout=_KILL_REAP_SECONDS)
+        except subprocess.TimeoutExpired:
+            self._note(f"SIGKILL 뒤 {_KILL_REAP_SECONDS}초 안에 xcodebuild(pid {self._process.pid})가 끝나지 않았습니다. "
+                       "정리를 이어 갑니다. 남은 프로세스는 `pgrep -fl SimpleRunner`로 확인하세요.")
 
     def _signal_group(self, signal_number: int) -> None:
         """세션 프로세스 그룹에 신호를 보낸다. EPERM은 signal_process_group이 최대 2초 다시 시도한다.
