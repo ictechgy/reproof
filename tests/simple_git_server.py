@@ -8,7 +8,7 @@ import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from reproof.simple.process import HostToolRunner
 
@@ -55,11 +55,27 @@ class _GitHandler(BaseHTTPRequestHandler):
             environment["HTTP_CONTENT_ENCODING"] = self.headers["Content-Encoding"]
         return environment
 
-    def _run_backend(self, body: bytes) -> bytes:
-        """git http-backend를 실행해 CGI 응답 전체(헤더+본문)를 돌려준다."""
+    def _is_path_allowed(self) -> bool:
+        """PATH_INFO에 `..`이 없고 저장소 루트 아래로 풀리는지 확인한다. 왜: 루트 밖 파일 노출을 막기 위해서다."""
+        path = unquote(urlsplit(self.path).path)
+        if ".." in path:
+            return False
+        root = self.server.root.resolve()
+        return (root / path.lstrip("/")).resolve().is_relative_to(root)
+
+    def _send_error_text(self, status: int, message: str) -> None:
+        """상태 코드와 짧은 텍스트 본문으로 오류 응답을 보낸다."""
+        payload = message.encode("utf-8", "replace")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _run_backend(self, body: bytes) -> subprocess.CompletedProcess:
+        """git http-backend를 실행해 종료 코드·CGI 출력(헤더+본문)·stderr를 돌려준다."""
         backend = _git_exec_path() / "git-http-backend"
-        result = subprocess.run([str(backend)], input=body, env=self._cgi_environment(), capture_output=True, check=False)
-        return result.stdout
+        return subprocess.run([str(backend)], input=body, env=self._cgi_environment(), capture_output=True, check=False)
 
     def _send_cgi_response(self, output: bytes) -> None:
         """CGI 출력의 헤더(Status 포함)를 해석해 HTTP 응답으로 내보낸다."""
@@ -68,7 +84,10 @@ class _GitHandler(BaseHTTPRequestHandler):
         for line in head.decode("iso-8859-1").splitlines():
             name, _, value = line.partition(":")
             if name.lower() == "status":
-                status = int(value.strip().split()[0])
+                try:
+                    status = int(value.strip().split()[0])
+                except (ValueError, IndexError):
+                    return self._send_error_text(500, f"잘못된 CGI Status 헤더: {line!r}")
             elif name:
                 headers.append((name, value.strip()))
         self.send_response(status)
@@ -83,7 +102,12 @@ class _GitHandler(BaseHTTPRequestHandler):
         if not self._is_authorized():
             return self._reject()
         body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-        self._send_cgi_response(self._run_backend(body))
+        if not self._is_path_allowed():
+            return self._send_error_text(403, "허용되지 않은 경로입니다.")
+        result = self._run_backend(body)
+        if result.returncode != 0:
+            return self._send_error_text(500, "git http-backend 실패: " + result.stderr.decode("utf-8", "replace"))
+        self._send_cgi_response(result.stdout)
 
     do_GET = _handle
     do_POST = _handle
@@ -136,7 +160,17 @@ class HomeOverrideRunner(HostToolRunner):
         self._home = home
 
     def run(self, argv, *, cwd, timeout, log_path=None, env_extra=None) -> str:
-        """호출자의 env_extra에 HOME 등을 더해 부모 run을 부른다."""
+        """호출자의 env_extra에 HOME 등을 더해 부모 run을 부른다. xcodebuild에는 -packageCachePath를 덧붙인다.
+
+        왜: xcodebuild는 SwiftPM 저장소 캐시를 $HOME과 무관하게 실제 ~/Library에 두므로, 테스트가 사용자 캐시를
+        건드리지 않게 임시 HOME 안으로 돌린다. 제품 코드(packages.py)는 일부러 사용자의 기본 캐시를 그대로 쓴다.
+        한계(실측): 이 플래그로도 manifest 캐시(~/Library/Caches/org.swift.swiftpm/manifests)는 실제 위치에 갱신되고,
+        패키지 지문(~/Library/org.swift.swiftpm/security)은 여전히 읽힌다. 실행마다 리비전이 달라지면 지문 불일치로
+        실패하므로 -packageFingerprintPolicy warn으로 경고만 하게 한다(실측: 지문 파일은 더 이상 쓰이지 않음).
+        """
+        if Path(argv[0]).name == "xcodebuild":
+            argv = [*argv, "-packageCachePath", str(self._home / "swiftpm-cache"),
+                    "-packageFingerprintPolicy", "warn"]
         overrides = {"HOME": str(self._home), "GIT_CONFIG_NOSYSTEM": "1",
                      "XDG_CONFIG_HOME": str(self._home / ".config")}
         return super().run(argv, cwd=cwd, timeout=timeout, log_path=log_path, env_extra={**(env_extra or {}), **overrides})
