@@ -40,6 +40,27 @@ def signal_process_group(process,signal_number):
         process.poll();time.sleep(_GROUP_SIGNAL_RETRY_INTERVAL)
 
 
+# 그룹 SIGKILL이 실패했을 때 리더 회수를 기다리는 최대 시간(초).
+_UNSIGNALLED_REAP_SECONDS=10
+
+
+def _kill_group_and_reap(process):
+    """그룹에 SIGKILL을 보내고, 신호가 실패(PermissionError)해도 리더를 반드시 회수(wait)한 뒤 그 오류를 다시 던진다.
+
+    왜: 신호 오류가 wait()를 건너뛰면 리더가 회수되지 않은 채 남는다. 신호가 실패했으면 리더가 아직 살아 있을 수 있어
+    최대 10초만 기다린다(그 뒤에도 안 끝나면 원래 PermissionError를 그대로 알린다).
+    """
+    try:
+        signal_process_group(process,signal.SIGKILL)
+    except PermissionError:
+        try:
+            process.wait(timeout=_UNSIGNALLED_REAP_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass  # 회수하지 못한 리더는 아래에서 다시 던지는 PermissionError로 알린다.
+        raise
+    process.wait()
+
+
 def apply_edits(root, edits, allowed):
     root=Path(root).resolve();require(isinstance(edits,list) and 0<len(edits)<=10,'Expected 1–10 explicit edits')
     staged={}
@@ -157,15 +178,15 @@ def run_command(command,cwd,*,stdin=None,timeout=300,max_output=2*1024*1024,env_
                     except OSError:
                         pass  # Optional diagnostics must never prevent child-process cleanup.
                 # Terminate the whole job group, including children left by a completed parent.
-                signal_process_group(process,signal.SIGTERM)
                 try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    pass
+                    signal_process_group(process,signal.SIGTERM)
+                    try:
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        pass
                 finally:
                     # A completed parent does not imply that its children exited.
-                    signal_process_group(process,signal.SIGKILL)
-                    process.wait()
+                    _kill_group_and_reap(process)
 
 
 def build_android(source,gradle,java_home,sdk_home,task,apk_relative,timeout=300,app_profile=None,android_user_home=None):

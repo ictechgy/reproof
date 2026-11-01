@@ -272,6 +272,25 @@ class RunCommandGroupCleanupTests(unittest.TestCase):
         self.assertTrue(reaper.finished.is_set())
         self.assertEqual(output, "ok\n")
 
+    def test_leader_is_reaped_even_when_group_signals_keep_failing(self):
+        """시간 초과 정리에서 그룹 신호가 계속 EPERM이어도 리더를 회수(wait)한 뒤 PermissionError를 던지는지 본다.
+
+        왜: 예전에는 SIGTERM의 PermissionError가 SIGKILL과 wait()를 건너뛰어, 끝나지 않은 자식이 회수되지 않은 채 남았다.
+        """
+        denied = PermissionError(errno.EPERM, "Operation not permitted")
+        spawned, real_popen = [], repair.subprocess.Popen
+
+        def recording_popen(*arguments, **options):
+            spawned.append(real_popen(*arguments, **options))
+            return spawned[-1]
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(repair, "_GROUP_SIGNAL_RETRY_SECONDS", 0.05, create=True), \
+                mock.patch.object(repair.subprocess, "Popen", side_effect=recording_popen), \
+                mock.patch("os.killpg", side_effect=denied), self.assertRaises(PermissionError):
+            run_command(["/bin/sleep", "1"], tmp, timeout=0.2)
+        self.assertIsNotNone(spawned[0].returncode)
+
     def test_group_that_stays_eperm_is_retried_then_reraised(self):
         """재시도 한도 뒤에도 EPERM이면 예전처럼 PermissionError를 다시 던지는지(실패 쪽으로 닫힘) 본다."""
         denied = PermissionError(errno.EPERM, "Operation not permitted")
