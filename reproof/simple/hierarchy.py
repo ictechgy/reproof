@@ -158,15 +158,16 @@ def _is_better_hit(candidate: Element, best: Element | None) -> bool:
 def element_at(root: Element, x: float, y: float) -> Element | None:
     """좌표 (x, y)에 해당하는 요소를 돌려준다. 없으면 None.
 
-    가장 깊은 요소를 고르고, 그 조상 중 interactive가 있으면 가장 가까운 조상을 돌려준다.
+    가장 깊은 요소를 고른다. 그 요소가 interactive면 그대로 돌려주고(셀 안의 버튼은 셀이 아니라 버튼),
+    아니면 조상 중 가장 가까운 interactive를 돌려준다.
     왜: 버튼 안쪽 Text를 눌러도 녹화 대상은 버튼이어야 재생이 안정적이다.
     """
     best: Element | None = None
     for element in iter_elements(root):
         if element.frame.contains(x, y) and _is_better_hit(element, best):
             best = element
-    if best is None:
-        return None
+    if best is None or best.element_type in INTERACTIVE_TYPES:
+        return best
     for ancestor in ancestors_of(root, best):
         if ancestor.element_type in INTERACTIVE_TYPES:
             return ancestor

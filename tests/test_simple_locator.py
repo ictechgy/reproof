@@ -64,7 +64,7 @@ class LocatorTests(unittest.TestCase):
         self.assertEqual(r.element.label, "합계 1")
 
     def test_missing_element_is_none(self):
-        evidence = LocatorEvidence("", "button", "없는 버튼", "", 0, 99)
+        evidence = LocatorEvidence("", "button", "없는 버튼", "", 0, 99, 1, 100)
         r = resolve(self.root, evidence)
         self.assertEqual((r.element, r.strength, r.matched_by, r.candidate_count), (None, "none", "none", 0))
 
@@ -105,6 +105,62 @@ class LocatorTests(unittest.TestCase):
         with self.assertRaises(SimpleError) as caught:
             parse_hierarchy(document)
         self.assertEqual(caught.exception.code, "hierarchy_invalid")
+
+    def _rows(self, document):
+        """SwiftUI 섹션의 행 목록(문서 안의 실제 리스트)을 돌려준다."""
+        return document["children"][1]["children"]
+
+    def _second_add_evidence(self):
+        adds = [e for e in iter_elements(self.root) if e.label == "추가"]
+        return capture_evidence(self.root, adds[1])
+
+    def test_removed_sibling_does_not_resolve_to_another_button(self):
+        evidence = self._second_add_evidence()
+        document = load_document()
+        del self._rows(document)[2]
+        r = resolve(parse_hierarchy(document), evidence)
+        self.assertEqual((r.element, r.strength, r.matched_by), (None, "none", "none"))
+
+    def test_removed_first_row_does_not_shift_pick(self):
+        evidence = self._second_add_evidence()
+        document = load_document()
+        del self._rows(document)[0]
+        r = resolve(parse_hierarchy(document), evidence)
+        self.assertIsNone(r.element)
+
+    def test_removed_element_does_not_pick_neighbor_by_position(self):
+        evidence = capture_evidence(self.root, find(self.root, label="합계 2"))
+        document = load_document()
+        document["children"][2]["children"] = []
+        r = resolve(parse_hierarchy(document), evidence)
+        self.assertEqual((r.element, r.matched_by), (None, "none"))
+
+    def test_duplicate_identifier_falls_through_to_label(self):
+        target = find(self.root, identifier="cart.clear")
+        evidence = capture_evidence(self.root, target)
+        document = load_document()
+        document["children"][0]["children"][2]["identifier"] = "cart.clear"
+        r = resolve(parse_hierarchy(document), evidence)
+        self.assertEqual((r.strength, r.matched_by), ("weak", "type-label-anchor"))
+        self.assertEqual(r.element.label, "비우기")
+
+    def test_element_in_cell_returns_button_not_cell(self):
+        document = load_document()
+        document["children"][1]["children"] = [{
+            "type": "cell", "identifier": "", "label": "", "value": "", "placeholder": "",
+            "frame": [0, 300, 390, 60], "enabled": True, "selected": False, "children": [{
+                "type": "button", "identifier": "", "label": "추가", "value": "", "placeholder": "",
+                "frame": [300, 310, 70, 40], "enabled": True, "selected": False, "children": []}]}]
+        root = parse_hierarchy(document)
+        self.assertEqual(element_at(root, 320, 320).element_type, "button")
+        self.assertEqual(element_at(root, 10, 320).element_type, "cell")
+
+    def test_malformed_evidence_document_is_rejected(self):
+        good = capture_evidence(self.root, find(self.root, label="담기")).to_document()
+        for bad in ({k: v for k, v in good.items() if k != "label"}, {**good, "labelOrdinal": "0"}):
+            with self.assertRaises(SimpleError) as caught:
+                LocatorEvidence.from_document(bad)
+            self.assertEqual(caught.exception.code, "locator_evidence_invalid")
 
 
 if __name__ == "__main__":

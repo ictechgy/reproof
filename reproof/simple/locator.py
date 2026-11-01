@@ -4,7 +4,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
+from reproof.simple.errors import SimpleError
 from reproof.simple.hierarchy import AUTO_ID_PREFIX, Element, ancestors_of, iter_elements
+
+
+def _invalid_evidence(detail: str) -> SimpleError:
+    """저장된 locator 근거가 손상됐을 때의 오류를 만든다."""
+    return SimpleError(
+        "locator_evidence_invalid",
+        f"저장된 요소 근거가 손상됐습니다: {detail}",
+        "해당 단계를 다시 녹화하세요.",
+    )
 
 
 @dataclass(frozen=True)
@@ -21,6 +31,8 @@ class LocatorEvidence:
     anchor_identifier: str
     label_ordinal: int
     position_ordinal: int
+    label_count: int
+    position_count: int
 
     def to_document(self) -> dict:
         """JSON으로 저장할 dict로 바꾼다."""
@@ -28,15 +40,27 @@ class LocatorEvidence:
             "identifier": self.identifier, "elementType": self.element_type, "label": self.label,
             "anchorIdentifier": self.anchor_identifier, "labelOrdinal": self.label_ordinal,
             "positionOrdinal": self.position_ordinal,
+            "labelCount": self.label_count, "positionCount": self.position_count,
         }
 
     @classmethod
     def from_document(cls, document: Mapping) -> "LocatorEvidence":
-        """to_document()가 만든 dict에서 복원한다. 키가 없으면 KeyError가 그대로 전달된다(저장 파일 손상 신호)."""
-        return cls(
-            document["identifier"], document["elementType"], document["label"],
-            document["anchorIdentifier"], document["labelOrdinal"], document["positionOrdinal"],
-        )
+        """to_document()가 만든 dict에서 복원한다.
+
+        키가 없거나 타입이 틀리면 SimpleError("locator_evidence_invalid"). 왜: 손상된 저장 파일로
+        엉뚱한 요소를 찾지 않고, 사용자에게 다시 녹화하라고 안내하기 위해서다.
+        """
+        text_keys = ("identifier", "elementType", "label", "anchorIdentifier")
+        count_keys = ("labelOrdinal", "positionOrdinal", "labelCount", "positionCount")
+        try:
+            texts = [document[k] for k in text_keys]
+            counts = [document[k] for k in count_keys]
+        except (KeyError, TypeError) as error:
+            raise _invalid_evidence(f"필드 누락: {error}") from error
+        if not all(isinstance(t, str) for t in texts) or not all(
+                isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in counts):
+            raise _invalid_evidence("필드 타입이 올바르지 않습니다.")
+        return cls(*texts, *counts)
 
 
 @dataclass(frozen=True)
@@ -71,6 +95,7 @@ def capture_evidence(root: Element, element: Element) -> LocatorEvidence:
     return LocatorEvidence(
         element.identifier, element.element_type, element.label, anchor,
         _index_by_path(same_label, element), _index_by_path(same_type, element),
+        len(same_label), len(same_type),
     )
 
 
@@ -91,9 +116,14 @@ def _resolve_by_identifier(root: Element, evidence: LocatorEvidence) -> Resoluti
 
 
 def _resolve_by_label(root: Element, evidence: LocatorEvidence) -> Resolution | None:
-    """2,3단계: (종류, label, 앵커) 후보가 하나면 type-label-anchor, 여럿이면 label_ordinal번째."""
+    """2,3단계: (종류, label, 앵커) 후보가 하나면 type-label-anchor, 여럿이면 label_ordinal번째.
+
+    후보 수가 녹화 때(label_count)와 다르면 순번이 밀렸을 수 있어 건너뛴다.
+    """
     candidates = [e for e in _same_type_anchor(root, evidence.element_type, evidence.anchor_identifier)
                   if e.label == evidence.label]
+    if len(candidates) != evidence.label_count:
+        return None
     if len(candidates) == 1:
         return Resolution(candidates[0], "weak", "type-label-anchor", 1)
     if 0 <= evidence.label_ordinal < len(candidates):
@@ -102,8 +132,13 @@ def _resolve_by_label(root: Element, evidence: LocatorEvidence) -> Resolution | 
 
 
 def _resolve_by_position(root: Element, evidence: LocatorEvidence) -> Resolution | None:
-    """4단계: label이 바뀐 경우를 위해 (종류, 앵커) 요소 중 position_ordinal번째를 고른다."""
+    """4단계: label이 바뀐 경우를 위해 (종류, 앵커) 요소 중 position_ordinal번째를 고른다.
+
+    목록 크기가 녹화 때(position_count)와 다르면 요소가 추가/삭제된 것이라 이웃을 잘못 고를 수 있어 건너뛴다.
+    """
     candidates = _same_type_anchor(root, evidence.element_type, evidence.anchor_identifier)
+    if len(candidates) != evidence.position_count:
+        return None
     if 0 <= evidence.position_ordinal < len(candidates):
         return Resolution(candidates[evidence.position_ordinal], "weak", "position-ordinal", len(candidates))
     return None
