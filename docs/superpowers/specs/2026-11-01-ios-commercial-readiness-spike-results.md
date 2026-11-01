@@ -377,14 +377,21 @@ other가 되지만 실행기 계층에서는 staticText다(이번 탭 30개에�
    12/12)에서 실행기 계층과 같은 (종류, label, frame)을, B로는 28/30에서 같은 (종류, label)을 줬다. 변환 실행이
    "원본 화면과 다르게 흘러갔는지" 판단할 때, 녹화 때 앱 안에서 본 label·frame과 변환 실행에서 XCUITest가 찾은 요소를
    비교하는 방법이 있다.
-3. **iOS 27 탭 바에서 `element_at`이 탭 버튼 대신 장식용 `other`를 골랐다(`46a3031`에서 고침).** 화면 이동 탭 2개(UIKit 탭 버튼 `요약`,
+3. **iOS 27 탭 바에서 `element_at`이 탭 버튼 대신 장식용 `other`를 골랐다(`46a3031`에서 고치고 `da1db86`에서 범위를 제한).** 화면 이동 탭 2개(UIKit 탭 버튼 `요약`,
    `장바구니`)에서 `element_at`은 `other ''`를 돌려줬다. 실행기 계층에서 탭 버튼(깊이 11)보다 깊은 label 없는 `other`
    (깊이 12·15, 같은 영역)가 있기 때문이다. 앱 안 프로브는 `_UITabButton` `요약`(button)을 찾았다. 측정 30개 밖(UIKit)이라
-   일치율에는 넣지 않았다. `inspect --point`와 녹화의 요소 고르기에 영향이 있어, 가장 깊은 요소가 장식용(비interactive,
-   label·identifier·value가 모두 빔)이면 좌표를 포함하는 가장 깊은 interactive를 먼저 고르도록 고쳤다(픽스처
-   `tests/fixtures/simple/hierarchy-tabbar-ios27.json`, 테스트 4개). S1·S2에 저장된 계층 105개의 모든 요소 중심 8,583곳에서
-   전후를 비교하면 바뀐 2,516곳은 모두 장식용 요소에서 그 좌표를 포함하는 interactive(탭 버튼, 키보드 추천 막대 버튼,
-   Wikipedia 탭·온보딩 버튼, 셀)로 바뀐 경우였고, S2 측정 30개의 정답은 바뀌지 않았다.
+   일치율에는 넣지 않았다. `inspect --point`와 녹화의 요소 고르기에 영향이 있어 다음처럼 고쳤다(픽스처
+   `tests/fixtures/simple/hierarchy-tabbar-ios27.json`, 테스트 8개).
+   - 가장 깊은 요소가 장식용(비interactive, label·identifier·value가 모두 빔)이면 좌표를 포함하는 가장 깊은 interactive를
+     먼저 고른다.
+   - 다만 덮개와 그 interactive의 가장 가까운 공통 조상이 application·window가 아니고, 그 넓이가 창 넓이의 90% 미만일
+     때만 그렇게 한다. 아니면 이전처럼 덮개(`other ''`)를 돌려준다. 화면 전체를 덮는 빈 view(모달 배경 등) 뒤의 버튼을
+     고르면 틀린 요소가 되고, 틀린 요소는 못 찾는 것보다 나쁘기 때문이다(재검토에서 합성 계층으로 확인된 문제).
+   - S1·S2에 저장된 계층 105개의 모든 요소 중심 8,583곳에서 원래 코드와 비교하면 바뀐 곳은 2,246곳이다. 모두 MixedShop
+     탭 버튼(`요약` 1,523, `장바구니` 723)으로 바뀌었고 위반은 0건이다. S2 측정 30개의 정답은 바뀌지 않았다.
+   - 남은 한계: 탭·버튼을 덮는 빈 view가 화면 전체 조상만 공유하면 지금도 `other ''`다. 예: MixedShop 옵션 화면에서 List의
+     아래 스크롤 가장자리 덮개(0, 719, 393×133)가 `요약` 탭을 덮는 경우, Wikipedia 탭 바(`홈`, `저장된 문서`, `검색`),
+     내비게이션 뒤로 버튼, 키보드 창의 키(공통 조상이 application). 이런 좌표는 계획 2에서 "요소 없음"으로 다뤄야 한다.
 4. **SwiftUI Toggle의 스위치 부분을 누르면 `element_at`이 label 없는 안쪽 `switch`를 고른다.** 그러면 녹화 locator가 빈
    label 근거가 된다(S1 지침의 "확인 필요"). 같은 Toggle의 행을 누르면 label 있는 바깥 `switch '선물 포장'`이다. 계획
    2에서 두 switch를 하나로 볼지 정해야 한다.
@@ -396,7 +403,7 @@ other가 되지만 실행기 계층에서는 staticText다(이번 탭 30개에�
 ### 이 spike가 남긴 것
 
 커밋: `spikes/inapp-touch/`(`TouchProbe.swift`, `TouchProbeBootstrap.m`, `apply.py`, `measure.py`, README), 이 절, 설계 문서
-7장 spike 2의 잠정 결정. 툴 수정은 `element_at` 하나다(`46a3031`, 위 발견 3).
+7장 spike 2의 잠정 결정. 툴 수정은 `element_at` 하나다(`46a3031`, `da1db86`, 위 발견 3).
 
 이 Mac에 남은 것: `~/.reproof/spikes/s2/`(약 464 MB: 프로브를 넣은 사본 소스, 빌드 3개, run 4개의 JSONL·탭 직전 계층·세션
 로그, `report.md`(전체 탭별 표), `details.json`). 세션 폴더는 모두 정상 종료로 지워졌다. Simulator `reproof-mixedshop`은
