@@ -213,8 +213,9 @@ git ls-remote git@github.com:회사/비공개-패키지.git     # 목록이 나�
 
 - **작업 공간 `~/.reproof`**(또는 `REPROOF_HOME`·`--workspace`): 빌드(`projects/<이름>/builds/<빌드 ID>/`), 패키지 캐시
   (`cache/spm`), 실행기(`runner`), crash 로그(`logs`). 새 작업 공간 폴더와 도구 폴더(`projects`·`builds`·`cache`·`runner`·
-  `logs`·`tmp`)는 소유자만 쓰는 0700이다(이미 있던 작업 공간 폴더 자체의 권한은 바꾸지 않고, 링크로 둔 하위 폴더도 그대로
-  둔다). 완성 빌드는 재사용 전에 `.app`의 digest·bundle id·경로가 기록과 같은지 다시 확인하고, 다르면 다시 빌드한다. 빌드는 크다(Wikipedia 앱은 빌드 하나에 약 3.8 GB). 소스·설정·Xcode가
+  `logs`·`tmp`)는 소유자만 쓰는 0700이다. 도구 폴더가 링크·파일이거나 다른 사용자 것이면 쓰지 않고 `workspace_untrusted`로
+  멈춘다(다른 디스크를 쓰려면 하위 폴더 링크 대신 `REPROOF_HOME`·`--workspace`로 작업 공간 자체를 옮긴다). 이미 있던 작업
+  공간 폴더 자체는 내 소유여야 하고, 그룹·다른 사용자 쓰기가 열려 있으면 0700으로 좁힌다(그 밖의 권한은 바꾸지 않는다). 완성 빌드는 재사용 전에 `.app`의 digest·bundle id·경로가 기록과 같은지 다시 확인하고, 다르면 다시 빌드한다. 빌드는 크다(Wikipedia 앱은 빌드 하나에 약 3.8 GB). 소스·설정·Xcode가
   바뀌면 새 빌드 ID 폴더가 생기고 옛 폴더는 자동으로 지우지 않는다. 지울 때는 그 프로젝트의 `build`·`inspect`가 돌고 있지
   않을 때 `rm -rf ~/.reproof/projects/<이름>/builds/<빌드 ID>`처럼 폴더 단위로 지운다(`.partial`로 끝나는 폴더는 진행 중이거나
   끊긴 빌드이고, 다음 실행이 어차피 다시 만든다). 작업 사본은 원본의 읽기 전용 권한을 그대로 가져오므로 `Permission denied`가 나면
@@ -243,6 +244,7 @@ git ls-remote git@github.com:회사/비공개-패키지.git     # 목록이 나�
 | `point_invalid` | `--point` 형식 오류 | `--point 195,420`처럼 숫자 두 개 |
 | `runner_start_failed` | 실행기 세션이 시작되지 않음 | `inspect-session.log`를 확인하고, Simulator가 부팅됐는지 `xcrun simctl list devices`로 확인 |
 | `project_busy` / `runner_busy` / `simulator_busy` / `package_cache_busy` | 다른 터미널에서 같은 프로젝트(또는 실행기 준비, 같은 Simulator, 같은 Swift 패키지 캐시)가 실행 중 | 그 실행이 끝난 뒤 다시 실행(잠금은 실행이 끝나면 자동으로 풀림) |
+| `workspace_untrusted` | 작업 공간 폴더나 도구 폴더가 링크·파일이거나 다른 사용자 것 | 안내된 경로를 본인 소유 폴더로 바꾸거나 `REPROOF_HOME`으로 다른 위치 지정 |
 | `lock_directory_untrusted` | 임시 폴더의 `reproof-<uid>` 잠금 폴더가 링크이거나 다른 사용자 것 | 그 경로를 확인해 지우거나 `TMPDIR`을 본인 폴더로 바꿈 |
 | `file_operation_failed` | 읽을 수 없는 파일, 디스크 부족, 읽기 전용 폴더 | 안내된 파일의 권한(`ls -l`)이나 디스크 여유 공간 확인 |
 | `내부 오류입니다. 이 로그를 첨부해 알려 주세요` | 예상하지 못한 오류 | 안내된 `crash-*.log`(작업 공간 `logs/`)를 첨부해 알림 |

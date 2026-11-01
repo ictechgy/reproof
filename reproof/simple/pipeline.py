@@ -1,6 +1,7 @@
 """빌드 파이프라인: 식별 → 작업 사본 → (생성) → 패키지 → Debug 빌드. 끊긴 빌드는 이어 쓰지 않고 다시 시작한다."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -46,28 +47,61 @@ TOOL_DIRECTORIES = ("projects", "cache", "cache/spm", "runner", "logs", "tmp")
 """작업 공간 바로 아래에 도구가 만드는 폴더. 모두 0700으로 둔다(prepare_workspace 참고)."""
 
 
-def make_private_directory(path: Path) -> Path:
-    """path를 0700 폴더로 만들고, 이미 있으면 내 소유의 실제 폴더(링크 아님)일 때만 0700으로 좁힌 뒤 돌려준다.
+def _current_uid() -> int:
+    """현재 사용자의 uid. 테스트에서 다른 소유자 상황을 흉내 내려고 함수로 분리했다."""
+    return os.getuid()
 
-    왜 링크는 그대로 두나: 사용자가 캐시 등을 다른 디스크로 옮기려고 일부러 링크를 둘 수 있고, 링크를 따라 chmod하면
-    작업 공간 밖 폴더의 권한을 바꾸게 된다.
+
+def _untrusted(path: Path, detail: str) -> SimpleError:
+    """작업 공간 폴더를 믿을 수 없을 때의 workspace_untrusted 오류를 만든다(경로와 이유를 밝힌다)."""
+    return SimpleError("workspace_untrusted", f"작업 공간의 {path}을(를) 쓸 수 없습니다: {detail}.",
+                       "그 경로가 무엇인지 확인해 본인 소유의 폴더로 바꾸거나(링크라면 링크만 지우고) 다시 실행하세요. "
+                       "작업 공간을 다른 디스크에 두려면 링크 대신 REPROOF_HOME이나 --workspace로 위치를 지정하세요.")
+
+
+def make_private_directory(path: Path) -> Path:
+    """path를 0700 폴더로 만들거나, 이미 있는 내 소유의 실제 폴더를 0700으로 좁힌 뒤 돌려준다(fail closed).
+
+    왜 멈추나: 도구 폴더가 링크면 그 너머(작업 공간 밖)에 소스 사본·로그를 쓰게 되고, 파일이거나 다른 사용자의 폴더면
+    그 사람이 내용을 읽거나 바꿀 수 있다. 그런 경우 조용히 쓰지 않고 workspace_untrusted로 멈춘다.
     """
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with contextlib.suppress(FileExistsError):  # 이미 있으면(링크·파일 포함) 아래에서 종류·소유자를 확인한다.
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
     info = os.lstat(path)
-    if stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid():
-        os.chmod(path, 0o700)
+    if stat.S_ISLNK(info.st_mode):
+        raise _untrusted(path, "심볼릭 링크입니다")
+    if not stat.S_ISDIR(info.st_mode):
+        raise _untrusted(path, "폴더가 아닙니다")
+    if info.st_uid != _current_uid():
+        raise _untrusted(path, "다른 사용자의 폴더입니다")
+    os.chmod(path, 0o700)
     return path
 
 
+def _check_workspace_root(workspace_root: Path) -> None:
+    """작업 공간 루트(링크면 대상)가 내 소유의 폴더인지 보고, 그룹·다른 사용자 쓰기가 열려 있으면 0700으로 좁힌다.
+
+    왜 루트는 링크를 허용하나: 사용자가 작업 공간을 다른 디스크로 옮기려고 ~/.reproof를 링크로 둘 수 있다. 대신 대상이
+    남의 폴더면 거절한다. 쓰기가 막힌 기존 권한(예: 0755)은 사용자가 정한 것이라 바꾸지 않는다.
+    """
+    info = os.stat(workspace_root)
+    if not stat.S_ISDIR(info.st_mode):
+        raise _untrusted(workspace_root, "폴더가 아닙니다")
+    if info.st_uid != _current_uid():
+        raise _untrusted(workspace_root, "다른 사용자의 폴더입니다")
+    if info.st_mode & 0o022:
+        os.chmod(workspace_root, 0o700)
+
+
 def prepare_workspace(workspace_root: Path) -> None:
-    """작업 공간을 준비한다: 없으면 0700으로 만들고, 도구 폴더(TOOL_DIRECTORIES)는 만들거나 0700으로 좁힌다.
+    """작업 공간을 준비한다: 없으면 0700으로 만들고, 루트를 확인한 뒤 도구 폴더(TOOL_DIRECTORIES)를 만들거나 0700으로 좁힌다.
 
     왜: 빌드 폴더에는 회사 앱 소스 전체 사본·dirty.patch·화면 계층이, 실행기 캐시에는 비밀 값을 받는 바이너리가 있어
-    같은 Mac의 다른 계정이 읽거나 바꾸면 안 된다. 이미 있는 작업 공간 폴더 자체는 사용자가 지정한 위치일 수 있어
-    권한을 바꾸지 않는다(그 아래 도구 폴더가 0700이라 내용은 보호된다).
+    같은 Mac의 다른 계정이 읽거나 바꾸면 안 된다. 주의: 믿을 수 없는 폴더는 workspace_untrusted(fail closed).
     """
     if not os.path.lexists(workspace_root):
         workspace_root.mkdir(mode=0o700, parents=True)
+    _check_workspace_root(workspace_root)
     for name in TOOL_DIRECTORIES:
         make_private_directory(workspace_root / name)
 

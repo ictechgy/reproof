@@ -326,6 +326,52 @@ class SimpleBuildTests(unittest.TestCase):
         self.assertEqual(os.stat(self.workspace).st_mode & 0o777, 0o755)
         self.assertEqual(os.stat(self.workspace / "projects").st_mode & 0o777, 0o700)
 
+    def _assert_workspace_untrusted(self) -> None:
+        """prepare_build가 작업 공간을 바꾸기 전에 workspace_untrusted로 멈추는지 확인한다."""
+        with self.assertRaises(SimpleError) as raised:
+            self._first_build()
+        self.assertEqual(raised.exception.code, "workspace_untrusted")
+        self.assertEqual(self.builds, [])
+
+    def test_tool_directory_that_is_a_symlink_or_file_is_refused(self):
+        """도구 폴더(cache 등)가 링크이거나 파일이면 따라가거나 덮어쓰지 않고 workspace_untrusted로 멈춘다(fail closed)."""
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir()
+        os.chmod(elsewhere, 0o755)
+        self.workspace.mkdir()
+        (self.workspace / "cache").symlink_to(elsewhere)
+        self._assert_workspace_untrusted()
+        self.assertEqual(os.stat(elsewhere).st_mode & 0o777, 0o755)
+        self.assertEqual(list(elsewhere.iterdir()), [])
+        (self.workspace / "cache").unlink()
+        (self.workspace / "cache").write_text("파일")
+        self._assert_workspace_untrusted()
+
+    def test_tool_directory_owned_by_another_user_is_refused(self):
+        """도구 폴더가 다른 사용자 소유면(공유 위치를 작업 공간으로 지정한 경우 등) workspace_untrusted로 멈춘다."""
+        (self.workspace / "projects").mkdir(parents=True)
+        real_lstat, owner = os.lstat, os.getuid() + 1
+
+        def foreign_lstat(path, *arguments, **options):
+            result = real_lstat(path, *arguments, **options)
+            if Path(path) == self.workspace / "projects":
+                return os.stat_result((result.st_mode, result.st_ino, result.st_dev, result.st_nlink, owner,
+                                       result.st_gid, result.st_size, 0, 0, 0))
+            return result
+
+        with mock.patch("reproof.simple.pipeline.os.lstat", side_effect=foreign_lstat):
+            self._assert_workspace_untrusted()
+
+    def test_group_or_other_writable_workspace_root_is_tightened_or_refused(self):
+        """작업 공간 루트가 그룹·다른 사용자에게 쓰기 가능하면 내 것은 0700으로 좁히고, 남의 것이면 거절한다."""
+        self.workspace.mkdir()
+        os.chmod(self.workspace, 0o777)
+        self._first_build()
+        self.assertEqual(os.stat(self.workspace).st_mode & 0o777, 0o700)
+        with mock.patch("reproof.simple.pipeline._current_uid", return_value=os.getuid() + 1):
+            self.builds.clear()
+            self._assert_workspace_untrusted()
+
     def test_find_app_bundle_skips_plist_with_non_dict_root(self):
         products = self.tmp / "products"
         bad = products / "Bad.app"
