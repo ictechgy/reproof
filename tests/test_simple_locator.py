@@ -146,6 +146,44 @@ class LocatorTests(unittest.TestCase):
         self.assertEqual((r.strength, r.matched_by), ("weak", "type-label-anchor"))
         self.assertEqual(r.element.label, "비우기")
 
+    @staticmethod
+    def _node(element_type, identifier, label, frame, children=()):
+        """계층 JSON 노드 하나를 만든다."""
+        return {"type": element_type, "identifier": identifier, "label": label, "value": "", "placeholder": "",
+                "frame": list(frame), "enabled": True, "selected": False, "children": list(children)}
+
+    def _screen(self, *buttons):
+        """identifier 'screen'인 화면 아래에 (identifier, label) 버튼들을 세로로 놓은 계층을 만든다."""
+        nodes = [self._node("button", identifier, label, (0, 100 + 50 * index, 390, 44))
+                 for index, (identifier, label) in enumerate(buttons)]
+        return parse_hierarchy(self._node("application", "", "App", (0, 0, 390, 844), [
+            self._node("other", "screen", "", (0, 0, 390, 844), nodes)]))
+
+    def test_replacement_with_different_identifier_is_never_chosen(self):
+        """'checkout/Pay' 자리에 'delete-account/Delete account'가 오면 위치가 같아도 찾지 않는다(none).
+
+        왜: 기록한 identifier와 다른 identifier를 가진 요소는 다른 요소라는 강한 근거다. 위치·순번만 맞는다고 고르면
+        결제 대신 계정 삭제를 누를 수 있다. 못 찾는 쪽이 틀린 요소를 누르는 것보다 낫다.
+        """
+        before = self._screen(("checkout", "Pay"))
+        evidence = capture_evidence(before, find(before, identifier="checkout"))
+        after = self._screen(("delete-account", "Delete account"))
+        r = resolve(after, evidence)
+        self.assertEqual((r.element, r.strength, r.matched_by), (None, "none", "none"))
+
+    def test_duplicate_identifier_list_keeps_ordinal_among_same_identifier(self):
+        """identifier가 중복된 목록(row.add ×3)은 같은 identifier 후보 안에서 순번으로 찾고, 다른 identifier 요소가 끼어도
+        순번이 밀리지 않는다."""
+        rows = [("row.add", "추가")] * 3
+        before = self._screen(*rows)
+        second = [e for e in iter_elements(before) if e.identifier == "row.add"][1]
+        evidence = capture_evidence(before, second)
+        after = self._screen(("promo.add", "추가"), *rows)
+        r = resolve(after, evidence)
+        self.assertEqual((r.matched_by, r.candidate_count), ("label-ordinal", 3))
+        self.assertEqual(r.element.identifier, "row.add")
+        self.assertEqual(r.element.frame.y, 200)
+
     def test_element_in_cell_returns_button_not_cell(self):
         document = load_document()
         document["children"][1]["children"] = [{

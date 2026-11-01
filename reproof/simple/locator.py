@@ -81,16 +81,22 @@ def _anchor_of(root: Element, element: Element) -> str:
     return ""
 
 
-def _same_type_anchor(root: Element, element_type: str, anchor: str) -> list[Element]:
-    """(종류, 앵커)가 같은 요소를 pre-order로 모은다."""
+def _same_type_anchor(root: Element, element_type: str, anchor: str, identifier: str) -> list[Element]:
+    """(종류, 앵커)가 같고, identifier가 비어 있지 않으면 identifier까지 같은 요소를 pre-order로 모은다.
+
+    왜 identifier로 거르나: 기록한 identifier와 다른 identifier를 가진 요소는 다른 요소라는 강한 근거다. 위치·순번이
+    맞는다고 그런 요소(예: 'checkout' 자리에 온 'delete-account')를 고르면 틀린 요소를 누른다. 같은 identifier가 여러 개인
+    목록은 거른 후보 안에서 순번을 세므로 다른 identifier 요소가 끼어도 순번이 밀리지 않는다.
+    """
     return [e for e in iter_elements(root)
-            if e.element_type == element_type and _anchor_of(root, e) == anchor]
+            if e.element_type == element_type and _anchor_of(root, e) == anchor
+            and (not identifier or e.identifier == identifier)]
 
 
 def capture_evidence(root: Element, element: Element) -> LocatorEvidence:
-    """element에서 locator 근거를 뽑는다. 순번은 root 트리 기준이다."""
+    """element에서 locator 근거를 뽑는다. 순번·개수는 root 트리 기준이며 resolve와 같은 후보 규칙(_same_type_anchor)을 쓴다."""
     anchor = _anchor_of(root, element)
-    same_type = _same_type_anchor(root, element.element_type, anchor)
+    same_type = _same_type_anchor(root, element.element_type, anchor, element.identifier)
     same_label = [e for e in same_type if e.label == element.label]
     return LocatorEvidence(
         element.identifier, element.element_type, element.label, anchor,
@@ -118,10 +124,11 @@ def _resolve_by_identifier(root: Element, evidence: LocatorEvidence) -> Resoluti
 def _resolve_by_label(root: Element, evidence: LocatorEvidence) -> Resolution | None:
     """2,3단계: (종류, label, 앵커) 후보가 하나면 type-label-anchor, 여럿이면 label_ordinal번째.
 
+    기록한 identifier가 있으면 같은 identifier인 요소만 후보다(_same_type_anchor 참고).
     후보 수가 녹화 때(label_count)와 다르면 순번이 밀렸을 수 있어 건너뛴다.
     """
-    candidates = [e for e in _same_type_anchor(root, evidence.element_type, evidence.anchor_identifier)
-                  if e.label == evidence.label]
+    candidates = [e for e in _same_type_anchor(root, evidence.element_type, evidence.anchor_identifier,
+                                               evidence.identifier) if e.label == evidence.label]
     if len(candidates) != evidence.label_count:
         return None
     if len(candidates) == 1:
@@ -132,11 +139,11 @@ def _resolve_by_label(root: Element, evidence: LocatorEvidence) -> Resolution | 
 
 
 def _resolve_by_position(root: Element, evidence: LocatorEvidence) -> Resolution | None:
-    """4단계: label이 바뀐 경우를 위해 (종류, 앵커) 요소 중 position_ordinal번째를 고른다.
+    """4단계: label이 바뀐 경우를 위해 (종류, 앵커) 요소 중 position_ordinal번째를 고른다(identifier가 있으면 같은 것만).
 
     목록 크기가 녹화 때(position_count)와 다르면 요소가 추가/삭제된 것이라 이웃을 잘못 고를 수 있어 건너뛴다.
     """
-    candidates = _same_type_anchor(root, evidence.element_type, evidence.anchor_identifier)
+    candidates = _same_type_anchor(root, evidence.element_type, evidence.anchor_identifier, evidence.identifier)
     if len(candidates) != evidence.position_count:
         return None
     if 0 <= evidence.position_ordinal < len(candidates):
