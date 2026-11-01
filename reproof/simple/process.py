@@ -16,8 +16,8 @@ from .workcopy import replacing_file
 
 # 실패 시 오류에 싣는 로그 끝부분 크기(바이트).
 _TAIL_BYTES = 4096
-# 잘린 창의 첫 조각이 끝나는 글자(공백·탭·줄바꿈).
-_FIRST_SEPARATOR = re.compile(rb"[ \t\n]")
+# 줄바꿈이 없는 잘린 창에서 첫 조각이 끝나는 글자(공백·탭).
+_FIRST_SEPARATOR = re.compile(rb"[ \t]")
 # run_command가 로그에서 stdout과 stderr 사이에 넣는 구분 줄.
 _STDERR_MARKER = "\n--- stderr ---\n"
 # 안내문에 싣는 마지막 출력 줄 수와 최대 글자 수.
@@ -107,10 +107,14 @@ def read_log_tail(log_path: Path | None) -> str:
 
 
 def _drop_partial_start(data: bytes) -> bytes:
-    """앞에서 잘린 창의 첫 조각(첫 공백·탭·줄바꿈까지)을 버린다. 그런 글자가 없으면 판단할 수 없어 전부 버린다.
+    """앞에서 잘린 창의 첫 조각을 버린다. 줄바꿈이 있으면 첫 줄바꿈까지(잘린 줄 전체), 없으면 첫 공백·탭까지,
+    그런 글자도 없으면 판단할 수 없어 전부 버린다.
 
-    왜 조각만: 긴 마지막 줄 하나가 원인일 때 줄 전체를 버리면 안내문이 비므로, 단서를 잃은 첫 낱말만 버린다.
+    왜 줄 전체인가: `Authorization: ` 바로 뒤에서 잘린 `Basic <값>`처럼 앞 단서를 잃은 줄은 첫 낱말만 버려도 값이 남는다.
+    줄바꿈이 없을 때만 낱말 단위로 버리는 이유: 긴 마지막 줄 하나가 원인일 때 안내문이 비지 않게 하려는 것이다.
     """
+    if b"\n" in data:
+        return data.partition(b"\n")[2]
     match = _FIRST_SEPARATOR.search(data)
     return data[match.end():] if match else b""
 

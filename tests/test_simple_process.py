@@ -272,6 +272,19 @@ class ToolOutputMaskingTests(unittest.TestCase):
             short.write_text("first line\nlast line\n", encoding="utf-8")
             self.assertEqual(read_log_tail(short), "first line\nlast line\n")
 
+    def test_log_tail_drops_whole_partial_first_line_when_window_has_newline(self):
+        """창 안에 줄바꿈이 있으면 첫 낱말이 아니라 첫 줄바꿈까지 버린다(잘린 `Basic <값>` 줄의 값이 남지 않게)."""
+        from reproof.simple.process import read_log_tail
+        partial = "Basic dXNlcjpwYXNzd29yZA== sent\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "a.log"
+            tail = "error: request rejected\n"
+            filler = "\n" * (4096 - len(partial) - len(tail))
+            log.write_text("x" * 50 + "Authorization: " + partial + filler + tail, encoding="utf-8")
+            text = read_log_tail(log)
+            self.assertNotIn("dXNlcjpwYXNz", text)
+            self.assertIn("error: request rejected", summarize_tool_output(text))
+
     def test_overlong_line_drops_partial_first_token_before_masking(self):
         """4096자를 넘는 줄은 끝쪽만 보되, 창 시작에서 잘린 첫 조각(쿼리 이름이 잘린 비밀 등)은 버리고 가린다."""
         from reproof.simple.redaction import mask_secrets
