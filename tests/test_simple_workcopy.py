@@ -113,6 +113,51 @@ class WorkingCopyTests(unittest.TestCase):
         write(source / "a.sh", "2", 0o644)
         self.assertNotEqual(first, materialize_working_copy(source, self.tmp / "d4").manifest_digest)
 
+    def _make_removable_on_cleanup(self, *roots: Path) -> None:
+        """테스트가 만든 읽기 전용 디렉터리를 정리 전에 쓰기 가능으로 되돌린다."""
+        def restore():
+            for root in roots:
+                for directory, _, _ in os.walk(root):
+                    os.chmod(directory, 0o755)
+        self.addCleanup(restore)
+
+    def test_read_only_source_directory_is_copied_and_mode_preserved(self):
+        source, dest = self.tmp / "src", self.tmp / "dest"
+        write(source / "ro/a", "1")
+        write(source / "ro/inner/b", "2")
+        (source / "ro/inner").chmod(0o555)
+        (source / "ro").chmod(0o555)
+        self._make_removable_on_cleanup(source, dest)
+        copy = materialize_working_copy(source, dest)
+        self.assertEqual(copy.file_count, 2)
+        self.assertEqual((dest / "ro").stat().st_mode & 0o777, 0o555)
+        self.assertEqual((dest / "ro/inner").stat().st_mode & 0o777, 0o555)
+        self.assertEqual(copy.manifest_digest, tree_digest(dest))
+
+    def test_failed_copy_removes_partial_destination_even_with_read_only_dirs(self):
+        source, dest = self.tmp / "src", self.tmp / "dest"
+        write(source / "ro/a", "1")
+        (source / "ro").chmod(0o555)
+        write(source / "z/bad", "1")
+        os.symlink("/etc/hosts", source / "z/link")
+        self._make_removable_on_cleanup(source)
+        with self.assertRaises(SimpleError) as caught:
+            materialize_working_copy(source, dest)
+        self.assertEqual(caught.exception.code, "source_symlink_outside")
+        self.assertFalse(dest.exists())
+
+    def test_cleanup_failure_is_reported_with_leftover_path(self):
+        from unittest import mock
+        source, dest = self.tmp / "src", self.tmp / "dest"
+        write(source / "a.swift")
+        os.symlink("/etc/hosts", source / "bad")
+        with mock.patch("reproof.simple.workcopy.shutil.rmtree", side_effect=OSError("busy")):
+            with self.assertRaises(SimpleError) as caught:
+                materialize_working_copy(source, dest)
+        self.assertEqual(caught.exception.code, "source_symlink_outside")
+        self.assertIn(str(dest), caught.exception.remedy)
+        self.assertIn("busy", caught.exception.remedy)
+
     def test_large_file_copied_in_chunks(self):
         source = self.tmp / "src"
         (source).mkdir()

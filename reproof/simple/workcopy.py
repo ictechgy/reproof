@@ -44,9 +44,14 @@ class WorkingCopy:
 class _Manifest:
     """매니페스트 줄과 합계를 모은다. 복사와 tree_digest가 같은 규칙을 쓰게 하려는 공용 누적기."""
 
-    def __init__(self, limits: CopyLimits | None):
-        """limits가 있으면 추가할 때마다 상한을 검사한다(tree_digest는 None)."""
+    def __init__(self, limits: CopyLimits | None, *, is_copy: bool):
+        """is_copy가 True면 제외 규칙·링크 검증·상한 검사를 적용하고 디렉터리 권한을 모은다.
+
+        tree_digest는 is_copy=False(limits=None)로 만들어 사본을 있는 그대로 해시한다.
+        """
         self.limits = limits
+        self.is_copy = is_copy
+        self.directory_modes: list[tuple[Path, int]] = []
         self.lines: list[tuple[bytes, str]] = []
         self.file_count = 0
         self.total_bytes = 0
@@ -147,7 +152,7 @@ def _walk(directory: Path, destination: Path | None, root: Path, manifest: _Mani
         with os.scandir(current) as entries:
             children = sorted(entries, key=lambda entry: entry.name)
         for entry in children:
-            if manifest.limits is not None and _is_excluded(entry.name, current == root):
+            if manifest.is_copy and _is_excluded(entry.name, current == root):
                 continue
             child_target = target / entry.name if target else None
             _visit(entry, child_target, root, manifest, source_root, stack)
@@ -162,10 +167,10 @@ def _visit(entry: os.DirEntry, child_target: Path | None, root: Path, manifest: 
         manifest.add(relative, "dir", 0, "")
         if child_target:
             child_target.mkdir()
-            shutil.copymode(path, child_target)
+            manifest.directory_modes.append((child_target, stat.S_IMODE(mode)))
         stack.append((path, child_target))
     elif stat.S_ISLNK(mode):
-        link_text = _symlink_target_inside(path, source_root) if manifest.limits else os.readlink(path)
+        link_text = _symlink_target_inside(path, source_root) if manifest.is_copy else os.readlink(path)
         manifest.add(relative, "link", 0, link_text)
         manifest.count_file(0)
         if child_target:
@@ -195,14 +200,52 @@ def materialize_working_copy(source: Path, destination: Path, limits: CopyLimits
     """
     source_root = Path(os.path.realpath(source))
     _validate_paths(source_root, destination)
-    manifest = _Manifest(limits)
+    manifest = _Manifest(limits, is_copy=True)
     destination.mkdir(parents=True)
+    manifest.directory_modes.append((destination, stat.S_IMODE(os.stat(source_root).st_mode)))
     try:
         _walk(source_root, destination, source_root, manifest, source_root)
-    except BaseException:
-        shutil.rmtree(destination, ignore_errors=True)
+        _apply_directory_modes(manifest.directory_modes)
+    except BaseException as error:
+        _discard_partial_copy(destination, error)
         raise
     return WorkingCopy(destination, manifest.digest(), manifest.file_count, manifest.total_bytes)
+
+
+def _apply_directory_modes(directory_modes: list[tuple[Path, int]]) -> None:
+    """디렉터리 권한을 가장 깊은 것부터 적용한다.
+
+    왜: 읽기 전용(0o555) 소스 디렉터리를 만들 때 먼저 권한을 맞추면 그 안에 파일을 쓸 수 없다.
+    자식을 먼저 처리해야 부모가 잠겨도 자식 chmod가 막히지 않는다.
+    """
+    for directory, mode in sorted(directory_modes, key=lambda item: len(item[0].parts), reverse=True):
+        os.chmod(directory, mode)
+
+
+def _make_tree_writable(root: Path) -> None:
+    """삭제가 가능하도록 root 아래 모든 디렉터리에 u+rwx를 복구한다(링크는 따라가지 않는다)."""
+    stack = [root]
+    while stack:
+        directory = stack.pop()
+        os.chmod(directory, stat.S_IMODE(os.stat(directory).st_mode) | 0o700)
+        with os.scandir(directory) as entries:
+            stack.extend(Path(entry.path) for entry in entries if entry.is_dir(follow_symlinks=False))
+
+
+def _discard_partial_copy(destination: Path, original: BaseException) -> None:
+    """실패한 복사가 남긴 destination을 지운다. 지우지 못하면 원래 오류에 남은 경로를 알린다.
+
+    왜: 반쯤 복사된 사본이 남으면 다음 실행이 이유 없이 destination_exists로 실패한다.
+    정리 실패를 삼키지 않고 원래 오류(SimpleError는 remedy, 그 외는 note)에 덧붙여 원인을 보존한다.
+    """
+    try:
+        _make_tree_writable(destination)
+        shutil.rmtree(destination)
+    except OSError as cleanup_error:
+        message = f"실패한 작업 사본 '{destination}'를 정리하지 못했습니다({cleanup_error}). 직접 삭제한 뒤 다시 실행하세요."
+        original.add_note(message)
+        if isinstance(original, SimpleError):
+            original.remedy = f"{original.remedy} 또한 {message}"
 
 
 def _validate_paths(source_root: Path, destination: Path) -> None:
@@ -225,7 +268,7 @@ def tree_digest(root: Path) -> str:
     정렬된 (상대경로, 종류, 권한비트 & 0o111, 내용 sha256 또는 링크 대상) 줄의 sha256이며
     materialize_working_copy의 manifest_digest와 같은 규칙이다.
     """
-    manifest = _Manifest(None)
+    manifest = _Manifest(None, is_copy=False)
     resolved = Path(os.path.realpath(root))
     _walk(resolved, None, resolved, manifest, resolved)
     return manifest.digest()
