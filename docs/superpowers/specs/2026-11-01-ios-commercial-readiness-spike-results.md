@@ -754,7 +754,7 @@ Wikipedia 소스와 빌드 산출물은 커밋하지 않았다.
   `80392764bf5f8c1b`, 각 약 3.8 GB), 실패한 partial 2개(1.1 GB)
 - `~/.reproof/cache/spm/` 1.1 GB, `~/.reproof/runner/` 155 MB
 - `~/Library/Developer/Xcode/DerivedData/Wikipedia-*` 7개(init이 만든 1.1 GB짜리 2개, build의 패키지 해석과 init 수정 전
-  확인 실험이 만든 8 KB짜리 5개). MixedShop 확인 중 생긴 `MixedShop-*`도 8 KB짜리가 하나 늘었다.
+  확인 실험이 만든 8 KB짜리 5개). MixedShop 쪽 `MixedShop-*` 폴더는 이 절 아래 "이 Mac에 남은 것 (전체 목록)"에 따로 센다.
 - `~/Library/Caches/org.swift.swiftpm/repositories`의 Wikipedia 의존성 6개(Xcode가 평소 쓰는 공용 캐시)
 - `~/Library/Logs/DiagnosticReports/`의 `Wikipedia-2026-11-01-151617.ips`, `WidgetsExtension-2026-11-01-1516*.ips` 5개
 - Simulator `reproof-wikipedia-ios`(켜 둠, 문서의 기본 동작). 다른 Simulator는 건드리지 않았다.
@@ -810,6 +810,11 @@ Wikipedia 소스와 빌드 산출물은 커밋하지 않았다.
   고정되지 않은 빌드의 컴파일 오류를 잘못 분류할 수 있으니 실문구로 좁힌다.
 - **정리 부담:** 실패한 `*.partial` 빌드 폴더가 쌓이고, 빌드 단계의 패키지 해석이 전역 DerivedData에 8 KB 로그 폴더를 남긴다.
   `-IDECustomDerivedDataLocation`은 Xcode 27.0에서만 확인했다.
+- **간헐적 `os.killpg` PermissionError (기존 코드, 새 노출):** IOS_SIMPLE_NATIVE 첫 실행의 `simple-native-build`가 xcodegen
+  실행 중 `PermissionError: [Errno 1]`로 한 번 실패했다. 경로는 간편 모드 `HostToolRunner` → `reproof.repair.run_command`의
+  `os.killpg(process.pid, SIGTERM)`이고, 거기서는 `ProcessLookupError`만 잡는다. 같은 테스트 단독 3회와 goal 전체 재실행은 통과했다.
+  원인은 확인하지 못했다(리더가 이미 끝나 좀비만 남은 프로세스 그룹에 killpg하면 macOS가 EPERM을 낸다는 것은 추측이다).
+  `repair.py`는 계획 1에서 바꾸지 않은 옛 코드지만, 계획 1의 호출자가 새로 부딪히게 했다. 계획 2는 이 경로를 쓰므로 처리 방침을 정한다.
 - **기타 이월:** Release 제외(TouchProbe) 테스트 없음, MixedShopTests scheme을 쓰는 등록 check 없음, 앱 확장 entitlement 검증
   없음, 상세 목록은 SDD 장부(`progress.md`)의 "minor (deferred)" 줄을 따른다.
 
@@ -820,3 +825,28 @@ Wikipedia 소스와 빌드 산출물은 커밋하지 않았다.
 - **`is_validation_failure`의 실제 문구:** 위와 같다.
 - **SwiftSyntax 재작성 방식:** 측정하지 않았다(다운로드 미승인).
 - **여러 Xcode·iOS 버전:** Xcode 27.0, iOS 27.0 Simulator 한 조합만 확인했다.
+
+### 이 Mac에 남은 것 (전체 목록)
+
+계획 1 검증을 끝낸 시점(2026-11-01)의 목록이다. **아무것도 지우지 않았다.** 정리는 사용자가 정한다. 각 줄 끝은 지울 때의 비용이다.
+앞 절들의 "이 Mac에 남은 것" 줄과 다르면 이 목록이 맞다.
+
+- `~/.reproof` 11 GB: `projects` 8.6 GB(앱별 빌드 산출물, 지우면 다음 build가 처음부터), `spikes` 1.2 GB(측정 원자료, 지우면 이 문서의
+  수치를 다시 재야 확인 가능), `cache` 1.1 GB(SwiftPM 캐시, 지우면 다음 패키지 해석이 다시 내려받음), `sources` 225 MB(받은 Wikipedia 소스와
+  검증 앱 설정, 지우면 `scripts/simple-fetch-app.py`로 다시 받고 xcconfig·patch를 다시 적용), `runner` 155 MB(실행기 빌드, 지우면 다음 inspect가
+  실행기를 다시 빌드, 약 46초), `logs`·`tmp` 0 B.
+- `~/Library/Developer/Xcode/DerivedData`(전체 항목 119개):
+  - `SimpleRunner-*` 10개, 합계 약 3.3 MB — 실행기 테스트의 결과물. 지워도 영향 없음.
+  - `MixedShop-*` 98개, 합계 약 1.0 MB, 대부분 `Logs`만 든 작은 폴더 — 추정: build의 `-resolvePackageDependencies`와 native 테스트의
+    xcodebuild 호출이 호출마다(빌드 ID·임시 작업 사본 경로마다) 새 폴더를 만든 것이다. 확인은 하지 않았다. 지워도 영향 없음.
+  - `Wikipedia-*` 7개, 합계 2.2 GB(init이 만든 1.1 GB짜리 2개 포함) — 지워도 영향 없음, 다음 Xcode 사용 시 Xcode가 다시 만들 수 있음.
+- SwiftPM 공용 캐시의 PrivateBadge 흔적: `~/Library/Caches/org.swift.swiftpm/repositories/PrivateBadge-d92cc0e0` 1개와
+  `~/Library/org.swift.swiftpm/security/fingerprints/privatebadge-0f201b82.json` 1개 — 비공개 SPM 테스트가 남긴 것. 지우면 그 테스트가
+  다음에 다시 만들 뿐이고, 다른 앱에는 영향이 없다.
+- `~/Library/Logs/DiagnosticReports/`: `Wikipedia-2026-11-01-151617.ips`, `WidgetsExtension-2026-11-01-151618·151620·151623·151626·151628.ips`
+  (앱이 실행 직후 종료된 Wikipedia spike의 충돌 보고서) — 지워도 영향 없음.
+- Simulator(`xcrun simctl list devices`): `reproof-wikipedia-ios`(**Booted**, 지우면 다음 inspect가 새로 만들고 부팅하는 약 34초), `reproof-mixedshop`
+  (Shutdown, 같음). 둘 다 이 툴이 만든 `reproof-` 기기다.
+- iOS 27.0 Simulator 런타임(24A434, 약 8 GB): 계획 1 Task 0에서 승인받아 설치했다. 지우면 Simulator 기반 기능을 쓸 때 다시 내려받아야 한다.
+  사용자가 원하지 않으면 지워도 되지만 유지를 권한다.
+- 이 작업이 만들지 않은 것(기존): Simulator `BaroChart-tests`, uv Python 3.11, XcodeGen. 건드리지 않았다.
