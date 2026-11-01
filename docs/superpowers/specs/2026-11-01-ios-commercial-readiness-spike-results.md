@@ -3,6 +3,166 @@
 설계 문서(`2026-11-01-ios-commercial-readiness-design.md`) 7장의 spike 결과를 모은다. 모든 수치는 실제 실행에서
 측정했고, 추정이 섞인 곳은 "추정"으로 표시한다.
 
+## S1 — SwiftUI 요소 식별
+
+### 판정
+
+**계획 2는 런타임 접근성 방식(소스 재작성 없음)으로 간다.** 결정 규칙의 세 조건을 모두 넘었다.
+
+| 조건 | 기준 | 측정 | 충족 |
+|---|---|---|---|
+| strong + `type-label-anchor` + `label-ordinal` 비율(모든 화면 합계) | 90% 이상 | 86/86 = 100% (로컬 화면 11개) | ✓ |
+| 잘못 해석 | 0건 | 0건 | ✓ |
+| AI 수정 뒤 유지율 | 95% 이상 | 세 종류 각각 23/23 = 100% | ✓ |
+
+- "모든 화면"에서 네트워크 콘텐츠로 그려지는 Wikipedia 화면 2개(온보딩 관심사, 홈)는 뺐다. 실행마다 다른 내용을 받아
+  결정적으로 그려지지 않아서다(측정 방법 참고). 이 둘을 넣으면 164개 중 139개 = 84.8%, 잘못 해석 12건으로 규칙을
+  넘지 못한다. 이 12건은 사라진 무작위 문서 버튼을 `position-ordinal`이 다른 문서로 푼 것이다. 소스 재작성으로 자동
+  ID를 붙여도 `ForEach`로 만든 무작위 행은 실행마다 내용이 달라 이 문제가 풀리지 않는다고 본다(추정).
+- SwiftSyntax는 필요 없어 받지 않았다. 설계 7장 spike 1의 "외부 Swift 패키지 캐시·오프라인 재빌드"는 해당 없다.
+
+숫자를 읽을 때 주의할 점:
+
+1. **100%는 측정한 화면에서 구성상 나온 값이다.** 로컬 화면 11개의 계층 JSON은 두 실행(매번 Simulator 초기화·새 설치)에서
+   내용이 완전히 같았고(키 순서만 다름), AI 수정 세 종류로 다시 빌드한 MixedShop의 세 화면 계층도 baseline과 같았다.
+   트리가 같으면 locator는 항상 같은 요소를 고른다. 따라서 이 측정이 실제로 보여 준 것은 다음 세 가지다.
+   - 고정된 Simulator 설정(초기화, 로케일, 상태 바)에서 로컬 화면 계층은 결정적이다.
+   - 화면에 보이지 않는 소스 수정(위에 20줄 추가, 다른 버튼 로직, 대상 action 변경)은 런타임 근거를 전혀 바꾸지
+     않는다. 설계 6장의 "줄 번호가 바뀌어도 같은 ID" 조건은 런타임 방식에서는 처음부터 문제가 되지 않는다.
+   - 측정한 모든 요소가 하나로 특정됐다(실패 0).
+2. **약점: 결정 범위 86개 중 42개(49%)는 label이 빈 요소다.** SwiftUI List 행의 `cell`, `labelsHidden()` 토글의
+   `switch`, 입력 칸이 여기에 해당하고, 이들은 "빈 label 요소 중 몇 번째"라는 순번으로만 찾았다. 규칙상
+   `label-ordinal`로 셌지만 실제로는 위치 근거다. Wikipedia SwiftUI 화면의 `label-ordinal` 34건은 모두 빈 label이었다.
+   참고로 측정한 화면 구조 변경(`ui-insert`, 행 하나 끼움)에서 이 `cell` 6개는 모두 "실패"(목록 크기가 달라 건너뜀)였고
+   잘못 해석은 0건이었다. 다른 요소를 누르지 않고 멈춘다.
+3. **위험: `position-ordinal`은 내용이 바뀐 목록에서 다른 요소를 고른다**(위 12건). 계획 2는 `position-ordinal`로 찾은
+   단계를 통과 근거로 쓰지 말고 "확인 필요"로 보고해야 한다(권고).
+
+### 측정 방법
+
+- 환경: S3과 같은 Mac(macOS 26.7.2, Xcode 27.0, iOS 27.0 런타임, Python 3.14.7). Simulator는 `reproof-mixedshop`,
+  `reproof-wikipedia-ios`만 썼다.
+- 스크립트: `spikes/locator-coverage/`(버림용, README에 다시 실행하는 법). `collect.py`는 `reproof app inspect`와 같은
+  함수를 같은 순서로 쓴다(완성 빌드 재사용 → 전용 Simulator 초기화·표시 고정·설치 → 실행기 → 로케일 인자로 앱 실행).
+  그 뒤 요소를 label·identifier로 찾아 `RunnerClient.tap_point`로 탭하며 화면을 옮기고 계층을 저장한다. run마다
+  Simulator를 초기화하므로 run-a와 run-b는 서로 독립된 새 설치·첫 실행이다. 계층 JSON은 `~/.reproof/spikes/`에만 있다.
+- 빌드: MixedShop은 `examples/` 사본 6개(baseline + 변형 5개)를 `~/.reproof/spikes/locator-coverage/workspace`에
+  `prepare_build`로 빌드했다(빌드 ID 6개가 서로 다름, 각 빌드 폴더 사본에 변경이 들어갔는지 확인). Wikipedia는 S3의 빌드
+  `80392764bf5f8c1b`를 재사용했다.
+- 화면(괄호는 SwiftUI 여부, 소스로 확인):
+  - MixedShop: 장바구니(UIKit), 옵션(UIKit에 끼운 SwiftUI), 요약(SwiftUI)
+  - Wikipedia 첫 실행 온보딩 5쪽(SwiftUI `WMFAppOnboardingView`): 소개, 개인정보, 언어, 개인화 소개, 관심사(네트워크)
+  - Wikipedia 홈(네트워크), 프로필(SwiftUI), 설정(SwiftUI `WMFSettingsView`), 설정 하위 SwiftUI 화면 2개: 검색
+    (`WMFSearchSettingsView`), 문서의 저장 및 동기화(`WMFStorageAndSyncingSettingsView`)
+- 네트워크 화면: 관심사 화면의 문서 버튼은 실행마다 네트워크에서 받은 무작위 문서다(두 실행에서 같은 문서 0개). 홈 피드는
+  계층을 읽은 시점의 로딩 정도에 따라 요소 수가 73개, 157개로 달랐다. Wikipedia는 고정 네트워크 응답
+  (`-WMFTestHTTPClientProfile fixture-strict`)을 `TEST || UITEST` 컴파일 조건에서만 쓰므로 이 Debug 빌드로는 고정할 수
+  없다. 그래서 이 두 화면은 기록만 하고 결정 합계에서 뺐으며, 대신 로컬 화면인 프로필·설정·설정 하위 화면 2개를 넣었다.
+- 대상 요소: `INTERACTIVE_TYPES`(`reproof/simple/hierarchy.py`)에 드는 요소. 판정 후보인 `staticText`는 따로 셌다.
+- 안정성: run-a의 요소마다 `capture_evidence(run-a, 요소)` → `resolve(run-b, 근거)`. 유지율: baseline run-a 근거를 변형
+  run-a 계층에서 해석했다. 유지율 = 맞게 찾은 수 / B에 정답 요소가 있는 수.
+- 정답 요소(locator와 별개로 정함, 먼저 맞는 규칙): ① A·B에서 유일한 identifier → ② 서명(종류, identifier, label, 행 글자)이
+  같은 요소. 행 글자는 요소를 감싼 가장 가까운 `cell` 안의 `staticText`들이고, 서명이 같은 요소가 여럿이면 순번으로
+  맞춘다 → ③ 서명과 frame이 같은 요소 → ④ 같은 path·종류·label. 없으면 "B에 없음"이다.
+  path를 맨 뒤에 둔 이유: 처음에 path를 먼저 썼더니 `ui-insert`에서 행이 밀려 같은 path에 다른 행의 "추가" 버튼이 와,
+  실제로는 맞게 찾은 3건이 "잘못 해석"으로 잘못 세어졌다.
+- 분류: 정답이 있고 해석 결과의 path가 같으면 `matched_by`로 센다(identifier는 strong). 정답이 있는데 못 찾으면 "실패",
+  다른 path를 고르면 label이 같아도 "잘못 해석"이다. 정답이 없을 때 못 찾으면 "B에 없음"이고, 같은 path·종류(label만
+  바뀐 자리)를 고르면 "B에 없음(같은 자리)", path와 label이 모두 다른 요소를 고르면 "잘못 해석"이다.
+
+### 결과: 실행 간 안정성 — interactive
+
+"빈 label로 찾음"은 `type-label-anchor`·`label-ordinal`로 찾았지만 label이 빈 요소의 수다.
+
+| 화면 | 요소 | strong | type-label-anchor | label-ordinal | position-ordinal | 실패 | 잘못 해석 | B에 없음 | 빈 label로 찾음 | strong+tla+lo |
+|---|---|---|---|---|---|---|---|---|---|---|
+| mixedshop/cart | 5 | 1 (20.0%) | 4 (80.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 | 5 (100.0%) |
+| mixedshop/options | 15 | 1 (6.7%) | 5 (33.3%) | 9 (60.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 8 | 15 (100.0%) |
+| mixedshop/summary | 3 | 0 (0.0%) | 3 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 | 3 (100.0%) |
+| wikipedia/onboarding-intro | 2 | 2 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 | 2 (100.0%) |
+| wikipedia/onboarding-privacy | 3 | 3 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 | 3 (100.0%) |
+| wikipedia/onboarding-languages | 2 | 2 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 | 2 (100.0%) |
+| wikipedia/onboarding-personalization | 2 | 2 (100.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 | 2 (100.0%) |
+| wikipedia/onboarding-interests (네트워크) | 67 | 3 (4.5%) | 39 (58.2%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 12 (17.9%) | 13 (19.4%) (같은 자리 13) | 0 | 42 (62.7%) |
+| wikipedia/home (네트워크) | 11 | 2 (18.2%) | 9 (81.8%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 1 | 11 (100.0%) |
+| wikipedia/profile | 9 | 1 (11.1%) | 3 (33.3%) | 5 (55.6%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 5 | 9 (100.0%) |
+| wikipedia/settings | 25 | 0 (0.0%) | 13 (52.0%) | 12 (48.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 12 | 25 (100.0%) |
+| wikipedia/settings-search | 8 | 1 (12.5%) | 0 (0.0%) | 7 (87.5%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 7 | 8 (100.0%) |
+| wikipedia/settings-storage | 12 | 1 (8.3%) | 1 (8.3%) | 10 (83.3%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 10 | 12 (100.0%) |
+| **합계(결정 규칙: 네트워크 화면 제외)** | 86 | 14 (16.3%) | 29 (33.7%) | 43 (50.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 42 | 86 (100.0%) |
+| 소계(그중 SwiftUI 화면) | 81 | 13 (16.0%) | 25 (30.9%) | 43 (53.1%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) | 42 | 81 (100.0%) |
+| 합계(네트워크 화면 포함, 참고) | 164 | 19 (11.6%) | 77 (47.0%) | 43 (26.2%) | 0 (0.0%) | 0 (0.0%) | 12 (7.3%) | 13 (7.9%) (같은 자리 13) | 43 | 139 (84.8%) |
+
+홈 행은 run-a(73개)가 run-b(157개)보다 덜 로딩된 상태라 A→B 방향에서 모두 찾은 것처럼 보일 뿐이다.
+
+요소의 근거 재료(run-a, interactive): identifier가 있는 요소는 Wikipedia 온보딩 네 쪽에서 9/9였지만, 프로필·설정·설정 하위
+화면 54개 중에서는 3개뿐이다(`Profile Join Wikipedia Row` 1, 시스템이 붙이는 `BackButton` 2). 이 54개 중 34개(63%)는 identifier도 label도
+없다. MixedShop은 23개 중 identifier 2개(`cart.clear`, `BackButton`), 둘 다 없는 요소 8개(옵션 화면).
+
+### 결과: 실행 간 안정성 — staticText (판정 후보)
+
+| 화면 | 요소 | strong | type-label-anchor | 그 밖 | B에 없음 | strong+tla+lo |
+|---|---|---|---|---|---|---|
+| MixedShop 3개 화면 | 13 | 0 | 13 | 0 | 0 | 13 (100%) |
+| Wikipedia 로컬 화면 8개 | 47 | 1 | 46 | 0 | 0 | 47 (100%) |
+| **합계(네트워크 화면 제외)** | 60 | 1 (1.7%) | 59 (98.3%) | 0 | 0 | 60 (100%) |
+| 온보딩 관심사(네트워크) | 76 | 0 | 40 | 0 | 36 (47.4%) | 40 (52.6%) |
+
+로컬 화면의 글자는 모두 유일한 label로 찾았다. 다만 판정에 쓰는 글자는 값이 바뀌는 경우가 많다("합계 0" → "합계 1").
+값이 바뀐 뒤에는 label로 찾을 수 없고 `position-ordinal`만 남는데, 이 경우는 이번에 측정하지 않았다(미검증, 계획 2에서
+판정 근거를 정할 때 확인 필요).
+
+### 결과: AI 수정 뒤 유지율
+
+MixedShop 사본에 적용한 변경(`spikes/locator-coverage/edits.py`, 대상: 장바구니 "담기", 옵션의 상품 행 "추가"):
+
+| 변형 | `CartViewController.swift` | `OptionsView.swift` |
+|---|---|---|
+| edit-above: 대상 위에 20줄 추가 | `makeAddButton` 위에 도우미 함수 2개(20줄, 호출 안 함) | `body` 위에 단가 표·합계 계산(20줄) |
+| edit-other: 같은 화면 다른 버튼 로직 | "비우기" `clearTapped`에 빈 장바구니 guard, `setNeedsLayout` | "선물 포장" 토글에 `onChange`(끄면 메모 비움). 이 화면에 "추가" 말고 버튼이 없어 토글을 골랐다 |
+| edit-action: 대상 action 변경 | `addTapped`에 최대 수량 guard | "추가" 클로저에 최대 수량 guard |
+| edit-all(참고) | 위 세 가지 모두 | 위 세 가지 모두 |
+| ui-insert(참고, 규칙 밖) | "담기" 위에 "쿠폰" 버튼 추가 | 상품 행 위에 "쿠폰 적용" 버튼 행 추가 |
+
+| 변형 | 요소 | strong | type-label-anchor | label-ordinal | position-ordinal | 실패 | 잘못 해석 | 유지율(맞게 찾음/남은 요소) |
+|---|---|---|---|---|---|---|---|---|
+| edit-above | 23 | 2 | 12 | 9 | 0 | 0 | 0 | 23/23 (100%) |
+| edit-other | 23 | 2 | 12 | 9 | 0 | 0 | 0 | 23/23 (100%) |
+| edit-action | 23 | 2 | 12 | 9 | 0 | 0 | 0 | 23/23 (100%) |
+| edit-all(참고) | 23 | 2 | 12 | 9 | 0 | 0 | 0 | 23/23 (100%) |
+| ui-insert(참고) | 23 | 2 | 12 | 3 | 0 | 6 | 0 | 17/23 (73.9%) |
+
+앞의 네 변형은 세 화면 계층 JSON의 내용이 baseline과 완전히 같았다. `ui-insert`에서 "추가" 3개는 같은 label 3개라
+`label-ordinal`로 맞게 찾았고, 실패 6개는 옵션 화면의 빈 label `cell` 6개(행이 6개에서 7개로 늘어 순번 근거를 건너뜀)다.
+장바구니는 "담기"·"옵션"이 유일한 label이라 위치가 밀려도 그대로 찾았다.
+
+### 발견 (계획 2에서 다룰 것, 이번에는 툴을 고치지 않음)
+
+1. **XCUITest idle 대기 때문에 탭 하나가 최대 2분 걸린다.** Wikipedia 홈이 뜬 뒤로 앱이 idle이 되지 않아 XCUITest가
+   탭 앞뒤로 60초씩 기다렸다(run마다 세션 로그에 `App animations complete notification not received` 6번). 홈·프로필·설정·
+   검색 설정으로 가는 탭 4번이 61–121초 걸렸고, run 전체 510–517초 중 약 6분이 이 대기였다. MixedShop 탭은 1–3초였다.
+   실행기 클라이언트의 기본 제한 시간 30초(`RunnerClient(timeout=30.0)`)보다 길어서, 탐색 중에는 `runner_unreachable`
+   (`timed out`)가 났고, 실행기가 앞 탭을 계속 처리하는 동안 다음 `hierarchy` 명령도 시간 초과됐다. 측정 스크립트는 제한
+   시간을 300초로 늘려 우회했다. 지금 배포된 명령(`inspect`)은 탭하지 않아 영향이 없다. 녹화·재생에서는 idle 대기를 줄이는
+   방법(XCUITest 공개 API에는 없음, 검증 필요)과 명령별 제한 시간을 함께 정해야 한다.
+2. **SwiftUI 요소는 label이 비는 경우가 많다.** List 행은 label 없는 `cell`과 그 안의 label 있는 `button`으로 나온다(설정).
+   `Toggle("", isOn:).labelsHidden()`(Wikipedia `SettingsRow`)은 `switch`가 두 겹(바깥·안쪽)으로 나오고 둘 다 label이 없다.
+   행 글자는 옆의 `staticText`에만 있다. MixedShop `Toggle("선물 포장", …)`은 바깥 `switch`에만 label이 있다. `TextField`는
+   label이 비고 placeholder("메모")에만 글자가 있는데, locator는 placeholder를 쓰지 않는다.
+3. **권고(추정, 측정 안 함):** label이 빈 요소에는 감싼 `cell`의 글자(위 정답 판정의 "행 글자")를 근거로 더하면 순번 의존이
+   줄어든다. 정답 판정에 쓴 이 서명은 `ui-insert`에서도 옵션 화면 15개 요소의 짝을 모두 찾았다. 소스 재작성 방식도 한 소스
+   위치에서 여러 행을 만드는 `ForEach`에는 행마다 다른 ID를 주려면 결국 실행 시점 값(데이터나 순번)이 필요하다(추정).
+4. **`position-ordinal`의 잘못 고름**(위 판정 3): 관심사 화면에서 사라진 문서 버튼 25개 중 25개를 무엇인가로 풀었다(같은
+   자리 13, 다른 자리 12). 목록 크기가 우연히 같아 건너뛰기 조건이 걸리지 않았다.
+
+### 이 spike가 남긴 것
+
+커밋: `spikes/locator-coverage/`(스크립트 3개, README), 이 절, 설계 문서 7장 spike 1의 결정. 툴 코드는 바꾸지 않았다.
+
+이 Mac에 남은 것: `~/.reproof/spikes/locator-coverage/`(약 720 MB: MixedShop 빌드 6개, 변형 소스, 계층 JSON, 세션 로그,
+`coverage-details.json`). 세션 폴더(`runner-session-*`)는 모두 정상 종료로 지워졌다. Simulator `reproof-mixedshop`,
+`reproof-wikipedia-ios`는 켜 둔 상태다(`inspect`와 같은 동작).
+
 ## S3 — Wikipedia 빌드
 
 ### 판정
