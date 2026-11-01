@@ -48,7 +48,7 @@ python3 spikes/locator-coverage/coverage.py                   # 표 출력 + cov
   요소가 있는 수.
 - 정답 요소(counterpart)와 분류 규칙은 `coverage.py` 맨 위 설명에 있다. 요약하면 정답은 identifier(유일할 때) →
   서명(종류, identifier, label, 감싼 `cell` 안의 글자)이 같은 요소 → 같은 서명·frame → 같은 path·종류·label 순서로
-  정하고, 해석 결과의 path가 정답과 다르면 "잘못 해석"이다. Wikipedia의 온보딩 관심사·홈은 네트워크 콘텐츠라
-  결정 합계에서 뺀다(`NETWORK_SCREENS`).
+  정하고, 해석 결과의 path가 정답과 다르면 "잘못 해석"이다. 표의 굵은 합계가 규칙 그대로(모든 화면)의 값이다.
+  Wikipedia의 온보딩 관심사·홈을 뺀 합계(`NETWORK_SCREENS`)는 결과를 본 뒤 정한 사후 분류라 참고로만 보인다.
 - `collect.py`는 실행기 명령 대기 시간을 300초로 늘린다(`client._timeout`). Wikipedia 홈처럼 idle이 되지 않는 화면은
   XCUITest가 탭 앞뒤로 60초씩 기다려 기본값 30초로는 응답 전에 끊기기 때문이다. 결과 문서의 발견 항목에 적었다.

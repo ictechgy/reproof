@@ -37,8 +37,8 @@ SPIKE_HOME = Path.home() / ".reproof" / "spikes" / "locator-coverage"
 STRONG_KINDS = {"identifier", "auto-identifier"}
 COLUMNS = ["strong", "type-label-anchor", "label-ordinal", "position-ordinal", "fail", "wrong", "absent"]
 HEADERS = ["strong", "type-label-anchor", "label-ordinal", "position-ordinal", "실패", "잘못 해석", "B에 없음"]
-# 실행마다 네트워크에서 다른 내용을 받아 그리는 화면. 결정적으로 그려지지 않으므로 결정 규칙 합계에서 빼고 따로
-# 보인다(대신 로컬 화면인 프로필·설정·설정 하위 화면을 측정한다). 실행 간 차이 자체는 결과 문서에 발견으로 적는다.
+# 실행마다 네트워크에서 다른 내용을 받아 그리는 화면. 이 분류는 측정 결과(잘못 해석 12건)를 본 뒤에 정한 사후 분류다.
+# 고정 규칙은 문자 그대로 이 화면들을 포함한 합계로 판정하고, 이 화면을 뺀 합계는 참고로만 보인다(결과 문서 S1 판정).
 NETWORK_SCREENS = {("wikipedia", "onboarding-interests"), ("wikipedia", "home")}
 # SwiftUI로 그린 화면(소스 확인: MixedShop OptionsView·SummaryView, Wikipedia WMFAppOnboardingView·
 # WMFProfileHostingController·WMFSettingsView·WMFSearchSettingsView·WMFStorageAndSyncingSettingsView). 소계에 쓴다.
@@ -186,7 +186,7 @@ def stability_tables(dumps: Path, details: dict) -> list[str]:
     """앱별 baseline run-a → run-b 안정성 표(interactive, staticText)와 합계를 만든다."""
     output = []
     for kind in KINDS:
-        rows, decision, everything, swiftui = [], [], [], []
+        rows, local, without_home, everything, swiftui = [], [], [], [], []
         for app in ("mixedshop", "wikipedia"):
             if not (dumps / app / "baseline" / "run-b").is_dir():
                 continue
@@ -196,12 +196,14 @@ def stability_tables(dumps: Path, details: dict) -> list[str]:
                 label = f"{app}/{name}" + (" (네트워크)" if (app, name) in NETWORK_SCREENS else "")
                 rows.append(summary_row(label, records))
                 everything += records
-                decision += [] if (app, name) in NETWORK_SCREENS else records
+                local += [] if (app, name) in NETWORK_SCREENS else records
+                without_home += [] if (app, name) == ("wikipedia", "home") else records
                 is_local_swiftui = (app, name) in SWIFTUI_SCREENS and (app, name) not in NETWORK_SCREENS
                 swiftui += records if is_local_swiftui else []
-        rows.append(summary_row("**합계(결정 규칙: 네트워크 화면 제외)**", decision))
+        rows.append(summary_row("**합계(규칙 그대로: 모든 화면)**", everything))
+        rows.append(summary_row("합계(홈만 제외, 온보딩 관심사 포함)", without_home))
+        rows.append(summary_row("합계(네트워크 화면 2개 사후 제외, 참고)", local))
         rows.append(summary_row("소계(그중 SwiftUI 화면)", swiftui))
-        rows.append(summary_row("합계(네트워크 화면 포함, 참고)", everything))
         output.append(f"### 실행 간 안정성 — {kind}\n\n" + markdown_table(rows, "화면"))
     return output
 
