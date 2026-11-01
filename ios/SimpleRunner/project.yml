@@ -1,0 +1,57 @@
+# 간편 모드 범용 XCUITest 실행기. 회사 프로젝트를 고치지 않고 bundle id로 지정한 앱을 구동한다.
+# 생성된 SimpleRunner.xcodeproj를 함께 커밋한다(사용자 Mac에 XcodeGen이 없어도 빌드되게).
+# 다시 생성: ios/SimpleRunner에서 `xcodegen generate`
+name: SimpleRunner
+
+options:
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    SDKROOT: iphoneos
+    SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  # UI 테스트 번들을 담기 위한 빈 호스트 앱. 실제로 구동하는 앱은 REPROOF_TARGET_BUNDLE로 정한다.
+  SimpleRunnerHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: RunnerHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.reproof.simple.runner.host
+        PRODUCT_NAME: SimpleRunnerHost
+        INFOPLIST_FILE: RunnerHost/Info.plist
+
+  SimpleRunnerTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: RunnerTests
+    dependencies:
+      - target: SimpleRunnerHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.reproof.simple.runner.tests
+        PRODUCT_NAME: SimpleRunnerTests
+        INFOPLIST_FILE: RunnerTests/Info.plist
+        TEST_TARGET_NAME: SimpleRunnerHost
+
+schemes:
+  SimpleRunner:
+    build:
+      targets:
+        SimpleRunnerHost: all
+        SimpleRunnerTests: [test]
+    test:
+      config: Debug
+      targets:
+        - name: SimpleRunnerTests

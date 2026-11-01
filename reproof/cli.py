@@ -39,6 +39,9 @@ def print_summary(value):print(json.dumps(value,ensure_ascii=False,indent=2,defa
 
 def main(argv=None):
     effective=list(sys.argv[1:] if argv is None else argv)
+    if effective and effective[0]=='app':
+        from .simple.cli import main as simple_main
+        return simple_main(effective[1:])
     if effective and effective[0]=='source-snapshot':
         from .source_snapshot_cli import main as source_snapshot_main
         return source_snapshot_main(effective[1:])

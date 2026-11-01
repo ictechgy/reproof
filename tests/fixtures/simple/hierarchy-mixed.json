@@ -1,0 +1,279 @@
+{
+  "type": "application",
+  "identifier": "",
+  "label": "MixedShop",
+  "value": "",
+  "placeholder": "",
+  "frame": [
+    0,
+    0,
+    390,
+    844
+  ],
+  "enabled": true,
+  "selected": false,
+  "children": [
+    {
+      "type": "other",
+      "identifier": "cart.uikit",
+      "label": "",
+      "value": "",
+      "placeholder": "",
+      "frame": [
+        0,
+        60,
+        390,
+        120
+      ],
+      "enabled": true,
+      "selected": false,
+      "children": [
+        {
+          "type": "button",
+          "identifier": "",
+          "label": "담기",
+          "value": "",
+          "placeholder": "",
+          "frame": [
+            16,
+            70,
+            160,
+            44
+          ],
+          "enabled": true,
+          "selected": false,
+          "children": []
+        },
+        {
+          "type": "button",
+          "identifier": "cart.clear",
+          "label": "비우기",
+          "value": "",
+          "placeholder": "",
+          "frame": [
+            200,
+            70,
+            160,
+            44
+          ],
+          "enabled": true,
+          "selected": false,
+          "children": []
+        },
+        {
+          "type": "button",
+          "identifier": "rp.CartViewController.addButton",
+          "label": "상품 추가",
+          "value": "",
+          "placeholder": "",
+          "frame": [
+            16,
+            124,
+            160,
+            44
+          ],
+          "enabled": true,
+          "selected": false,
+          "children": []
+        }
+      ]
+    },
+    {
+      "type": "other",
+      "identifier": "",
+      "label": "",
+      "value": "",
+      "placeholder": "",
+      "frame": [
+        0,
+        300,
+        390,
+        180
+      ],
+      "enabled": true,
+      "selected": false,
+      "children": [
+        {
+          "type": "other",
+          "identifier": "",
+          "label": "",
+          "value": "",
+          "placeholder": "",
+          "frame": [
+            0,
+            300,
+            390,
+            60
+          ],
+          "enabled": true,
+          "selected": false,
+          "children": [
+            {
+              "type": "staticText",
+              "identifier": "",
+              "label": "사과",
+              "value": "",
+              "placeholder": "",
+              "frame": [
+                16,
+                310,
+                200,
+                40
+              ],
+              "enabled": true,
+              "selected": false,
+              "children": []
+            },
+            {
+              "type": "button",
+              "identifier": "",
+              "label": "추가",
+              "value": "",
+              "placeholder": "",
+              "frame": [
+                300,
+                310,
+                70,
+                40
+              ],
+              "enabled": true,
+              "selected": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "type": "other",
+          "identifier": "",
+          "label": "",
+          "value": "",
+          "placeholder": "",
+          "frame": [
+            0,
+            360,
+            390,
+            60
+          ],
+          "enabled": true,
+          "selected": false,
+          "children": [
+            {
+              "type": "staticText",
+              "identifier": "",
+              "label": "배",
+              "value": "",
+              "placeholder": "",
+              "frame": [
+                16,
+                370,
+                200,
+                40
+              ],
+              "enabled": true,
+              "selected": false,
+              "children": []
+            },
+            {
+              "type": "button",
+              "identifier": "",
+              "label": "추가",
+              "value": "",
+              "placeholder": "",
+              "frame": [
+                300,
+                370,
+                70,
+                40
+              ],
+              "enabled": true,
+              "selected": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "type": "other",
+          "identifier": "",
+          "label": "",
+          "value": "",
+          "placeholder": "",
+          "frame": [
+            0,
+            420,
+            390,
+            60
+          ],
+          "enabled": true,
+          "selected": false,
+          "children": [
+            {
+              "type": "staticText",
+              "identifier": "",
+              "label": "귤",
+              "value": "",
+              "placeholder": "",
+              "frame": [
+                16,
+                430,
+                200,
+                40
+              ],
+              "enabled": true,
+              "selected": false,
+              "children": []
+            },
+            {
+              "type": "button",
+              "identifier": "",
+              "label": "추가",
+              "value": "",
+              "placeholder": "",
+              "frame": [
+                300,
+                430,
+                70,
+                40
+              ],
+              "enabled": true,
+              "selected": false,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "other",
+      "identifier": "cart.summary",
+      "label": "",
+      "value": "",
+      "placeholder": "",
+      "frame": [
+        0,
+        500,
+        390,
+        60
+      ],
+      "enabled": true,
+      "selected": false,
+      "children": [
+        {
+          "type": "staticText",
+          "identifier": "",
+          "label": "합계 2",
+          "value": "",
+          "placeholder": "",
+          "frame": [
+            16,
+            510,
+            200,
+            40
+          ],
+          "enabled": true,
+          "selected": false,
+          "children": []
+        }
+      ]
+    }
+  ]
+}

@@ -16,6 +16,51 @@ class CommandError(RuntimeError):
     pass
 
 
+# 프로세스 그룹 신호가 EPERM일 때 다시 시도하는 최대 시간(초)과 간격(초).
+_GROUP_SIGNAL_RETRY_SECONDS=2.0
+_GROUP_SIGNAL_RETRY_INTERVAL=.05
+
+
+def signal_process_group(process,signal_number):
+    """process가 이끄는 프로세스 그룹 전체에 신호를 보낸다. 그룹이 이미 없으면(ESRCH) 그대로 돌아간다.
+
+    process: 그룹 리더 Popen(pid와 poll()을 쓴다). signal_number: 보낼 신호.
+    왜 EPERM을 다시 시도하나: macOS는 좀비만 남은 그룹(리더나 자식이 끝났지만 아직 회수 전)에 killpg하면 EPERM을 낸다.
+    50 ms 간격으로 최대 2초 다시 시도하고, 그 사이 poll()로 리더를 회수해 좀비가 사라지게 돕는다.
+    주의: 한도 뒤에도 EPERM이면 PermissionError를 그대로 던진다(정말 신호를 보낼 권한이 없는 그룹일 수 있어 숨기지 않는다).
+    """
+    deadline=time.monotonic()+_GROUP_SIGNAL_RETRY_SECONDS
+    while True:
+        try:
+            os.killpg(process.pid,signal_number);return
+        except ProcessLookupError:
+            return  # 이미 모두 끝나 회수된 그룹이다. 정리 목적은 달성됐다.
+        except PermissionError:
+            if time.monotonic()>=deadline:raise
+        process.poll();time.sleep(_GROUP_SIGNAL_RETRY_INTERVAL)
+
+
+# 그룹 SIGKILL이 실패했을 때 리더 회수를 기다리는 최대 시간(초).
+_UNSIGNALLED_REAP_SECONDS=10
+
+
+def _kill_group_and_reap(process):
+    """그룹에 SIGKILL을 보내고, 신호가 실패(PermissionError)해도 리더를 반드시 회수(wait)한 뒤 그 오류를 다시 던진다.
+
+    왜: 신호 오류가 wait()를 건너뛰면 리더가 회수되지 않은 채 남는다. 신호가 실패했으면 리더가 아직 살아 있을 수 있어
+    최대 10초만 기다린다(그 뒤에도 안 끝나면 원래 PermissionError를 그대로 알린다).
+    """
+    try:
+        signal_process_group(process,signal.SIGKILL)
+    except PermissionError:
+        try:
+            process.wait(timeout=_UNSIGNALLED_REAP_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass  # 회수하지 못한 리더는 아래에서 다시 던지는 PermissionError로 알린다.
+        raise
+    process.wait()
+
+
 def apply_edits(root, edits, allowed):
     root=Path(root).resolve();require(isinstance(edits,list) and 0<len(edits)<=10,'Expected 1–10 explicit edits')
     staged={}
@@ -133,17 +178,15 @@ def run_command(command,cwd,*,stdin=None,timeout=300,max_output=2*1024*1024,env_
                     except OSError:
                         pass  # Optional diagnostics must never prevent child-process cleanup.
                 # Terminate the whole job group, including children left by a completed parent.
-                try:os.killpg(process.pid,signal.SIGTERM)
-                except ProcessLookupError:pass
                 try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    pass
+                    signal_process_group(process,signal.SIGTERM)
+                    try:
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        pass
                 finally:
                     # A completed parent does not imply that its children exited.
-                    try:os.killpg(process.pid,signal.SIGKILL)
-                    except ProcessLookupError:pass
-                    process.wait()
+                    _kill_group_and_reap(process)
 
 
 def build_android(source,gradle,java_home,sdk_home,task,apk_relative,timeout=300,app_profile=None,android_user_home=None):
