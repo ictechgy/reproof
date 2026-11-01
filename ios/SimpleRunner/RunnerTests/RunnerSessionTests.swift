@@ -14,7 +14,7 @@ struct SessionConfiguration {
     /// status proof 키. `REPROOF_RUNNER_PROOF_KEY`. HTTP로 오가지 않으므로 이 실행기만 맞는 proof를 만든다.
     let proofKey: String
 
-    /// status proof HMAC 메시지 접두사. Python `STATUS_PROOF_PREFIX`와 같아야 한다.
+    /// handshake proof HMAC 메시지 접두사. Python `STATUS_PROOF_PREFIX`와 같아야 한다.
     static let statusProofPrefix = "reproof-runner-status:"
     /// 토큰·proof 키 길이 상한. 비정상적으로 긴 값을 거절한다.
     static let maxSecretLength = 512
@@ -42,13 +42,13 @@ struct SessionConfiguration {
         return value
     }
 
-    /// status에 실을 proof: hex(HMAC-SHA256(key=proofKey, msg=접두사 + targetBundle)).
+    /// handshake에 실을 proof: hex(HMAC-SHA256(key=proofKey, msg=접두사 + targetBundle + ":" + nonce)).
     ///
-    /// 왜 Bearer 토큰이 아닌 별도 키인가: 토큰은 요청마다 실려 포트를 가로챈 프로세스도 받는다. 그 토큰으로
-    /// proof를 만들 수 있으면 Python이 가짜 실행기를 구별하지 못한다.
-    func statusProof() -> String {
+    /// 왜 별도 키와 nonce인가: proof 키는 HTTP로 오가지 않아 이 실행기만 proof를 만들 수 있고, 클라이언트가
+    /// 매번 새 nonce를 보내므로 예전 proof를 재사용하는 가짜 실행기도 통과하지 못한다.
+    func statusProof(nonce: String) -> String {
         let key = SymmetricKey(data: Data(proofKey.utf8))
-        let message = Data((Self.statusProofPrefix + targetBundle).utf8)
+        let message = Data((Self.statusProofPrefix + targetBundle + ":" + nonce).utf8)
         let code = HMAC<SHA256>.authenticationCode(for: message, using: key)
         return code.map { String(format: "%02x", $0) }.joined()
     }
@@ -145,7 +145,9 @@ final class RunnerSessionTests: XCTestCase {
         guard let action = body["action"] as? String else { throw CommandFailure(code: "invalid_action") }
         switch action {
         case "status":
-            return ["ok": true, "targetBundle": configuration.targetBundle, "proof": configuration.statusProof(),
+            // 토큰 없이도 받는 handshake라서 proof·대상 앱·상태 외에는 아무것도 돌려주지 않는다.
+            let proof = configuration.statusProof(nonce: try Self.nonce(body))
+            return ["ok": true, "targetBundle": configuration.targetBundle, "proof": proof,
                     "targetState": Self.stateName(application.state)]
         case "hierarchy":
             return ["ok": true, "root": HierarchyExport.node(from: try application.snapshot())]
@@ -176,7 +178,11 @@ final class RunnerSessionTests: XCTestCase {
         application.launch()
     }
 
-    /// 앱 좌표계 포인트 (x, y)의 좌표 객체를 만든다(정규화 좌표가 아니다). 앱 원점에서 offset만큼 이동한다.
+    /// 포인트 (x, y)의 좌표 객체를 만든다(정규화 좌표가 아니다).
+    ///
+    /// x, y는 hierarchy의 frame과 같은 화면 좌표계 값이다. `coordinate(withNormalizedOffset: .zero)`는 앱 frame의
+    /// 원점이고 offset은 그 원점 기준이다. iPhone에서는 앱이 전체 화면이라 원점이 (0, 0)이어서 두 좌표계가 같다.
+    /// iPad 분할 화면·Slide Over처럼 앱이 화면 일부만 차지하면 이 가정이 깨지므로 지원하지 않는다.
     @MainActor
     private func coordinate(_ body: [String: Any], x: String, y: String) throws -> XCUICoordinate {
         let offset = CGVector(dx: try number(body, x), dy: try number(body, y))
@@ -217,6 +223,15 @@ final class RunnerSessionTests: XCTestCase {
         let value = try number(body, "duration")
         guard value > 0, value <= Self.maxDuration else { throw CommandFailure(code: "invalid_duration") }
         return value
+    }
+
+    /// handshake nonce를 읽는다. 소문자 hex 64자(32바이트)가 아니면 invalid_nonce.
+    private static func nonce(_ body: [String: Any]) throws -> String {
+        guard let nonce = body["nonce"] as? String, nonce.count == 64,
+              nonce.allSatisfy({ "0123456789abcdef".contains($0) }) else {
+            throw CommandFailure(code: "invalid_nonce")
+        }
+        return nonce
     }
 
     /// 실패 응답 사전을 만든다.

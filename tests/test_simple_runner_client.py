@@ -5,9 +5,11 @@ import hmac
 import json
 import re
 import signal
+import stat
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -30,6 +32,8 @@ TOKEN_ENV = "TEST_RUNNER_REPROOF_RUNNER_TOKEN"
 PROOF_KEY_ENV = "TEST_RUNNER_REPROOF_RUNNER_PROOF_KEY"
 # 세션 없이 RunnerClient만 쓰는 테스트에서 가짜 실행기가 쓰는 proof 키.
 CLIENT_ONLY_PROOF_KEY = "client-only-proof-key"
+NONCE = "ab" * 32
+NONCE_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def node(element_type, label="", children=()):
@@ -38,19 +42,19 @@ def node(element_type, label="", children=()):
             "frame": [0, 0, 100, 40], "enabled": True, "selected": False, "children": list(children)}
 
 
-def expected_proof(key, bundle):
-    """명세 그대로 계산한 status proof: hex(HMAC-SHA256(key=proof 키, msg="reproof-runner-status:" + bundle)).
+def expected_proof(key, bundle, nonce):
+    """명세 그대로 계산한 proof: hex(HMAC-SHA256(key, "reproof-runner-status:" + bundle + ":" + nonce)).
 
     왜 테스트에서 따로 계산하나: 구현 함수를 그대로 쓰면 구현이 틀려도 테스트가 함께 틀려 통과하기 때문이다.
     """
-    message = ("reproof-runner-status:" + bundle).encode("utf-8")
+    message = f"reproof-runner-status:{bundle}:{nonce}".encode("utf-8")
     return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
-def status_document(key, bundle=BUNDLE, **overrides):
-    """정상 실행기의 status 응답(key로 proof를 만든다). overrides로 proof 등을 바꿔 가짜 실행기를 흉내 낸다."""
+def status_document(key, nonce, bundle=BUNDLE, **overrides):
+    """정상 실행기의 status 응답(key·nonce로 proof를 만든다). overrides로 값을 바꿔 가짜 실행기를 흉내 낸다."""
     document = {"ok": True, "targetBundle": bundle, "targetState": "notRunning",
-                "proof": expected_proof(key, bundle)}
+                "proof": expected_proof(key, bundle, nonce)}
     document.update(overrides)
     return document
 
@@ -61,9 +65,10 @@ def proof_key_of(env):
 
 
 class _FakeRunnerHandler(BaseHTTPRequestHandler):
-    """가짜 실행기 HTTP 처리기. 받은 요청을 server.requests에 쌓고 server.respond(본문, 토큰, 세션 환경)로 응답을 정한다.
+    """가짜 실행기 HTTP 처리기. 받은 요청(헤더 전체 포함)을 server.requests에 쌓고 server.respond로 응답을 정한다.
 
-    세션 환경은 실제 실행기가 xcodebuild에서 받는 환경 변수(proof 키 등)를 흉내 내려고 넘긴다.
+    respond(본문, Bearer 토큰 또는 None, 세션 환경). 세션 환경은 실제 실행기가 xcodebuild에서 받는
+    환경 변수(토큰·proof 키)를 흉내 내려고 넘긴다. server.delay초만큼 늦게 답할 수 있다.
     """
 
     def do_POST(self):
@@ -72,10 +77,10 @@ class _FakeRunnerHandler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(length))
         authorization = self.headers.get("Authorization")
         self.server.requests.append({"path": self.path, "body": body, "authorization": authorization,
-                                     "contentType": self.headers.get("Content-Type"),
-                                     "host": self.headers.get("Host")})
+                                     "headers": dict(self.headers.items())})
         token = authorization[len(BEARER):] if authorization and authorization.startswith(BEARER) else None
         status, document = self.server.respond(body, token, self.server.session_env())
+        time.sleep(self.server.delay)
         raw = json.dumps(document).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -88,26 +93,47 @@ class _FakeRunnerHandler(BaseHTTPRequestHandler):
 
 
 def _honest_runner(body, token, env):
-    """정상 실행기 흉내: status에는 세션 proof 키로 만든 proof를, 그 밖의 명령에는 ok만 돌려준다."""
+    """정상 실행기 흉내. status(nonce)는 토큰 없이 proof로 답하고, 그 밖의 명령은 세션 토큰이 맞아야 ok다."""
     if body.get("action") == "status":
-        return 200, status_document(proof_key_of(env))
+        return 200, status_document(proof_key_of(env), body.get("nonce", ""))
+    if token is None or (env is not None and token != env[TOKEN_ENV]):
+        return 401, {"ok": False, "error": "unauthorized"}
     return 200, {"ok": True}
 
 
 def _token_checking_runner(expected_token):
-    """expected_token이 아닌 요청(토큰 없음 포함)은 실제 실행기처럼 401 unauthorized로 거절하는 응답기."""
+    """expected_token이 아닌 명령 요청(토큰 없음 포함)을 실제 실행기처럼 401 unauthorized로 거절하는 응답기."""
     def respond(body, token, env):
         if token != expected_token:
             return 401, {"ok": False, "error": "unauthorized"}
-        return _honest_runner(body, token, env)
+        return 200, {"ok": True}
     return respond
 
 
-def _fake_process(pid=4321, *, exit_code=None):
-    """Popen 대역. poll()은 exit_code(None이면 실행 중)를, 첫 wait(timeout)은 시간 초과를 낸다."""
+def _impostor(make_status):
+    """포트를 가로챈 가짜 실행기. status에는 make_status(본문, 세션 환경)를, 나머지에는 ok를 돌려준다."""
+    def respond(body, token, env):
+        if body.get("action") == "status":
+            return 200, make_status(body, env)
+        return 200, {"ok": True}
+    return respond
+
+
+def _fake_process(pid=4321, *, exit_code=None, exits_after_stop=False):
+    """Popen 대역. poll()은 exit_code(None이면 실행 중)를 돌려준다.
+
+    exits_after_stop이 True면 timeout이 있는 wait도 바로 끝나고(stop 뒤 스스로 종료), False면 시간 초과를 낸다.
+    timeout 없는 wait()는 항상 바로 끝난다(SIGKILL 뒤 회수).
+    """
     process = mock.Mock(pid=pid)
     process.poll.return_value = exit_code
-    process.wait.side_effect = [subprocess.TimeoutExpired("xcodebuild", 2), 0]
+
+    def wait(timeout=None):
+        if timeout is None or exits_after_stop:
+            return 0
+        raise subprocess.TimeoutExpired("xcodebuild", timeout)
+
+    process.wait.side_effect = wait
     return process
 
 
@@ -115,7 +141,7 @@ def _fake_process(pid=4321, *, exit_code=None):
 def patched_process(process, server=None):
     """Popen·os.killpg·기본 환경을 바꿔 끼우고 (popen, killpg) 대역을 돌려준다.
 
-    server를 주면 가짜 실행기가 Popen에 넘어간 환경(proof 키)을 볼 수 있게 이어 준다. 실제 실행기가
+    server를 주면 가짜 실행기가 Popen에 넘어간 환경(토큰·proof 키)을 볼 수 있게 이어 준다. 실제 실행기가
     xcodebuild로부터 환경 변수를 받는 것을 흉내 낸다.
     왜 build_default_environment도 바꾸나: subprocess.Popen 자체를 바꾸므로 xcode-select 조회가 대역을
     받으면 안 되고, DEVELOPER_DIR가 실제로 전달되는지도 확인하기 위해서다.
@@ -134,9 +160,16 @@ def session_env(popen):
     return popen.call_args.kwargs["env"]
 
 
-def session_token(popen):
-    """patch된 Popen에 넘어간 환경에서 세션 토큰을 꺼낸다."""
-    return session_env(popen)[TOKEN_ENV]
+def session_dir_of(popen):
+    """patch된 Popen argv의 -resultBundlePath에서 세션 폴더를 꺼낸다."""
+    argv = popen.call_args.args[0]
+    return Path(argv[argv.index("-resultBundlePath") + 1]).parent
+
+
+def secrets_of(popen):
+    """세션 토큰과 proof 키를 돌려준다."""
+    env = session_env(popen)
+    return env[TOKEN_ENV], env[PROOF_KEY_ENV]
 
 
 class RunnerClientTests(unittest.TestCase):
@@ -150,11 +183,12 @@ class RunnerClientTests(unittest.TestCase):
         self.tmp.mkdir()
         self.log_path = self.tmp / "logs" / "session.log"
 
-    def start_fake_runner(self, respond=_honest_runner):
+    def start_fake_runner(self, respond=_honest_runner, *, delay=0.0):
         """127.0.0.1 임의 포트에 가짜 실행기를 띄우고 서버를 돌려준다. 테스트가 끝나면 닫는다."""
         server = ThreadingHTTPServer(("127.0.0.1", 0), _FakeRunnerHandler)
         server.requests = []
         server.respond = respond
+        server.delay = delay
         server.session_env = lambda: None
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -172,7 +206,7 @@ class RunnerClientTests(unittest.TestCase):
     def assert_start_failed(self, server, *, start_timeout=1.0):
         """세션 시작이 runner_start_failed로 끝나고 본문이 실행되지 않으며 그룹이 정리되는지 확인한다.
 
-        반환: (오류, 세션 환경). 비밀 값이 사용자 안내문에 섞이지 않았는지 호출자가 확인할 수 있게 한다.
+        반환: (오류, popen 대역). 비밀 값이 안내문·요청에 섞이지 않았는지 호출자가 확인할 수 있게 한다.
         """
         with patched_process(_fake_process(), server) as (popen, killpg):
             with self.assertRaises(SimpleError) as raised:
@@ -180,24 +214,33 @@ class RunnerClientTests(unittest.TestCase):
                     self.fail("검증에 실패한 실행기에 연결되면 안 됩니다.")
         self.assertEqual(raised.exception.code, "runner_start_failed")
         self.assertIn(mock.call(4321, signal.SIGTERM), killpg.call_args_list)
-        return raised.exception, session_env(popen)
+        return raised.exception, popen
 
-    def test_command_posts_json_and_returns_payload(self):
-        """POST /command에 action·payload JSON과 Bearer 토큰·Host를 보내고 응답 사전을 그대로 돌려주는지 본다."""
-        server = self.start_fake_runner()
+    # --- RunnerClient ---
+
+    def test_command_posts_json_with_bearer_token(self):
+        """POST /command에 action·payload JSON과 Bearer 토큰·Host·Content-Type을 보내고 응답 사전을 돌려주는지 본다."""
+        server = self.start_fake_runner(_token_checking_runner(TOKEN))
         port = server.server_address[1]
-        result = RunnerClient(port, token=TOKEN).command("status")
-        self.assertEqual(result, status_document(CLIENT_ONLY_PROOF_KEY))
-        RunnerClient(port, token=TOKEN).tap_point(10.5, 20)
-        self.assertEqual([request["body"] for request in server.requests],
-                         [{"action": "status"}, {"action": "tap", "x": 10.5, "y": 20}])
-        self.assertEqual({request["path"] for request in server.requests}, {"/command"})
-        self.assertEqual({request["contentType"] for request in server.requests}, {"application/json"})
-        self.assertEqual({request["authorization"] for request in server.requests}, {BEARER + TOKEN})
-        self.assertEqual({request["host"] for request in server.requests}, {f"127.0.0.1:{port}"})
+        self.assertEqual(RunnerClient(port, token=TOKEN).command("tap", x=10.5, y=20), {"ok": True})
+        request = server.requests[0]
+        self.assertEqual((request["path"], request["body"]), ("/command", {"action": "tap", "x": 10.5, "y": 20}))
+        self.assertEqual(request["authorization"], BEARER + TOKEN)
+        self.assertEqual(request["headers"]["Content-Type"], "application/json")
+        self.assertEqual(request["headers"]["Host"], f"127.0.0.1:{port}")
+
+    def test_handshake_sends_nonce_without_token(self):
+        """handshake는 토큰 없이 status와 nonce만 보내는지 본다. 검증 전 상대에게 토큰을 넘기지 않기 위해서다."""
+        server = self.start_fake_runner()
+        result = RunnerClient(server.server_address[1], token=TOKEN).handshake(NONCE)
+        self.assertEqual(result, status_document(CLIENT_ONLY_PROOF_KEY, NONCE))
+        request = server.requests[0]
+        self.assertEqual(request["body"], {"action": "status", "nonce": NONCE})
+        self.assertNotIn("Authorization", request["headers"])
+        self.assertNotIn(TOKEN, json.dumps(request))
 
     def test_client_requires_token(self):
-        """토큰 없이는 RunnerClient를 만들 수 없는지 본다(인증 없는 요청을 아예 보낼 수 없게)."""
+        """토큰 없이는 RunnerClient를 만들 수 없는지 본다(인증 없는 명령을 아예 보낼 수 없게)."""
         with self.assertRaises(TypeError):
             RunnerClient(1234)
 
@@ -206,11 +249,11 @@ class RunnerClientTests(unittest.TestCase):
         server = self.start_fake_runner(_token_checking_runner("right-token"))
         port = server.server_address[1]
         with self.assertRaises(SimpleError) as raised:
-            RunnerClient(port, token="wrong-token").command("status")
+            RunnerClient(port, token="wrong-token").command("tap", x=1, y=1)
         self.assertEqual(raised.exception.code, "runner_command_failed")
         self.assertIn("unauthorized", raised.exception.cause)
         self.assertNotIn("wrong-token", raised.exception.user_message())
-        self.assertTrue(RunnerClient(port, token="right-token").command("status")["ok"])
+        self.assertTrue(RunnerClient(port, token="right-token").command("tap", x=1, y=1)["ok"])
 
     def test_not_ok_response_raises_simple_error_with_runner_error(self):
         """ok가 false면 실행기의 error 문자열을 담은 runner_command_failed가 나는지 본다."""
@@ -221,18 +264,40 @@ class RunnerClientTests(unittest.TestCase):
         self.assertIn("target_not_running", raised.exception.cause)
         self.assertIn("terminate", raised.exception.cause)
 
+    def test_runner_error_text_is_clamped_and_sanitized(self):
+        """실행기가 보낸 error는 제어 문자를 없애고 120자로 자른 뒤에만 안내문에 넣는지 본다(터미널 조작·도배 방지)."""
+        hostile = "\x1b[31m빨강\nline\r\x07" + "가" * 500
+        server = self.start_fake_runner(lambda body, token, env: (200, {"ok": False, "error": hostile}))
+        with self.assertRaises(SimpleError) as raised:
+            RunnerClient(server.server_address[1], token=TOKEN).terminate()
+        cause = raised.exception.cause
+        self.assertFalse(any(ord(character) < 32 or ord(character) == 127 for character in cause))
+        shown = cause.split("처리하지 못했습니다: ", 1)[1]
+        self.assertLessEqual(len(shown), 121)
+        self.assertIn("빨강", shown)
+
     def test_http_error_body_is_reported_as_runner_error(self):
         """실행기가 4xx로 JSON 오류를 보내면(urllib의 HTTPError) 그 error가 runner_command_failed에 담기는지 본다."""
         server = self.start_fake_runner(lambda body, token, env: (400, {"ok": False, "error": "invalid_json"}))
         with self.assertRaises(SimpleError) as raised:
-            RunnerClient(server.server_address[1], token=TOKEN).command("status")
+            RunnerClient(server.server_address[1], token=TOKEN).command("tap", x=1, y=1)
         self.assertEqual(raised.exception.code, "runner_command_failed")
         self.assertIn("invalid_json", raised.exception.cause)
 
     def test_unreachable_runner_raises_simple_error(self):
         """아무도 듣지 않는 포트면 runner_unreachable이 나는지 본다."""
         with self.assertRaises(SimpleError) as raised:
-            RunnerClient(free_loopback_port(), token=TOKEN, timeout=2).command("status")
+            RunnerClient(free_loopback_port(), token=TOKEN, timeout=2).command("tap", x=1, y=1)
+        self.assertEqual(raised.exception.code, "runner_unreachable")
+
+    def test_long_gesture_timeout_covers_requested_duration(self):
+        """long_press·swipe는 기본 제한 시간보다 길어도 duration+10초까지 기다리고, 다른 명령은 기본 시간을 지키는지 본다."""
+        server = self.start_fake_runner(_token_checking_runner(TOKEN), delay=1.5)
+        client = RunnerClient(server.server_address[1], token=TOKEN, timeout=1.0)
+        self.assertTrue(client.command("long_press", x=1, y=1, duration=1.0)["ok"])
+        self.assertTrue(client.command("swipe", fromX=1, fromY=1, toX=2, toY=2, duration=1.0)["ok"])
+        with self.assertRaises(SimpleError) as raised:
+            client.command("tap", x=1, y=1)
         self.assertEqual(raised.exception.code, "runner_unreachable")
 
     def test_hierarchy_parses_root(self):
@@ -245,124 +310,6 @@ class RunnerClientTests(unittest.TestCase):
         self.assertEqual((button.element_type, button.label, button.path), ("button", "담기", (0, 0)))
         self.assertEqual(server.requests[0]["body"], {"action": "hierarchy"})
 
-    def test_session_passes_test_runner_prefixed_environment(self):
-        """xcodebuild argv, TEST_RUNNER_ 환경 변수(포트·대상 앱·토큰·proof 키), 새 세션 그룹, 토큰을 쓰는 클라이언트를 확인한다."""
-        server = self.start_fake_runner()
-        port = server.server_address[1]
-        with patched_process(_fake_process(), server) as (popen, _):
-            with self.session(port) as client:
-                client.terminate()
-        argv = popen.call_args.args[0]
-        self.assertEqual(argv, ["xcodebuild", "test-without-building", "-xctestrun",
-                                str(self.tmp / "runner" / "SimpleRunner.xctestrun"), "-destination", "id=UDID-1",
-                                "-only-testing:SimpleRunnerTests/RunnerSessionTests/testSession"])
-        kwargs = popen.call_args.kwargs
-        env = kwargs["env"]
-        self.assertEqual(env["TEST_RUNNER_REPROOF_TARGET_BUNDLE"], "io.reproof.example.mixedshop")
-        self.assertEqual(env["TEST_RUNNER_REPROOF_RUNNER_PORT"], str(port))
-        self.assertEqual(env["DEVELOPER_DIR"], "/Applications/Xcode.app/Contents/Developer")
-        token, proof_key = env[TOKEN_ENV], env[PROOF_KEY_ENV]
-        self.assertGreaterEqual(len(token), 43)  # secrets.token_urlsafe(32)는 43자 이상이다.
-        self.assertGreaterEqual(len(proof_key), 43)
-        self.assertNotEqual(token, proof_key)
-        self.assertEqual([request["body"]["action"] for request in server.requests], ["status", "terminate", "stop"])
-        self.assertEqual({request["authorization"] for request in server.requests}, {BEARER + token})
-        self.assertTrue(kwargs["start_new_session"])
-        self.assertTrue(self.log_path.exists())
-
-    def test_each_session_uses_new_secrets(self):
-        """세션마다 토큰과 proof 키를 새로 만드는지 본다. 이전 세션 값으로 새 세션을 조작·사칭하지 못하게 하려는 것이다."""
-        server = self.start_fake_runner()
-        secrets_per_session = []
-        for _ in range(2):
-            with patched_process(_fake_process(), server) as (popen, _):
-                with self.session(server.server_address[1]):
-                    secrets_per_session.append((session_env(popen)[TOKEN_ENV], session_env(popen)[PROOF_KEY_ENV]))
-        self.assertNotEqual(secrets_per_session[0][0], secrets_per_session[1][0])
-        self.assertNotEqual(secrets_per_session[0][1], secrets_per_session[1][1])
-
-    def test_proof_key_never_leaves_the_process_environment(self):
-        """proof 키는 xcodebuild 환경으로만 넘기고 HTTP 요청(헤더·본문)에는 절대 싣지 않는지 본다.
-
-        왜: 요청에 실리는 Bearer 토큰은 포트를 가로챈 프로세스도 받는다. proof 키까지 실리면 그 프로세스가
-        proof를 만들어 진짜 실행기 행세를 할 수 있다.
-        """
-        server = self.start_fake_runner()
-        with patched_process(_fake_process(), server) as (popen, _):
-            with self.session(server.server_address[1]) as client:
-                client.tap_point(1, 2)
-        proof_key = session_env(popen)[PROOF_KEY_ENV]
-        self.assertEqual(len(server.requests), 3)
-        for request in server.requests:
-            self.assertNotIn(proof_key, json.dumps(request))
-
-    def test_session_exit_sends_stop_and_kills_process_group(self):
-        """with를 빠져나갈 때 stop을 보내고 프로세스 그룹을 SIGTERM, 2초 뒤 SIGKILL로 정리하는지 본다."""
-        server = self.start_fake_runner()
-        process = _fake_process(pid=4321)
-        with patched_process(process, server) as (_, killpg):
-            with self.session(server.server_address[1]):
-                self.assertEqual(killpg.call_args_list, [])
-        self.assertEqual([request["body"]["action"] for request in server.requests], ["status", "stop"])
-        self.assertEqual(killpg.call_args_list, [mock.call(4321, signal.SIGTERM), mock.call(4321, signal.SIGKILL)])
-        self.assertEqual(process.wait.call_args_list, [mock.call(timeout=2), mock.call()])
-
-    def test_session_log_never_contains_secrets(self):
-        """Python이 세션 로그에 쓰는 진단(stop 실패, SIGKILL 정리)에 토큰·proof 키가 들어가지 않는지 본다."""
-        def reject_stop(body, token, env):
-            if body.get("action") == "stop":
-                return 401, {"ok": False, "error": "unauthorized"}
-            return _honest_runner(body, token, env)
-
-        server = self.start_fake_runner(reject_stop)
-        with patched_process(_fake_process(), server) as (popen, _):
-            with self.session(server.server_address[1]):
-                env = session_env(popen)
-        written = self.log_path.read_text(encoding="utf-8")
-        self.assertEqual(written.count("[reproof]"), 2)  # 진단이 실제로 쓰였는지 확인해 빈 로그로 통과하지 않게 한다.
-        self.assertNotIn(env[TOKEN_ENV], written)
-        self.assertNotIn(env[PROOF_KEY_ENV], written)
-
-    def test_session_rejects_wrong_or_missing_status_proof(self):
-        """status proof가 틀리거나 없거나 문자열이 아니면 포트를 가로챈 가짜 실행기로 보고 runner_start_failed를 내는지 본다.
-
-        "leaked-bearer-token": 가짜 실행기가 요청에서 받은 Bearer 토큰으로 proof를 만들어도 통과하지 못해야 한다.
-        """
-        impostors = {
-            "leaked-bearer-token": lambda token, env: status_document(token),
-            "unrelated-key": lambda token, env: status_document("guessed-key"),
-            "missing": lambda token, env: {k: v for k, v in status_document(proof_key_of(env)).items() if k != "proof"},
-            "not-string": lambda token, env: status_document(proof_key_of(env), proof=123),
-            "other-message": lambda token, env: status_document(
-                proof_key_of(env), proof=expected_proof(proof_key_of(env), "com.other.app")),
-        }
-        for label, make_status in impostors.items():
-            with self.subTest(label=label):
-                server = self.start_fake_runner(
-                    lambda body, token, env, make_status=make_status:
-                        (200, make_status(token or "", env)) if body.get("action") == "status" else (200, {"ok": True}))
-                error, env = self.assert_start_failed(server)
-                self.assertNotIn(env[TOKEN_ENV], error.user_message())
-                self.assertNotIn(env[PROOF_KEY_ENV], error.user_message())
-                self.assertEqual([request["body"]["action"] for request in server.requests], ["status"])
-
-    def test_session_rejects_runner_for_other_target_bundle(self):
-        """proof가 맞아도 다른 앱을 구동하는 실행기면 연결하지 않고 runner_start_failed를 내는지 본다."""
-        server = self.start_fake_runner(
-            lambda body, token, env: (200, status_document(proof_key_of(env), "com.other.app")))
-        self.assert_start_failed(server)
-
-    def test_session_start_failure_kills_process_group_and_points_to_log(self):
-        """준비 전에 xcodebuild가 끝나면 그룹을 정리하고 로그 경로를 담은 runner_start_failed가 나는지 본다."""
-        port = free_loopback_port()
-        with patched_process(_fake_process(exit_code=65)) as (_, killpg):
-            with self.assertRaises(SimpleError) as raised:
-                with self.session(port):
-                    self.fail("시작에 실패한 세션의 본문이 실행되면 안 됩니다.")
-        self.assertEqual(raised.exception.code, "runner_start_failed")
-        self.assertEqual(raised.exception.log_path, self.log_path)
-        self.assertIn(mock.call(4321, signal.SIGTERM), killpg.call_args_list)
-
     def test_type_text_rejects_more_than_256_characters(self):
         """256자를 넘는 입력은 실행기로 보내지 않고 바로 거절하는지 본다."""
         server = self.start_fake_runner()
@@ -370,6 +317,210 @@ class RunnerClientTests(unittest.TestCase):
             RunnerClient(server.server_address[1], token=TOKEN).type_text("가" * 257)
         self.assertEqual(raised.exception.code, "runner_text_too_long")
         self.assertEqual(server.requests, [])
+
+    # --- RunnerSession: 시작·인증 ---
+
+    def test_session_passes_test_runner_prefixed_environment(self):
+        """argv(세션 폴더의 DerivedData·결과 묶음 포함), TEST_RUNNER_ 환경 변수, 새 세션 그룹을 확인한다."""
+        server = self.start_fake_runner()
+        port = server.server_address[1]
+        with patched_process(_fake_process(exits_after_stop=True), server) as (popen, _):
+            with self.session(port) as client:
+                client.terminate()
+        session_dir = session_dir_of(popen)
+        self.assertEqual(session_dir.parent, self.log_path.parent)
+        self.assertRegex(session_dir.name, r"runner-session-[0-9a-f]{32}\Z")
+        self.assertEqual(popen.call_args.args[0], [
+            "xcodebuild", "test-without-building", "-xctestrun", str(self.tmp / "runner" / "SimpleRunner.xctestrun"),
+            "-destination", "id=UDID-1", "-only-testing:SimpleRunnerTests/RunnerSessionTests/testSession",
+            "-derivedDataPath", str(session_dir / "dd"), "-resultBundlePath", str(session_dir / "result.xcresult")])
+        kwargs = popen.call_args.kwargs
+        env = kwargs["env"]
+        self.assertEqual(env["TEST_RUNNER_REPROOF_TARGET_BUNDLE"], "io.reproof.example.mixedshop")
+        self.assertEqual(env["TEST_RUNNER_REPROOF_RUNNER_PORT"], str(port))
+        self.assertEqual(env["DEVELOPER_DIR"], "/Applications/Xcode.app/Contents/Developer")
+        token, proof_key = secrets_of(popen)
+        self.assertGreaterEqual(len(token), 43)  # secrets.token_urlsafe(32)는 43자 이상이다.
+        self.assertGreaterEqual(len(proof_key), 43)
+        self.assertNotEqual(token, proof_key)
+        self.assertTrue(kwargs["start_new_session"])
+        self.assertTrue(self.log_path.exists())
+
+    def test_session_sends_token_only_after_verified_handshake(self):
+        """시작 handshake(status)에는 토큰이 없고 nonce만 있으며, 검증 뒤의 명령에만 Bearer 토큰이 실리는지 본다."""
+        server = self.start_fake_runner()
+        with patched_process(_fake_process(exits_after_stop=True), server) as (popen, _):
+            with self.session(server.server_address[1]) as client:
+                client.terminate()
+        token, _ = secrets_of(popen)
+        actions = [request["body"]["action"] for request in server.requests]
+        self.assertEqual(actions, ["status", "terminate", "stop"])
+        handshake = server.requests[0]
+        self.assertNotIn("Authorization", handshake["headers"])
+        self.assertRegex(handshake["body"]["nonce"], NONCE_PATTERN)
+        self.assertEqual([request["authorization"] for request in server.requests[1:]], [BEARER + token] * 2)
+
+    def test_impostor_receives_no_secrets_during_startup(self):
+        """포트를 가로챈 가짜 실행기는 시작 단계에서 토큰·proof 키를 하나도 받지 못하는지 본다."""
+        server = self.start_fake_runner(_impostor(lambda body, env: status_document("guessed-key", body["nonce"])))
+        error, popen = self.assert_start_failed(server)
+        token, proof_key = secrets_of(popen)
+        self.assertGreaterEqual(len(server.requests), 1)
+        for request in server.requests:
+            self.assertIsNone(request["authorization"])
+            self.assertNotIn(token, json.dumps(request))
+            self.assertNotIn(proof_key, json.dumps(request))
+        self.assertNotIn(token, error.user_message())
+        self.assertNotIn(proof_key, error.user_message())
+
+    def test_each_session_uses_new_secrets_and_session_dir(self):
+        """세션마다 토큰·proof 키·세션 폴더를 새로 만드는지 본다. 이전 세션 값으로 조작·사칭하지 못하게 하려는 것이다."""
+        server = self.start_fake_runner()
+        seen = []
+        for _ in range(2):
+            with patched_process(_fake_process(exits_after_stop=True), server) as (popen, _):
+                with self.session(server.server_address[1]):
+                    seen.append((*secrets_of(popen), session_dir_of(popen)))
+        self.assertTrue(all(first != second for first, second in zip(seen[0], seen[1])))
+
+    def test_proof_key_never_leaves_the_process_environment(self):
+        """proof 키는 xcodebuild 환경으로만 넘기고 HTTP 요청(헤더·본문)에는 절대 싣지 않는지 본다."""
+        server = self.start_fake_runner()
+        with patched_process(_fake_process(exits_after_stop=True), server) as (popen, _):
+            with self.session(server.server_address[1]) as client:
+                client.tap_point(1, 2)
+        _, proof_key = secrets_of(popen)
+        self.assertEqual(len(server.requests), 3)
+        for request in server.requests:
+            self.assertNotIn(proof_key, json.dumps(request))
+
+    def test_session_rejects_wrong_or_missing_status_proof(self):
+        """proof가 다른 nonce·다른 키·다른 앱용이거나, 없거나, 문자열이 아니면 runner_start_failed인지 본다.
+
+        "wrong-nonce": 예전에 받아 둔 proof를 재사용하는 가짜 실행기도 통과하지 못해야 한다.
+        """
+        impostors = {
+            "wrong-nonce": lambda body, env: status_document(proof_key_of(env), "00" * 32),
+            "unrelated-key": lambda body, env: status_document("guessed-key", body["nonce"]),
+            "other-bundle-message": lambda body, env: status_document(
+                proof_key_of(env), body["nonce"], proof=expected_proof(proof_key_of(env), "com.other.app", body["nonce"])),
+            "missing": lambda body, env: {k: v for k, v in status_document(proof_key_of(env), body["nonce"]).items()
+                                          if k != "proof"},
+            "not-string": lambda body, env: status_document(proof_key_of(env), body["nonce"], proof=123),
+        }
+        for label, make_status in impostors.items():
+            with self.subTest(label=label):
+                server = self.start_fake_runner(_impostor(make_status))
+                self.assert_start_failed(server)
+                self.assertEqual({request["body"]["action"] for request in server.requests}, {"status"})
+
+    def test_session_rejects_runner_for_other_target_bundle(self):
+        """proof가 맞아도 다른 앱을 구동하는 실행기면 연결하지 않고 runner_start_failed를 내는지 본다."""
+        server = self.start_fake_runner(_impostor(
+            lambda body, env: status_document(proof_key_of(env), body["nonce"], "com.other.app")))
+        self.assert_start_failed(server)
+
+    def test_session_start_failure_keeps_session_dir_and_points_to_log(self):
+        """준비 전에 xcodebuild가 끝나면 그룹을 정리하고, 세션 폴더는 남기되 비밀 값이 있을 수 있다고 안내하는지 본다."""
+        port = free_loopback_port()
+        with patched_process(_fake_process(exit_code=65)) as (popen, killpg):
+            with self.assertRaises(SimpleError) as raised:
+                with self.session(port):
+                    self.fail("시작에 실패한 세션의 본문이 실행되면 안 됩니다.")
+        self.assertEqual(raised.exception.code, "runner_start_failed")
+        self.assertEqual(raised.exception.log_path, self.log_path)
+        self.assertIn(mock.call(4321, signal.SIGTERM), killpg.call_args_list)
+        session_dir = session_dir_of(popen)
+        self.assertTrue(session_dir.is_dir())
+        self.assertIn(str(session_dir), raised.exception.remedy)
+        self.assertIn("비밀", raised.exception.remedy)
+
+    def test_unwritable_log_location_raises_simple_error(self):
+        """로그 폴더를 만들 수 없으면(같은 이름의 파일이 있음) xcodebuild를 띄우지 않고 SimpleError를 내는지 본다."""
+        self.log_path.parent.write_text("파일이 폴더 자리를 차지했다")
+        with patched_process(_fake_process()) as (popen, _):
+            with self.assertRaises(SimpleError) as raised:
+                with self.session(free_loopback_port()):
+                    self.fail("로그를 쓸 수 없으면 세션이 시작되면 안 됩니다.")
+        self.assertEqual(raised.exception.code, "runner_files_unwritable")
+        self.assertIn(str(self.log_path.parent), raised.exception.cause)
+        popen.assert_not_called()
+
+    # --- RunnerSession: 종료·정리 ---
+
+    def test_session_exit_waits_for_natural_exit_after_stop(self):
+        """stop이 성공하면 xcodebuild가 스스로 끝나기를 최대 10초 기다린 뒤 그룹을 SIGTERM·SIGKILL로 정리하는지 본다."""
+        server = self.start_fake_runner()
+        process = _fake_process(exits_after_stop=True)
+        with patched_process(process, server) as (_, killpg):
+            with self.session(server.server_address[1]):
+                self.assertEqual(killpg.call_args_list, [])
+        self.assertEqual([request["body"]["action"] for request in server.requests], ["status", "stop"])
+        self.assertEqual(process.wait.call_args_list, [mock.call(timeout=10), mock.call(timeout=2), mock.call()])
+        self.assertEqual(killpg.call_args_list, [mock.call(4321, signal.SIGTERM), mock.call(4321, signal.SIGKILL)])
+
+    def test_session_exit_kills_group_when_runner_keeps_running(self):
+        """stop 뒤 10초 안에 끝나지 않으면 SIGTERM, 2초 뒤 SIGKILL로 정리하고 그 사실을 로그에 남기는지 본다."""
+        server = self.start_fake_runner()
+        process = _fake_process(exits_after_stop=False)
+        with patched_process(process, server) as (_, killpg):
+            with self.session(server.server_address[1]):
+                pass
+        self.assertEqual(process.wait.call_args_list, [mock.call(timeout=10), mock.call(timeout=2), mock.call()])
+        self.assertEqual(killpg.call_args_list, [mock.call(4321, signal.SIGTERM), mock.call(4321, signal.SIGKILL)])
+        self.assertEqual(self.log_path.read_text(encoding="utf-8").count("[reproof]"), 2)
+
+    def test_successful_stop_removes_session_dir(self):
+        """세션 폴더는 0700이고, stop이 성공하면 결과 묶음째 지워지는지 본다(비밀 값·입력 글자가 남지 않게)."""
+        server = self.start_fake_runner()
+        with patched_process(_fake_process(exits_after_stop=True), server) as (popen, _):
+            with self.session(server.server_address[1]):
+                session_dir = session_dir_of(popen)
+                self.assertEqual(stat.S_IMODE(session_dir.stat().st_mode), 0o700)
+                bundle = session_dir / "result.xcresult"
+                bundle.mkdir()
+                (bundle / "StandardOutputAndStandardError.txt").write_text("입력한 글자")
+        self.assertFalse(session_dir.exists())
+
+    def test_failed_stop_keeps_session_dir_and_warns_about_secrets(self):
+        """stop이 실패하면 세션 폴더를 남기고, 비밀 값이 있을 수 있다는 안내와 함께 runner_stop_failed를 내는지 본다."""
+        def reject_stop(body, token, env):
+            if body.get("action") == "stop":
+                return 401, {"ok": False, "error": "unauthorized"}
+            return _honest_runner(body, token, env)
+
+        server = self.start_fake_runner(reject_stop)
+        process = _fake_process(exits_after_stop=True)
+        with patched_process(process, server) as (popen, _):
+            with self.assertRaises(SimpleError) as raised:
+                with self.session(server.server_address[1]):
+                    pass
+        session_dir = session_dir_of(popen)
+        self.assertEqual(raised.exception.code, "runner_stop_failed")
+        self.assertTrue(session_dir.is_dir())
+        self.assertIn(str(session_dir), raised.exception.remedy)
+        self.assertIn("비밀", raised.exception.remedy)
+        self.assertNotIn(mock.call(timeout=10), process.wait.call_args_list)
+        written = self.log_path.read_text(encoding="utf-8")
+        self.assertGreaterEqual(written.count("[reproof]"), 1)  # 진단이 실제로 쓰였는지 확인해 빈 로그로 통과하지 않게 한다.
+        for secret in secrets_of(popen):
+            self.assertNotIn(secret, written)
+            self.assertNotIn(secret, raised.exception.user_message())
+
+    def test_failed_stop_does_not_hide_the_original_error(self):
+        """with 본문이 예외로 끝나면 stop이 실패해도 원래 예외가 그대로 전파되는지 본다."""
+        def reject_stop(body, token, env):
+            if body.get("action") == "stop":
+                return 500, {"ok": False, "error": "boom"}
+            return _honest_runner(body, token, env)
+
+        server = self.start_fake_runner(reject_stop)
+        with patched_process(_fake_process(exits_after_stop=True), server):
+            with self.assertRaises(KeyError):
+                with self.session(server.server_address[1]):
+                    raise KeyError("본문 오류")
+
+    # --- 빌드·리소스 ---
 
     def test_runner_files_match_declared_distribution_resources(self):
         """RUNNER_FILES가 distribution-resources.json의 ios/SimpleRunner 항목과 정확히 같은지 본다."""

@@ -96,9 +96,11 @@ struct HTTPRequest {
 ///
 /// `POST /command`(JSON 객체 본문, 최대 1 MiB)만 받는다. loopback이 아닌 상대는 바로 끊는다.
 /// 요청 검사 순서: Origin 헤더가 있으면 403(브라우저가 보낸 요청 차단), Host가 `127.0.0.1:<port>`나
-/// `localhost:<port>`가 아니면 403(DNS rebinding 차단), 세션 토큰이 다르면 401, 다른 경로는 404,
-/// Content-Type이 application/json이 아니면 415. 토큰은 SHA-256 digest만 보관하고 상수 시간으로 비교하며
-/// 어디에도 기록하지 않는다. 요청은 네트워크 큐에서 읽고, 명령은 `next(timeout:)`으로 메인 스레드에 넘긴다.
+/// `localhost:<port>`가 아니면 403(DNS rebinding 차단), 다른 경로는 404, Content-Type이 application/json이
+/// 아니면 415, 본문이 JSON 객체가 아니면 400, 그다음 인증이다. Authorization이 있으면 세션 토큰과 같아야 하고
+/// (아니면 401), 없으면 handshake(`status`)만 받는다(그 밖의 명령은 401). 토큰은 SHA-256 digest만 보관하고
+/// 상수 시간으로 비교하며 어디에도 기록하지 않는다. 요청은 네트워크 큐에서 읽고, 명령은 `next(timeout:)`으로
+/// 메인 스레드에 넘긴다.
 final class CommandServer: @unchecked Sendable {
     /// 서버를 만들 수 없을 때의 오류.
     enum ServerError: Error {
@@ -123,8 +125,11 @@ final class CommandServer: @unchecked Sendable {
     static let maxBodyBytes = 1 << 20
     /// 요청 헤더 상한(16 KiB).
     static let maxHeaderBytes = 16 * 1024
-    /// 요청을 다 받기까지 기다리는 시간(초). 멈춘 연결이 자원을 계속 잡지 않게 한다.
-    static let receiveTimeout: TimeInterval = 30
+    /// 연결을 받은 순간부터 요청 전체를 받기까지의 제한 시간(초). 조각이 와도 다시 늘리지 않는다.
+    ///
+    /// 왜: 조각마다 대기 시간을 다시 늘리면 한 바이트씩 흘려 보내는 느린 요청(slowloris)이 연결 자리 16개를
+    /// 모두 붙잡아 진짜 클라이언트가 접속하지 못한다.
+    static let requestDeadline: TimeInterval = 10
     /// 동시에 열어 둘 연결 수 상한.
     static let maxConnections = 16
 
@@ -276,8 +281,10 @@ final class CommandServer: @unchecked Sendable {
             default: break
             }
         }
+        let deadline = DispatchWorkItem { [weak connection] in connection?.cancel() }
+        queue.asyncAfter(deadline: .now() + Self.requestDeadline, execute: deadline)
         connection.start(queue: queue)
-        receive(on: connection, buffer: Data())
+        receive(on: connection, buffer: Data(), deadline: deadline)
     }
 
     /// 연결 수 자리를 하나 잡는다. 상한에 닿았으면 false.
@@ -296,27 +303,29 @@ final class CommandServer: @unchecked Sendable {
         condition.unlock()
     }
 
-    /// 요청이 다 올 때까지 이어 받는다. receiveTimeout 안에 다음 조각이 오지 않으면 연결을 끊는다.
-    private func receive(on connection: NWConnection, buffer: Data) {
-        let timeout = DispatchWorkItem { [weak connection] in connection?.cancel() }
-        queue.asyncAfter(deadline: .now() + Self.receiveTimeout, execute: timeout)
+    /// 요청이 다 올 때까지 이어 받는다. deadline(연결당 한 번 정한 제한 시간)이 지나면 연결이 끊긴다.
+    private func receive(on connection: NWConnection, buffer: Data, deadline: DispatchWorkItem) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
-            timeout.cancel()
             guard let self, error == nil else {
+                deadline.cancel()
                 connection.cancel()
                 return
             }
-            self.handle(buffer + (data ?? Data()), on: connection, isComplete: isComplete)
+            self.handle(buffer + (data ?? Data()), on: connection, isComplete: isComplete, deadline: deadline)
         }
     }
 
-    /// 받은 바이트를 해석해 더 받거나, 오류로 답하거나, 라우팅한다.
-    private func handle(_ buffer: Data, on connection: NWConnection, isComplete: Bool) {
-        switch HTTPRequest.parse(buffer) {
-        case .incomplete where isComplete:
-            connection.cancel()
+    /// 받은 바이트를 해석해 더 받거나, 오류로 답하거나, 라우팅한다. 요청이 끝나면 제한 시간을 해제한다.
+    private func handle(_ buffer: Data, on connection: NWConnection, isComplete: Bool, deadline: DispatchWorkItem) {
+        let parsed = HTTPRequest.parse(buffer)
+        if case .incomplete = parsed, !isComplete {
+            receive(on: connection, buffer: buffer, deadline: deadline)
+            return
+        }
+        deadline.cancel()  // 요청을 다 받았거나 더 받을 수 없다. 응답(명령 실행 포함)은 제한 시간 밖이다.
+        switch parsed {
         case .incomplete:
-            receive(on: connection, buffer: buffer)
+            connection.cancel()
         case let .invalid(status, code):
             send(connection, status: status, document: ["ok": false, "error": code])
         case let .complete(request):
@@ -341,14 +350,28 @@ final class CommandServer: @unchecked Sendable {
             send(connection, status: 400, document: ["ok": false, "error": "body_not_object"])
             return
         }
+        if let rejection = authorizationRejection(for: request, body: body) {
+            send(connection, status: rejection.status, document: ["ok": false, "error": rejection.code])
+            return
+        }
         enqueue(PendingCommand(body: body, connection: connection, server: self))
     }
 
-    /// 요청 헤더·경로를 검사한다. 통과하면 nil, 아니면 거절 이유. 순서는 타입 설명과 같다.
+    /// 인증을 확인한다. Authorization이 있으면 세션 토큰과 같아야 하고, 없으면 handshake(status)만 허용한다.
+    ///
+    /// 왜 status만 토큰 없이 받나: 클라이언트는 이 실행기를 proof로 검증하기 전에는 토큰을 보내지 않는다(포트를
+    /// 가로챈 프로세스에 토큰이 새지 않게). status는 nonce에 대한 proof와 대상 앱·상태만 돌려준다.
+    private func authorizationRejection(for request: HTTPRequest, body: [String: Any]) -> Rejection? {
+        if let value = request.headers["authorization"] {
+            return isAuthorized(value) ? nil : Rejection(status: 401, code: "unauthorized")
+        }
+        return body["action"] as? String == "status" ? nil : Rejection(status: 401, code: "unauthorized")
+    }
+
+    /// 본문을 읽기 전의 헤더·경로 검사(Origin, Host, 경로, Content-Type). 통과하면 nil, 아니면 거절 이유.
     private func rejection(for request: HTTPRequest) -> Rejection? {
         if request.headers["origin"] != nil { return Rejection(status: 403, code: "origin_rejected") }
         guard isAllowedHost(request.headers["host"]) else { return Rejection(status: 403, code: "host_rejected") }
-        guard isAuthorized(request.headers["authorization"]) else { return Rejection(status: 401, code: "unauthorized") }
         guard request.method == "POST", request.path == "/command" else {
             return Rejection(status: 404, code: "not_found")
         }
@@ -365,8 +388,8 @@ final class CommandServer: @unchecked Sendable {
     }
 
     /// `Authorization: Bearer <token>`의 토큰 digest가 세션 토큰 digest와 같은지 상수 시간으로 비교한다.
-    private func isAuthorized(_ value: String?) -> Bool {
-        guard let value, value.hasPrefix("Bearer ") else { return false }
+    private func isAuthorized(_ value: String) -> Bool {
+        guard value.hasPrefix("Bearer ") else { return false }
         return Self.constantTimeEqual(Self.digest(String(value.dropFirst(7))), expectedTokenDigest)
     }
 

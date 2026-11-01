@@ -2,8 +2,10 @@ import XCTest
 
 /// XCUITest 스냅숏을 Python `reproof.simple.hierarchy.parse_hierarchy`가 읽는 JSON 노드로 바꾼다.
 ///
-/// 노드 스키마: type, identifier, label, value, placeholder, frame([x, y, w, h], 앱 좌표계 포인트),
-/// enabled, selected, children. 요소를 고르는 판단은 하지 않는다(모두 Python이 맡는다).
+/// 노드 스키마: type, identifier, label, value, placeholder, frame([x, y, w, h]), enabled, selected, children.
+/// frame은 스냅숏이 주는 화면 좌표계 포인트다. 탭(`RunnerSessionTests.coordinate`)은 앱 frame 원점 기준 offset을
+/// 쓰는데, iPhone에서는 앱이 전체 화면이라 원점이 (0, 0)이어서 같은 좌표계가 된다(iPad 분할 화면 등은 지원하지 않는다).
+/// 요소를 고르는 판단은 하지 않는다(모두 Python이 맡는다).
 /// 왜 `snapshot()`인가: 요소마다 질의하면 앱과 수천 번 통신하지만, 스냅숏은 한 번에 전체 트리를 가져온다.
 enum HierarchyExport {
     /// 스냅숏 하나와 자식들을 재귀로 노드 사전으로 바꾼다.
