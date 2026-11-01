@@ -305,9 +305,13 @@ class RunnerClient:
             raise self._unreachable(action, error) from error
 
     def _unreachable(self, action: str, error: Exception) -> SimpleError:
-        """연결 실패·시간 초과를 runner_unreachable로 바꾼다."""
+        """연결 실패·시간 초과를 runner_unreachable로 바꾼다.
+
+        error 문구는 safe_runner_text로 다듬는다. 왜: http.client.BadStatusLine 등은 상대가 보낸 바이트(최대 64 KiB,
+        제어 문자 포함)를 그대로 담아, 포트를 가로챈 프로세스가 안내문을 조작할 수 있기 때문이다.
+        """
         return SimpleError("runner_unreachable",
-                           f"실행기(127.0.0.1:{self.port})에 '{action}' 명령을 보내지 못했습니다: {error}",
+                           f"실행기(127.0.0.1:{self.port})에 '{action}' 명령을 보내지 못했습니다: {safe_runner_text(error)}",
                            "실행기 세션이 살아 있는지 확인하고, 세션 로그를 본 뒤 다시 실행하세요.")
 
     def hierarchy(self) -> Element:
@@ -397,13 +401,19 @@ class RunnerSession:
 
         stop이 성공했으면 세션 폴더를 지우고, 실패했으면 진단용으로 남긴다. 본문이 예외로 끝났으면 그 예외를
         그대로 전파하고(정리 문제는 로그에만 남긴다), 아니면 정리 문제를 SimpleError로 알린다.
+        왜 그룹 정리를 finally에 두나: stop·대기 중 Ctrl-C(KeyboardInterrupt)나 로그 쓰기 오류가 나도 반드시
+        정리해야 한다. start_new_session=True라 터미널 SIGINT가 xcodebuild에 닿지 않아, 정리를 건너뛰면 Simulator와
+        포트를 쥔 세션이 최대 6시간 남는다.
         """
         problem = None
         try:
-            is_stopped = self._send_stop()
-            if is_stopped:
-                self._wait_for_exit()
-            self._stop_process_group()
+            is_stopped = False
+            try:
+                is_stopped = self._send_stop()
+                if is_stopped:
+                    self._wait_for_exit()
+            finally:
+                self._stop_process_group()
             problem = self._settle_session_dir(is_stopped)
         finally:
             self._log.close()
@@ -520,8 +530,13 @@ class RunnerSession:
             self._note(f"stop 뒤 {_NATURAL_EXIT_SECONDS}초 안에 xcodebuild가 끝나지 않아 강제로 정리합니다.")
 
     def _settle_session_dir(self, is_stopped: bool) -> SimpleError | None:
-        """stop이 성공했으면 세션 폴더를 지우고, 아니면 남긴다. 알릴 문제가 있으면 SimpleError를 돌려준다."""
+        """stop이 성공했으면 세션 폴더를 지우고, 아니면 남긴다. 알릴 문제가 있으면 SimpleError를 돌려준다.
+
+        남길 때는 로그에도 안내를 적는다. 왜: 본문이 예외로 끝나면 이 SimpleError는 원래 예외를 가리지 않도록
+        버려지므로, 비밀 값이 남은 폴더를 알릴 곳이 로그뿐이다.
+        """
         if not is_stopped:
+            self._note(self._kept_session_dir_notice())
             return SimpleError("runner_stop_failed", "실행기 세션을 정상적으로 끝내지 못했습니다(stop 실패). "
                                "프로세스는 강제로 정리했습니다.", "로그를 확인하세요. " + self._kept_session_dir_notice(),
                                log_path=self._log_path)
@@ -547,14 +562,19 @@ class RunnerSession:
             self._log.close()
 
     def _stop_process_group(self) -> None:
-        """SIGTERM → 최대 2초 대기 → SIGKILL. 부모가 끝나도 그룹의 자식이 남을 수 있어 SIGKILL은 항상 보낸다."""
-        _signal_group(self._process.pid, signal.SIGTERM)
+        """SIGTERM → 최대 2초 대기 → SIGKILL. 부모가 끝나도 그룹의 자식이 남을 수 있어 SIGKILL은 항상 보낸다.
+
+        SIGKILL은 finally에 둔다: 대기 중 Ctrl-C나 로그 쓰기 오류가 나도 그룹이 남지 않게 하려는 것이다.
+        """
         try:
-            self._process.wait(timeout=_TERMINATE_GRACE_SECONDS)
-        except subprocess.TimeoutExpired:
-            self._note(f"xcodebuild가 {_TERMINATE_GRACE_SECONDS}초 안에 끝나지 않아 SIGKILL로 정리합니다.")
-        _signal_group(self._process.pid, signal.SIGKILL)
-        self._process.wait()
+            _signal_group(self._process.pid, signal.SIGTERM)
+            try:
+                self._process.wait(timeout=_TERMINATE_GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                self._note(f"xcodebuild가 {_TERMINATE_GRACE_SECONDS}초 안에 끝나지 않아 SIGKILL로 정리합니다.")
+        finally:
+            _signal_group(self._process.pid, signal.SIGKILL)
+            self._process.wait()
 
 
 def _signal_group(pid: int, signal_number: int) -> None:

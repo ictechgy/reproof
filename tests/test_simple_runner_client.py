@@ -5,6 +5,7 @@ import hmac
 import json
 import re
 import signal
+import socketserver
 import stat
 import subprocess
 import tempfile
@@ -119,6 +120,15 @@ def _impostor(make_status):
     return respond
 
 
+class _HostileStatusLineHandler(socketserver.BaseRequestHandler):
+    """HTTP 대신 ESC·제어 문자가 섞인 긴 상태 줄을 돌려주는 가짜 상대(http.client BadStatusLine을 일으킨다)."""
+
+    def handle(self):
+        """요청을 읽고 적대적인 상태 줄을 보낸 뒤 닫는다."""
+        self.request.recv(65536)
+        self.request.sendall(b"\x1b[31mEVIL\x07" + b"A" * 5000 + b"\r\n\r\n")
+
+
 def _fake_process(pid=4321, *, exit_code=None, exits_after_stop=False):
     """Popen 대역. poll()은 exit_code(None이면 실행 중)를 돌려준다.
 
@@ -218,7 +228,23 @@ class RunnerClientTests(unittest.TestCase):
 
     # --- RunnerClient ---
 
-    def test_command_posts_json_with_bearer_token(self):
+    def start_hostile_status_line_server(self):
+        """제어 문자가 섞인 긴 상태 줄로 답하는 TCP 서버를 127.0.0.1 임의 포트에 띄우고 포트를 돌려준다."""
+        server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _HostileStatusLineHandler)
+        server.daemon_threads = True
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return server.server_address[1]
+
+    def assert_safe_text(self, text, *, limit):
+        """text에 제어 문자(ESC 포함)가 없고 길이가 limit 이하인지 확인한다."""
+        self.assertFalse(any(ord(character) < 32 or ord(character) == 127 for character in text), repr(text[:80]))
+        self.assertLessEqual(len(text), limit)
+
+    def test_command_posts_json_and_returns_payload(self):
         """POST /command에 action·payload JSON과 Bearer 토큰·Host·Content-Type을 보내고 응답 사전을 돌려주는지 본다."""
         server = self.start_fake_runner(_token_checking_runner(TOKEN))
         port = server.server_address[1]
@@ -289,6 +315,25 @@ class RunnerClientTests(unittest.TestCase):
         with self.assertRaises(SimpleError) as raised:
             RunnerClient(free_loopback_port(), token=TOKEN, timeout=2).command("tap", x=1, y=1)
         self.assertEqual(raised.exception.code, "runner_unreachable")
+
+    def test_unreachable_error_from_hostile_peer_is_sanitized(self):
+        """상대가 제어 문자가 섞인 긴 상태 줄을 보내도(BadStatusLine) runner_unreachable 안내문에는 다듬은 짧은 글만 들어가는지 본다."""
+        port = self.start_hostile_status_line_server()
+        with self.assertRaises(SimpleError) as raised:
+            RunnerClient(port, token=TOKEN, timeout=5).command("tap", x=1, y=1)
+        self.assertEqual(raised.exception.code, "runner_unreachable")
+        self.assert_safe_text(raised.exception.cause, limit=300)
+        self.assertIn("EVIL", raised.exception.cause)
+
+    def test_start_failure_cause_from_hostile_peer_is_sanitized(self):
+        """시작 handshake 상대가 적대적인 상태 줄을 보내도 runner_start_failed 원인에 제어 문자·긴 글이 실리지 않는지 본다."""
+        port = self.start_hostile_status_line_server()
+        with patched_process(_fake_process()):
+            with self.assertRaises(SimpleError) as raised:
+                with self.session(port, start_timeout=1.0):
+                    self.fail("가짜 상대에 연결되면 안 됩니다.")
+        self.assertEqual(raised.exception.code, "runner_start_failed")
+        self.assert_safe_text(raised.exception.cause, limit=500)
 
     def test_long_gesture_timeout_covers_requested_duration(self):
         """long_press·swipe는 기본 제한 시간보다 길어도 duration+10초까지 기다리고, 다른 명령은 기본 시간을 지키는지 본다."""
@@ -448,7 +493,7 @@ class RunnerClientTests(unittest.TestCase):
 
     # --- RunnerSession: 종료·정리 ---
 
-    def test_session_exit_waits_for_natural_exit_after_stop(self):
+    def test_session_exit_sends_stop_and_kills_process_group(self):
         """stop이 성공하면 xcodebuild가 스스로 끝나기를 최대 10초 기다린 뒤 그룹을 SIGTERM·SIGKILL로 정리하는지 본다."""
         server = self.start_fake_runner()
         process = _fake_process(exits_after_stop=True)
@@ -508,17 +553,59 @@ class RunnerClientTests(unittest.TestCase):
             self.assertNotIn(secret, raised.exception.user_message())
 
     def test_failed_stop_does_not_hide_the_original_error(self):
-        """with 본문이 예외로 끝나면 stop이 실패해도 원래 예외가 그대로 전파되는지 본다."""
+        """with 본문이 예외로 끝나면 stop이 실패해도 원래 예외가 전파되고, 남긴 세션 폴더 안내는 로그에 남는지 본다.
+
+        왜 로그인가: 이때 runner_stop_failed는 원래 예외를 가리지 않도록 버려지므로, 비밀 값이 남은 폴더를
+        알릴 곳이 로그뿐이다.
+        """
         def reject_stop(body, token, env):
             if body.get("action") == "stop":
                 return 500, {"ok": False, "error": "boom"}
             return _honest_runner(body, token, env)
 
         server = self.start_fake_runner(reject_stop)
-        with patched_process(_fake_process(exits_after_stop=True), server):
+        with patched_process(_fake_process(exits_after_stop=True), server) as (popen, _):
             with self.assertRaises(KeyError):
                 with self.session(server.server_address[1]):
                     raise KeyError("본문 오류")
+        session_dir = session_dir_of(popen)
+        self.assertTrue(session_dir.is_dir())
+        written = self.log_path.read_text(encoding="utf-8")
+        notice = next((line for line in written.splitlines() if str(session_dir) in line), "")
+        self.assertIn("비밀", notice)
+
+    def test_interrupted_exit_still_cleans_up_process_group(self):
+        """정리 도중 KeyboardInterrupt·로그 쓰기 OSError가 나도 SIGTERM·SIGKILL로 그룹을 정리하고 예외를 다시 던지는지 본다.
+
+        왜: start_new_session=True라 터미널의 Ctrl-C가 xcodebuild에 닿지 않는다. 정리를 건너뛰면 Simulator와
+        포트를 쥔 세션이 최대 6시간 남는다.
+        """
+        def interrupt(*args, **kwargs):
+            raise KeyboardInterrupt
+
+        def stop_then_slow_exit_with_broken_log(session):
+            session._note = mock.Mock(side_effect=OSError("로그 디스크 가득 참"))
+
+        cases = {
+            "stop-interrupted": (KeyboardInterrupt, lambda session: setattr(session, "_send_stop", interrupt), True),
+            "natural-wait-interrupted": (KeyboardInterrupt, lambda session: None, "interrupt-wait"),
+            "note-oserror-during-group-stop": (OSError, stop_then_slow_exit_with_broken_log, False),
+        }
+        for label, (expected, sabotage, exits) in cases.items():
+            with self.subTest(label=label):
+                server = self.start_fake_runner()
+                process = _fake_process(exits_after_stop=exits is True)
+                if exits == "interrupt-wait":
+                    process.wait.side_effect = lambda timeout=None: (_ for _ in ()).throw(KeyboardInterrupt) \
+                        if timeout == 10 else 0
+                with patched_process(process, server) as (_, killpg):
+                    session = self.session(server.server_address[1])
+                    with self.assertRaises(expected):
+                        with session:
+                            sabotage(session)
+                self.assertEqual(killpg.call_args_list[-2:],
+                                 [mock.call(4321, signal.SIGTERM), mock.call(4321, signal.SIGKILL)])
+                self.assertTrue(session._log.closed)
 
     # --- 빌드·리소스 ---
 
