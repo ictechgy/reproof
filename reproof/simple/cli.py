@@ -334,8 +334,31 @@ def _refuse_symlink(target: Path) -> None:
                           "링크를 지우거나 실제 파일로 바꾼 뒤 다시 실행하세요.")
 
 
-def _write_config(target: Path, config: ProjectConfig) -> None:
-    """설정을 같은 폴더의 임시 파일에 쓰고 검증한 뒤 os.replace로 바꿔 넣는다.
+def _config_exists_error(target: Path) -> SimpleError:
+    """reproof.toml이 이미 있어 --force 없이 덮어쓰지 않는다는 config_exists 오류를 만든다."""
+    return SimpleError("config_exists", f"{target}이(가) 이미 있습니다.",
+                       "그대로 쓰려면 `reproof app build`를, 새로 만들려면 --force를 붙여 다시 실행하세요.")
+
+
+def _place_config(temp_path: Path, target: Path, *, is_forced: bool) -> None:
+    """검증한 임시 파일을 target 자리에 둔다. --force면 os.replace, 아니면 비어 있는 자리에만 원자적으로 둔다(os.link).
+
+    왜 link인가: 탐색이 수 분 걸리는 동안 다른 사람·다른 init이 reproof.toml을 만들 수 있다. 확인과 쓰기 사이의 틈 없이
+    '없을 때만 만들기'를 하려면 이미 있으면 실패하는 os.link가 필요하다(링크 뒤 임시 이름은 지워 하드 링크가 남지 않는다).
+    """
+    _refuse_symlink(target)
+    if is_forced:
+        os.replace(temp_path, target)
+        return
+    try:
+        os.link(temp_path, target)
+    except FileExistsError as error:
+        raise _config_exists_error(target) from error
+    temp_path.unlink()
+
+
+def _write_config(target: Path, config: ProjectConfig, *, is_forced: bool = False) -> None:
+    """설정을 같은 폴더의 임시 파일에 쓰고 검증한 뒤 target 자리에 둔다(_place_config 참고).
 
     왜 임시 파일: 링크를 따라가 쓰지 않고, 검증에 실패하거나 중간에 끊겨도 기존 파일이 깨지지 않게 하려는 것이다.
     """
@@ -348,26 +371,30 @@ def _write_config(target: Path, config: ProjectConfig) -> None:
             # mkstemp의 0600 대신 일반 소스 파일 권한으로 둬 팀이 함께 읽게 한다. 경로 대신 연 파일에 적용해 링크를 따라가지 않는다.
             os.fchmod(stream.fileno(), 0o644)
         load_config(temp_path)
-        os.replace(temp_path, target)
+        _place_config(temp_path, target, is_forced=is_forced)
     except BaseException:
         temp_path.unlink(missing_ok=True)
         raise
 
 
 def run_init_command(arguments: argparse.Namespace) -> int:
-    """init 명령. reproof.toml을 만들고 doctor 결과와 다음 단계를 보여 준다."""
+    """init 명령. reproof.toml을 만들고 doctor 결과와 다음 단계를 보여 준다.
+
+    탐색과 쓰기는 프로젝트 잠금(이름은 폴더 slug) 안에서 하고, --force가 없으면 탐색 중 생긴 reproof.toml도 덮어쓰지 않는다.
+    """
     root = Path(arguments.path).expanduser().absolute()
     target = root / CONFIG_FILE_NAME
     if not root.is_dir():
         raise SimpleError("path_invalid", f"앱 폴더를 찾을 수 없습니다: {root}", "--path에 앱 저장소 폴더를 지정하세요.")
     _refuse_symlink(target)
     if target.exists() and not arguments.force:
-        raise SimpleError("config_exists", f"{target}이(가) 이미 있습니다.",
-                          "그대로 쓰려면 `reproof app build`를, 새로 만들려면 --force를 붙여 다시 실행하세요.")
+        raise _config_exists_error(target)
     runner, workspace_root = _new_runner(), default_workspace_root()
     prompter = Prompter(is_interactive=not arguments.non_interactive)
-    config = discover_config(root, runner, workspace_root, prompter)
-    _write_config(target, config)
+    prepare_workspace(workspace_root)
+    with project_lock(workspace_root, slugify_name(root.name)):  # 같은 프로젝트의 build·inspect·init과 겹치지 않게.
+        config = discover_config(root, runner, workspace_root, prompter)
+        _write_config(target, config, is_forced=arguments.force)  # 탐색 중 생긴 파일은 --force 없이 덮어쓰지 않는다.
     print_init_summary(target, config, prompter.question_count)
     print_checks(run_doctor(config, runner=runner, workspace_root=workspace_root))
     print("다음 단계: reproof app build")

@@ -113,6 +113,34 @@ class SimpleCliTests(unittest.TestCase):
         self.assertIn("--force", err)
         self.assertEqual(existing.read_text(encoding="utf-8"), "기존 내용")
 
+    def test_init_does_not_overwrite_config_that_appears_during_discovery(self):
+        """탐색(수 분 걸릴 수 있음) 도중 다른 사람·다른 init이 reproof.toml을 만들었으면 --force 없이 덮어쓰지 않는다."""
+        existing = self.app / CONFIG_FILE_NAME
+
+        def list_and_write(argv, cwd, env_extra):
+            existing.write_text("다른 사람이 쓴 설정", encoding="utf-8")
+            return json.dumps({"project": {"schemes": ["MixedShop"]}})
+
+        responses = [(["xcodebuild", "-list", "-json"], list_and_write)] + scheme_responses(["MixedShop"])[1:]
+        code, _, err, _, _ = self.run_cli(self.init_args("--non-interactive"), responses + doctor_responses(READY_RUNTIME))
+        self.assertEqual(code, 2)
+        self.assertIn("--force", err)
+        self.assertEqual(existing.read_text(encoding="utf-8"), "다른 사람이 쓴 설정")
+        self.assertEqual(sorted(path.name for path in self.app.iterdir()), ["MixedShop.xcodeproj", CONFIG_FILE_NAME])
+
+    def test_init_takes_project_lock(self):
+        """init은 같은 프로젝트 이름의 잠금을 쥔다. 다른 실행이 그 프로젝트를 쓰는 중이면 xcodebuild 전에 project_busy로 멈춘다."""
+        import fcntl
+        lock = self.tmp / "home" / "projects" / "my-app" / ".lock"
+        lock.parent.mkdir(parents=True)
+        descriptor = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+        self.addCleanup(os.close, descriptor)
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        code, _, err, runner, _ = self.run_cli(self.init_args("--non-interactive"), [])
+        self.assertEqual(code, 2)
+        self.assertIn("같은 프로젝트(my-app)", err)
+        self.assertEqual(runner.calls, [])
+
     def test_init_force_overwrites(self):
         (self.app / CONFIG_FILE_NAME).write_text("기존 내용", encoding="utf-8")
         responses = scheme_responses(["MixedShop"]) + doctor_responses(READY_RUNTIME)
