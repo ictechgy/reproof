@@ -4,19 +4,21 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable, Mapping
 
-from .build import BUILD_RECIPE_VERSION, BuildProducts, build_for_simulator, read_xcode_version
+from .build import BUILD_RECIPE_VERSION, BuildProducts, _bundle_identifier, build_for_simulator, read_xcode_version
 from .config import ProjectConfig, config_digest
+from .errors import SimpleError
 from .generation import generate_project
 from .identity import BuildIdentity, capture_build_identity
 from .locking import package_cache_lock, project_lock
 from .packages import package_cache_dir, resolve_packages
 from .process import ToolRunner
-from .workcopy import WorkingCopy, _make_tree_writable, materialize_working_copy
+from .workcopy import WorkingCopy, _make_tree_writable, materialize_working_copy, tree_digest
 
 # 완성된 빌드의 산출물 요약 파일 이름. 이 파일이 있고 앱이 실제로 있어야 "완성"이다.
 PRODUCTS_FILE = "products.json"
@@ -40,6 +42,36 @@ def default_workspace_root(environ: Mapping[str, str] = os.environ) -> Path:
     return root.expanduser().absolute()
 
 
+TOOL_DIRECTORIES = ("projects", "cache", "cache/spm", "runner", "logs", "tmp")
+"""작업 공간 바로 아래에 도구가 만드는 폴더. 모두 0700으로 둔다(prepare_workspace 참고)."""
+
+
+def make_private_directory(path: Path) -> Path:
+    """path를 0700 폴더로 만들고, 이미 있으면 내 소유의 실제 폴더(링크 아님)일 때만 0700으로 좁힌 뒤 돌려준다.
+
+    왜 링크는 그대로 두나: 사용자가 캐시 등을 다른 디스크로 옮기려고 일부러 링크를 둘 수 있고, 링크를 따라 chmod하면
+    작업 공간 밖 폴더의 권한을 바꾸게 된다.
+    """
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    info = os.lstat(path)
+    if stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid():
+        os.chmod(path, 0o700)
+    return path
+
+
+def prepare_workspace(workspace_root: Path) -> None:
+    """작업 공간을 준비한다: 없으면 0700으로 만들고, 도구 폴더(TOOL_DIRECTORIES)는 만들거나 0700으로 좁힌다.
+
+    왜: 빌드 폴더에는 회사 앱 소스 전체 사본·dirty.patch·화면 계층이, 실행기 캐시에는 비밀 값을 받는 바이너리가 있어
+    같은 Mac의 다른 계정이 읽거나 바꾸면 안 된다. 이미 있는 작업 공간 폴더 자체는 사용자가 지정한 위치일 수 있어
+    권한을 바꾸지 않는다(그 아래 도구 폴더가 0700이라 내용은 보호된다).
+    """
+    if not os.path.lexists(workspace_root):
+        workspace_root.mkdir(mode=0o700, parents=True)
+    for name in TOOL_DIRECTORIES:
+        make_private_directory(workspace_root / name)
+
+
 def _remove_tree(path: Path) -> None:
     """읽기 전용 폴더가 있어도 트리를 지운다. 왜: 작업 사본은 원본의 권한 비트를 보존해 그대로는 못 지울 수 있다."""
     if path.exists():
@@ -61,15 +93,53 @@ def _relative_document(products: BuildProducts, directory: Path) -> dict:
             "products_digest": products.products_digest}
 
 
-def _load_completed(directory: Path, identity: BuildIdentity, build_id: str) -> PreparedBuild | None:
-    """완성된 빌드 폴더를 읽어 PreparedBuild로 돌려준다. 완성이 아니면(파일 없음·깨짐·앱 없음) None."""
+def _inside_build(directory: Path, value: object) -> Path | None:
+    """products.json의 경로 값이 빌드 폴더 안을 가리키는 상대 경로면 그 경로를, 아니면 None을 돌려준다.
+
+    절대 경로·'..'·빈 값은 거절하고, 링크를 풀어도(realpath) 빌드 폴더 안이어야 한다.
+    """
+    if not isinstance(value, str) or not value or PurePosixPath(value).is_absolute() or ".." in PurePosixPath(value).parts:
+        return None
+    path = directory / value
+    is_inside = Path(os.path.realpath(path)).is_relative_to(os.path.realpath(directory))
+    return path if is_inside else None
+
+
+def _read_products(directory: Path) -> BuildProducts | None:
+    """products.json을 읽어 BuildProducts로 만든다. 파일이 없거나 깨졌거나 경로가 빌드 폴더 밖이면 None."""
     try:
         document = json.loads((directory / PRODUCTS_FILE).read_text(encoding="utf-8"))
-        products = BuildProducts(directory / document["app_path"], document["bundle_id"],
-                                 directory / document["derived_data"], document["products_digest"])
+        app_path = _inside_build(directory, document["app_path"])
+        derived_data = _inside_build(directory, document["derived_data"])
+        bundle_id, digest = document["bundle_id"], document["products_digest"]
     except (OSError, ValueError, KeyError, TypeError):
         return None  # 완성 표식이 없거나 깨졌으면 완성된 빌드가 아니므로 호출자가 새로 만든다.
-    if not products.app_path.exists():
+    if app_path is None or derived_data is None:
+        return None
+    return BuildProducts(app_path, bundle_id, derived_data, digest)
+
+
+def _matches_record(products: BuildProducts, config: ProjectConfig) -> bool:
+    """기록과 실제 앱이 같은지 본다: bundle id(기록·Info.plist)가 설정과 같고 .app 트리 digest가 기록과 같아야 한다.
+
+    왜: 작업 공간의 .app이 바뀌었으면(다른 도구·사람의 수정, 깨진 파일) 같은 build_id로 다른 바이너리를 설치하게 된다.
+    digest를 계산하지 못하면(읽기 오류·특수 파일) 같다고 볼 근거가 없으므로 False로 보고 호출자가 다시 빌드한다.
+    """
+    if products.bundle_id != config.bundle_id or not products.app_path.is_dir():
+        return False
+    if _bundle_identifier(products.app_path) != config.bundle_id:
+        return False
+    try:
+        return tree_digest(products.app_path) == products.products_digest
+    except (OSError, SimpleError):
+        return False  # 확인할 수 없는 산출물은 재사용하지 않고 새로 빌드한다(오류는 새 빌드에서 다시 드러난다).
+
+
+def _load_completed(directory: Path, identity: BuildIdentity, build_id: str,
+                    config: ProjectConfig) -> PreparedBuild | None:
+    """완성된 빌드 폴더를 검증해 PreparedBuild로 돌려준다. 완성이 아니거나 기록과 다르면 None(호출자가 지우고 다시 빌드)."""
+    products = _read_products(directory)
+    if products is None or not _matches_record(products, config):
         return None
     return PreparedBuild(build_id, identity, _copy_info(directory, identity), products, directory)
 
@@ -143,6 +213,8 @@ def prepare_build(source_root: Path, config: ProjectConfig, *, workspace_root: P
     workspace_root = workspace_root.expanduser().absolute()  # xcodebuild는 cwd 기준으로 경로를 풀기 때문
     progress("빌드 식별 중")
     xcode_version = read_xcode_version(runner)  # 복사·잠금 전에 확인해 Xcode가 없으면 작업 공간을 건드리지 않고 멈춘다.
+    prepare_workspace(workspace_root)
+    make_private_directory(workspace_root / "projects" / config.name)
     with project_lock(workspace_root, config.name):
         return _prepare_locked(source_root, config, workspace_root, runner, progress, xcode_version)
 
@@ -151,7 +223,7 @@ def _prepare_locked(source_root: Path, config: ProjectConfig, workspace_root: Pa
                     progress: Callable[[str], None], xcode_version: str) -> PreparedBuild:
     """프로젝트 잠금을 쥔 상태에서 식별 → 작업 사본 → (재사용 또는) 빌드를 한다. 흐름은 prepare_build 설명과 같다."""
     project_dir = workspace_root / "projects" / config.name
-    builds_dir = project_dir / "builds"
+    builds_dir = make_private_directory(project_dir / "builds")
     staging, copy = _stage_working_copy(source_root, project_dir, config, progress)
     try:
         identity = capture_build_identity(source_root, config_digest=config_digest(config),
@@ -160,12 +232,11 @@ def _prepare_locked(source_root: Path, config: ProjectConfig, workspace_root: Pa
                                           xcode_version=xcode_version, excluded_paths=copy.excluded_paths)
         build_id = identity.build_id()
         final, partial = builds_dir / build_id, builds_dir / f"{build_id}.partial"
-        cached = _load_completed(final, identity, build_id)
+        cached = _load_completed(final, identity, build_id, config)
         if cached is not None:
             _remove_tree(staging)
             progress(f"빌드 완료: {cached.products.app_path}")
             return cached
-        builds_dir.mkdir(parents=True, exist_ok=True)
         _remove_tree(partial)
         _remove_tree(final)  # 완성 표식이 없는 폴더는 이전 실행의 잔재이므로 rename 전에 치운다.
         staging.rename(partial)

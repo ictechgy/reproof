@@ -32,7 +32,8 @@ from .generation import generate_project
 from .hierarchy import Element, element_at, parse_hierarchy
 from .locator import capture_evidence, resolve
 from .locking import package_cache_lock, project_lock, simulator_lock
-from .pipeline import PreparedBuild, _remove_tree, default_workspace_root, prepare_build
+from .pipeline import (PreparedBuild, _remove_tree, default_workspace_root, make_private_directory, prepare_build,
+                       prepare_workspace)
 from .process import HostToolRunner, ToolRunner
 from .runner_client import RunnerClient, RunnerSession, build_runner, free_loopback_port
 from .simulator import SimulatorManager, launch_locale_settings, owned_device_name
@@ -292,6 +293,7 @@ def _discovery_copy(root: Path, scan: ContainerScan, workspace_root: Path,
     (init을 다시 해도 패키지를 다시 받지 않게 하고, ~/Library/Developer/Xcode/DerivedData를 쓰지 않으려는 것).
     """
     packages_dir = workspace_root / "cache" / "spm" / "discovery"
+    prepare_workspace(workspace_root)
     with package_cache_lock(packages_dir):  # 다른 init과 탐색용 패키지 캐시를 동시에 쓰지 않게 복사 전에 잡는다.
         tmp_root = workspace_root / "tmp"
         tmp_root.mkdir(parents=True, exist_ok=True)
@@ -439,12 +441,30 @@ def launch_app(client: RunnerClient, config: ProjectConfig, launch_environment: 
     time.sleep(LAUNCH_SETTLE_SECONDS)
 
 
+def write_private_text(path: Path, text: str) -> None:
+    """text를 path에 소유자만 읽는(0600) UTF-8 파일로 쓴다. 이미 있는 파일도 0600으로 좁히고, 링크는 따라가지 않는다.
+
+    왜: 화면 계층에는 로그인한 회사 앱 화면의 모든 글자가 들어 있어 다른 계정이 읽으면 안 되고, 저장 위치에 미리 둔
+    링크를 따라가 다른 파일을 덮어쓰면 안 된다. 주의: 링크면 output_symlink.
+    """
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise SimpleError("output_symlink", f"저장 위치 {path}가 심볼릭 링크라 쓰지 않았습니다.",
+                              "링크를 지우거나 --output으로 다른 경로를 지정한 뒤 다시 실행하세요.") from error
+        raise
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        os.fchmod(stream.fileno(), 0o600)
+        stream.write(text)
+
+
 def save_hierarchy(client: RunnerClient, output: Path) -> Element:
-    """런타임이 준 계층 문서를 UTF-8 JSON으로 저장하고 파싱한 루트 요소를 돌려준다."""
+    """런타임이 준 계층 문서를 UTF-8 JSON(0600)으로 저장하고 파싱한 루트 요소를 돌려준다."""
     document = client.command("hierarchy")
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"화면 계층 저장: {output}")
+    write_private_text(output, json.dumps(document, ensure_ascii=False, indent=2))
+    print(f"화면 계층 저장(소유자만 읽기): {output}")
     return parse_hierarchy(document.get("root"))
 
 
@@ -479,6 +499,8 @@ def run_inspect_command(arguments: argparse.Namespace) -> int:
     config, root = _load_project(arguments)
     launch_environment = resolve_launch_environment(config, os.environ)  # 빠진 env: 참조도 빌드·부팅 전에 알린다.
     workspace_root = _workspace_root(arguments)
+    prepare_workspace(workspace_root)  # 잠금 파일을 만들기 전에 작업 공간 폴더를 0700으로 둔다.
+    make_private_directory(workspace_root / "projects" / config.name)
     with project_lock(workspace_root, config.name):
         hierarchy_root = _inspect_locked(arguments, config, root, workspace_root, launch_environment)
     if point is not None:
@@ -543,8 +565,7 @@ def write_crash_log(workspace_root: Path, details: str) -> Path:
     왜 파일인가: 사용자 화면에는 할 일만 보이고, 개발자가 원인을 찾을 전체 기록은 첨부할 수 있게 남기려는 것이다.
     O_EXCL로 만들어 기존 파일·링크를 덮어쓰지 않는다.
     """
-    folder = workspace_root / "logs"
-    folder.mkdir(parents=True, exist_ok=True)
+    folder = make_private_directory(workspace_root / "logs")
     path = folder / f"crash-{datetime.now():%Y%m%d-%H%M%S-%f}.log"
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as stream:

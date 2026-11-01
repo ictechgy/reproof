@@ -713,6 +713,24 @@ class RunnerClientTests(unittest.TestCase):
         self.assertEqual(first.xctestrun.name, "SimpleRunner_iphonesimulator27.0-arm64.xctestrun")
         self.assertTrue((key_dir / "Debug-iphonesimulator" / "SimpleRunnerTests-Runner.app").is_dir())
 
+    def test_build_runner_output_folder_is_private(self):
+        """실행기 폴더(runner-src·runner-dd·캐시를 담음)는 0700이다. 기존 폴더도 0700으로 좁힌다.
+
+        왜: 캐시의 실행기 바이너리는 세션 토큰·proof 키를 환경 변수로 받는다. 다른 계정이 바꿔치기할 수 있으면 안 된다.
+        """
+        def build(argv, cwd, env_extra):
+            products = Path(argv[argv.index("-derivedDataPath") + 1]) / "Build" / "Products"
+            products.mkdir(parents=True)
+            (products / "SimpleRunner.xctestrun").write_text("plist")
+            return ""
+
+        output = self.tmp / "out"
+        output.mkdir(mode=0o755)
+        os.chmod(output, 0o755)
+        build_runner(output, FakeToolRunner([(("xcodebuild", "-version"), "Xcode 27.0\n"),
+                                             (("xcodebuild", "build-for-testing"), build)]))
+        self.assertEqual(os.stat(output).st_mode & 0o777, 0o700)
+
     def test_build_runner_cache_key_changes_with_xcode_version(self):
         """Xcode 버전이 바뀌면 캐시 키가 달라져 다시 빌드하는지 본다."""
         def build(argv, cwd, env_extra):

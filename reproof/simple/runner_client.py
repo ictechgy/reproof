@@ -30,6 +30,7 @@ from ..resources import ResourceError, read_resource
 from .errors import SimpleError
 from .hierarchy import Element, parse_hierarchy
 from .locking import runner_lock
+from .pipeline import make_private_directory
 from .process import ToolRunner, build_default_environment
 from .workcopy import tree_digest
 
@@ -142,8 +143,10 @@ def build_runner(output_root: Path, runner: ToolRunner) -> RunnerProducts:
     왜 rename인가: 중간에 끊긴 빌드가 완성된 캐시로 보이지 않게 하려는 것이다.
     잠금: 전체를 실행기 잠금(runner_lock) 안에서 한다. 왜: 다른 터미널의 실행이 runner-src·runner-dd를 지우고 다시 쓰는
     도중에 섞이지 않게 하려는 것이다. 잠겨 있으면 아무것도 하지 않고 runner_busy를 낸다.
+    권한: output_root는 0700으로 둔다. 왜: 캐시의 실행기는 세션 토큰·proof 키를 환경 변수로 받으므로 다른 계정이 바꿔치기할
+    수 없어야 한다.
     """
-    output_root = output_root.expanduser().absolute()
+    output_root = make_private_directory(output_root.expanduser().absolute())  # 비밀을 받는 바이너리를 다른 계정이 못 바꾸게.
     with runner_lock(output_root):
         return _build_runner_locked(output_root, runner)
 

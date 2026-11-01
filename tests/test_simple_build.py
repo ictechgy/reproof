@@ -241,6 +241,69 @@ class SimpleBuildTests(unittest.TestCase):
                           progress=lambda _: None)
         self.assertEqual(len(self.builds), 3)
 
+    def _first_build(self):
+        """첫 빌드를 만들고 PreparedBuild를 돌려준다."""
+        return prepare_build(self.source, self.config, workspace_root=self.workspace, runner=self._runner(),
+                             progress=lambda _: None)
+
+    def _rebuilds_after(self, change) -> bool:
+        """첫 빌드 뒤 change(prepared)로 완성 빌드를 바꾸고, 다음 prepare_build가 다시 빌드했는지 돌려준다."""
+        first = self._first_build()
+        change(first)
+        before = len(self.builds)
+        second = prepare_build(self.source, self.config, workspace_root=self.workspace, runner=self._runner(),
+                               progress=lambda _: None)
+        self.assertEqual(second.build_id, first.build_id)
+        return len(self.builds) == before + 1
+
+    def _rewrite_products(self, prepared, **changes):
+        """완성 빌드의 products.json 값을 바꿔 쓴다."""
+        path = prepared.directory / "products.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        path.write_text(json.dumps({**document, **changes}), encoding="utf-8")
+
+    def test_tampered_app_is_not_reused(self):
+        """완성 빌드의 .app 내용이 기록된 products_digest와 다르면 재사용하지 않고 다시 빌드한다."""
+        self.assertTrue(self._rebuilds_after(
+            lambda prepared: (prepared.products.app_path / "injected.dylib").write_bytes(b"evil")))
+
+    def test_products_paths_outside_build_directory_are_not_reused(self):
+        """products.json의 app_path·derived_data가 절대 경로이거나 빌드 폴더 밖('..')을 가리키면 재사용하지 않는다."""
+        outside = _make_app(self.tmp / "outside", "Other.app", BUNDLE_ID)
+        cases = [{"app_path": str(outside)}, {"app_path": "../../../../outside/Other.app"},
+                 {"derived_data": "/tmp"}, {"derived_data": "../.."}]
+        for changes in cases:
+            with self.subTest(changes=changes):
+                self.assertTrue(self._rebuilds_after(lambda prepared: self._rewrite_products(prepared, **changes)))
+
+    def test_bundle_id_mismatch_is_not_reused(self):
+        """products.json의 bundle_id가 설정과 다르면 재사용하지 않는다."""
+        self.assertTrue(self._rebuilds_after(lambda prepared: self._rewrite_products(prepared, bundle_id="io.other")))
+
+    def test_workspace_directories_are_private(self):
+        """새 작업 공간과 도구가 만드는 projects·builds·cache 폴더는 0700이다. 기존 도구 폴더도 0700으로 좁힌다.
+
+        왜: 빌드 폴더에는 회사 앱 소스 전체 사본·dirty.patch·화면 계층이 들어, 같은 Mac의 다른 계정이 읽으면 안 된다.
+        """
+        prepared = self._first_build()
+        folders = (self.workspace, self.workspace / "projects", self.workspace / "projects" / "mixedshop",
+                   prepared.directory.parent, self.workspace / "cache", self.workspace / "cache" / "spm",
+                   self.workspace / "runner", self.workspace / "logs", self.workspace / "tmp")
+        for folder in folders[1:]:
+            os.chmod(folder, 0o755)  # 이전 버전이 umask 권한으로 만든 도구 폴더를 흉내 낸다.
+        self._first_build()
+        for folder in folders:
+            with self.subTest(folder=folder):
+                self.assertEqual(os.stat(folder).st_mode & 0o777, 0o700)
+
+    def test_existing_workspace_root_mode_is_left_alone(self):
+        """사용자가 지정한 기존 작업 공간 폴더 자체의 권한은 바꾸지 않는다(도구가 만든 하위 폴더만 좁힌다)."""
+        self.workspace.mkdir()
+        os.chmod(self.workspace, 0o755)
+        self._first_build()
+        self.assertEqual(os.stat(self.workspace).st_mode & 0o777, 0o755)
+        self.assertEqual(os.stat(self.workspace / "projects").st_mode & 0o777, 0o700)
+
     def test_find_app_bundle_skips_plist_with_non_dict_root(self):
         products = self.tmp / "products"
         bad = products / "Bad.app"

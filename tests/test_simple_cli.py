@@ -354,6 +354,31 @@ class SimpleCliTests(unittest.TestCase):
         self.assertIn("/작업/builds/abc.partial", err)
         self.assertIn("여유 공간", err)
 
+    def test_hierarchy_json_is_written_owner_only_and_not_through_symlink(self):
+        """화면 계층 JSON은 0600으로 쓴다(기존 0644 파일도 좁힌다). 저장 위치가 링크면 따라가 쓰지 않는다.
+
+        왜: 계층에는 로그인한 회사 앱 화면의 모든 글자(개인 정보·토큰 표시 등)가 들어 있다.
+        """
+        from reproof.simple.cli import save_hierarchy
+        from reproof.simple.errors import SimpleError
+        client = mock.Mock()
+        client.command.return_value = {"ok": True, "root": {
+            "type": "application", "identifier": "", "label": "A", "value": "", "placeholder": "",
+            "frame": [0, 0, 10, 10], "enabled": True, "selected": False, "children": []}}
+        output = self.tmp / "계층.json"
+        output.write_text("{}", encoding="utf-8")
+        os.chmod(output, 0o644)
+        with contextlib.redirect_stdout(io.StringIO()):
+            save_hierarchy(client, output)
+        self.assertEqual(os.stat(output).st_mode & 0o777, 0o600)
+        victim = self.tmp / "victim.txt"
+        victim.write_text("건드리면 안 됨", encoding="utf-8")
+        link = self.tmp / "link.json"
+        link.symlink_to(victim)
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises((SimpleError, OSError)):
+            save_hierarchy(client, link)
+        self.assertEqual(victim.read_text(encoding="utf-8"), "건드리면 안 됨")
+
     def test_unexpected_error_writes_private_crash_log(self):
         """예상 밖 예외는 트레이스백을 작업 공간 logs/crash-*.log(0600)에 쓰고 그 경로만 안내하는지 본다."""
         path = self.write_app_config()

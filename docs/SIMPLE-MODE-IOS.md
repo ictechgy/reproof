@@ -112,7 +112,8 @@ reproof app inspect [--point X,Y] [--output FILE]
 ```
 
 빌드(재사용) → 전용 Simulator 초기화 → 앱 설치·실행 → 3초 대기 → 화면 계층을 JSON으로 저장한다.
-기본 저장 위치는 `<빌드 폴더>/inspect-<YYYYmmdd-HHMMSS>.json`이다.
+기본 저장 위치는 `<빌드 폴더>/inspect-<YYYYmmdd-HHMMSS>.json`이다. 화면의 모든 글자가 들어 있으므로 소유자만 읽는 0600으로
+쓰고, 저장 위치가 심볼릭 링크면 쓰지 않는다(`output_symlink`).
 `--point 195,420`을 주면 그 좌표의 요소와, 재생 때 다시 찾을 수 있는 정도를 출력한다.
 
 ```
@@ -210,7 +211,9 @@ git ls-remote git@github.com:회사/비공개-패키지.git     # 목록이 나�
 작업 사본·빌드는 작업 공간에서 하지만, 다음 위치에도 흔적이 남는다.
 
 - **작업 공간 `~/.reproof`**(또는 `REPROOF_HOME`·`--workspace`): 빌드(`projects/<이름>/builds/<빌드 ID>/`), 패키지 캐시
-  (`cache/spm`), 실행기(`runner`), crash 로그(`logs`). 빌드는 크다(Wikipedia 앱은 빌드 하나에 약 3.8 GB). 소스·설정·Xcode가
+  (`cache/spm`), 실행기(`runner`), crash 로그(`logs`). 새 작업 공간 폴더와 도구 폴더(`projects`·`builds`·`cache`·`runner`·
+  `logs`·`tmp`)는 소유자만 쓰는 0700이다(이미 있던 작업 공간 폴더 자체의 권한은 바꾸지 않고, 링크로 둔 하위 폴더도 그대로
+  둔다). 완성 빌드는 재사용 전에 `.app`의 digest·bundle id·경로가 기록과 같은지 다시 확인하고, 다르면 다시 빌드한다. 빌드는 크다(Wikipedia 앱은 빌드 하나에 약 3.8 GB). 소스·설정·Xcode가
   바뀌면 새 빌드 ID 폴더가 생기고 옛 폴더는 자동으로 지우지 않는다. 지울 때는 그 프로젝트의 `build`·`inspect`가 돌고 있지
   않을 때 `rm -rf ~/.reproof/projects/<이름>/builds/<빌드 ID>`처럼 폴더 단위로 지운다(`.partial`로 끝나는 폴더는 진행 중이거나
   끊긴 빌드이고, 다음 실행이 어차피 다시 만든다). 작업 사본은 원본의 읽기 전용 권한을 그대로 가져오므로 `Permission denied`가 나면
