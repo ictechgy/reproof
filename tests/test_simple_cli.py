@@ -128,6 +128,30 @@ class SimpleCliTests(unittest.TestCase):
         self.assertEqual(existing.read_text(encoding="utf-8"), "다른 사람이 쓴 설정")
         self.assertEqual(sorted(path.name for path in self.app.iterdir()), ["MixedShop.xcodeproj", CONFIG_FILE_NAME])
 
+    def test_init_falls_back_to_exclusive_create_when_hard_links_are_unsupported(self):
+        """하드 링크를 못 만드는 파일 시스템(ENOTSUP·EPERM·EXDEV)에서는 O_EXCL 새 파일로 설정을 만든다. 이미 있으면 덮어쓰지 않는다."""
+        responses = scheme_responses(["MixedShop"]) + doctor_responses(READY_RUNTIME)
+        target = self.app / CONFIG_FILE_NAME
+        for number in (errno.ENOTSUP, errno.EPERM, errno.EXDEV):
+            with self.subTest(errno=errno.errorcode[number]):
+                target.unlink(missing_ok=True)
+                with mock.patch("reproof.simple.cli.os.link", side_effect=OSError(number, os.strerror(number))):
+                    code, _, err, _, _ = self.run_cli(self.init_args("--non-interactive"), responses)
+                self.assertEqual((code, err), (0, ""))
+                self.assertEqual(load_config(target).scheme, "MixedShop")
+                self.assertEqual(os.stat(target).st_mode & 0o777, 0o644)
+                self.assertEqual(sorted(path.name for path in self.app.iterdir()), ["MixedShop.xcodeproj", CONFIG_FILE_NAME])
+        from reproof.simple.cli import _place_config
+        from reproof.simple.errors import SimpleError
+        temp = self.app / ".reproof-test.tmp"
+        temp.write_text("x", encoding="utf-8")
+        with mock.patch("reproof.simple.cli.os.link", side_effect=OSError(errno.ENOTSUP, "nope")), \
+                self.assertRaises(SimpleError) as raised:
+            _place_config(temp, target, is_forced=False)
+        self.assertEqual(raised.exception.code, "config_exists")
+        self.assertEqual(load_config(target).scheme, "MixedShop")
+        temp.unlink()  # 실패 때 임시 파일 정리는 호출자(_write_config)가 한다.
+
     def test_init_takes_project_lock(self):
         """init은 같은 프로젝트 이름의 잠금을 쥔다. 다른 실행이 그 프로젝트를 쓰는 중이면 xcodebuild 전에 project_busy로 멈춘다."""
         import fcntl

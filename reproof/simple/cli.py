@@ -345,7 +345,8 @@ def _config_exists_error(target: Path) -> SimpleError:
 
 
 def _place_config(temp_path: Path, target: Path, *, is_forced: bool) -> None:
-    """검증한 임시 파일을 target 자리에 둔다. --force면 os.replace, 아니면 비어 있는 자리에만 원자적으로 둔다(os.link).
+    """검증한 임시 파일을 target 자리에 둔다. --force면 os.replace, 아니면 비어 있는 자리에만 원자적으로 둔다(os.link,
+    하드 링크를 못 쓰는 파일 시스템이면 _create_exclusively).
 
     왜 link인가: 탐색이 수 분 걸리는 동안 다른 사람·다른 init이 reproof.toml을 만들 수 있다. 확인과 쓰기 사이의 틈 없이
     '없을 때만 만들기'를 하려면 이미 있으면 실패하는 os.link가 필요하다(링크 뒤 임시 이름은 지워 하드 링크가 남지 않는다).
@@ -358,6 +359,36 @@ def _place_config(temp_path: Path, target: Path, *, is_forced: bool) -> None:
         os.link(temp_path, target)
     except FileExistsError as error:
         raise _config_exists_error(target) from error
+    except OSError as error:
+        if error.errno not in _LINK_UNSUPPORTED_ERRNOS:
+            raise
+        _create_exclusively(temp_path, target)
+        return
+    temp_path.unlink()
+
+
+_LINK_UNSUPPORTED_ERRNOS = frozenset({errno.ENOTSUP, errno.EOPNOTSUPP, errno.EPERM, errno.EXDEV})
+"""하드 링크를 만들 수 없는 파일 시스템(FAT·일부 네트워크 볼륨 등)이 내는 errno. 이때는 O_EXCL 새 파일로 대신한다."""
+
+
+def _create_exclusively(temp_path: Path, target: Path) -> None:
+    """temp_path 내용을 O_CREAT|O_EXCL|O_NOFOLLOW로 새로 만든 target(0644)에 쓰고 temp_path를 지운다.
+
+    왜: os.link를 못 쓰는 곳에서도 '없을 때만 만들기'를 지키려는 것이다. 이미 있으면 config_exists, 쓰다 실패하면 만들다 만
+    target을 지워 반쯤 쓴 설정이 남지 않게 한다.
+    """
+    data = temp_path.read_bytes()
+    try:
+        descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
+    except FileExistsError as error:
+        raise _config_exists_error(target) from error
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            os.fchmod(stream.fileno(), 0o644)
+            stream.write(data)
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
     temp_path.unlink()
 
 
