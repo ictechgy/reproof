@@ -154,6 +154,8 @@ class SimpleNativeRunnerTests(unittest.TestCase):
         # 인증 전 요청은 본문 1 KiB까지만 받고, 인증된 요청도 아주 깊은 JSON은 파싱 전에 거절한다.
         self.assertEqual(raw_command(port, {}, {**status_body(), "pad": "x" * 2048}),
                          (413, {"ok": False, "error": "body_too_large"}))
+        # 틀린 토큰은 본문 크기와 상관없이 본문을 읽기 전에 401이다(헤더가 있다는 것만으로 1 MiB를 받지 않는다).
+        self.assertEqual(raw_command(port, {"Authorization": "Bearer wrong"}, {**tap, "pad": "x" * 4096}), unauthorized)
         nested: list = []
         for _ in range(100):
             nested = [nested]

@@ -745,6 +745,9 @@ class RunnerClientTests(unittest.TestCase):
         self.assertIn("[0, 0, 0, 0]", export)
         self.assertIn("static let maxUnauthenticatedBodyBytes = 1024", server)
         self.assertIn('"json_too_deep"', server)
+        self.assertIn('"body_not_utf8"', server)
+        self.assertIn("parse(buffer, isAuthorized: isAuthorized)", server)  # 본문 전에 토큰을 검사한다.
+        self.assertIn("depth < 0", server)
         self.assertIn("claimRelease()", server)
         self.assertIn('"app_frame_not_full_screen"', session)
 

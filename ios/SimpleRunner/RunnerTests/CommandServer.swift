@@ -49,8 +49,9 @@ struct HTTPRequest {
     let body: Data
 
     /// 지금까지 받은 바이트를 해석한다. 헤더 16 KiB, 본문 1 MiB(Authorization이 없으면 1 KiB)를 넘으면 invalid다.
-    /// chunked 전송은 받지 않는다.
-    static func parse(_ data: Data) -> ParseResult {
+    /// chunked 전송은 받지 않는다. isAuthorized: Authorization 헤더 값이 세션 토큰과 맞는지 보는 함수. 헤더가 있는데
+    /// 틀리면 본문을 기다리거나 읽기 전에 401이다.
+    static func parse(_ data: Data, isAuthorized: (String) -> Bool) -> ParseResult {
         guard let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) else {
             return data.count > CommandServer.maxHeaderBytes ? .invalid(431, "headers_too_large") : .incomplete
         }
@@ -64,6 +65,9 @@ struct HTTPRequest {
             return .invalid(400, "invalid_request_line")
         }
         guard let headers = headerFields(lines.dropFirst()) else { return .invalid(400, "invalid_header_fields") }
+        if let value = headers["authorization"], !isAuthorized(value) {
+            return .invalid(401, "unauthorized")  // 헤더가 있다는 것만으로 큰 본문을 받지 않는다(본문 전에 토큰 검사).
+        }
         return parseBody(data, from: headerEnd.upperBound, headers: headers, method: requestLine[0], path: requestLine[1])
     }
 
@@ -87,7 +91,8 @@ struct HTTPRequest {
             return .invalid(400, "invalid_content_length")
         }
         // 인증 전 요청(handshake status)은 작으므로 본문을 받기 전에 1 KiB로 묶는다. 토큰 없는 상대가 큰 본문으로
-        // 메모리를 쓰게 하거나 JSON 파서를 괴롭히지 못하게 하려는 것이다.
+        // 메모리를 쓰게 하거나 JSON 파서를 괴롭히지 못하게 하려는 것이다. Authorization이 있으면 parse가 이미 맞는
+        // 토큰인지 확인했으므로 1 MiB까지 받는다.
         let limit = headers["authorization"] == nil ? CommandServer.maxUnauthenticatedBodyBytes : CommandServer.maxBodyBytes
         guard length <= limit else { return .invalid(413, "body_too_large") }
         guard data.distance(from: start, to: data.endIndex) >= length else { return .incomplete }
@@ -114,7 +119,8 @@ final class ConnectionSlot {
 
 /// 127.0.0.1에만 바인드하는 최소 HTTP/1.1 명령 서버.
 ///
-/// `POST /command`(JSON 객체 본문, 최대 1 MiB, Authorization이 없으면 1 KiB, 중첩 16단계까지)만 받는다.
+/// `POST /command`(UTF-8 JSON 객체 본문, 맞는 토큰이면 최대 1 MiB, Authorization이 없으면 1 KiB, 중첩 16단계까지)만 받는다.
+/// Authorization이 있는데 틀리면 본문을 받기 전에 401이다.
 /// loopback이 아닌 상대는 바로 끊는다.
 /// 요청 검사 순서: Origin 헤더가 있으면 403(브라우저가 보낸 요청 차단), Host가 `127.0.0.1:<port>`나
 /// `localhost:<port>`가 아니면 403(DNS rebinding 차단), 다른 경로는 404, Content-Type이 application/json이
@@ -344,7 +350,7 @@ final class CommandServer: @unchecked Sendable {
 
     /// 받은 바이트를 해석해 더 받거나, 오류로 답하거나, 라우팅한다. 요청이 끝나면 제한 시간을 해제한다.
     private func handle(_ buffer: Data, on connection: NWConnection, isComplete: Bool, deadline: DispatchWorkItem) {
-        let parsed = HTTPRequest.parse(buffer)
+        let parsed = HTTPRequest.parse(buffer, isAuthorized: isAuthorized)
         if case .incomplete = parsed, !isComplete {
             receive(on: connection, buffer: buffer, deadline: deadline)
             return
@@ -364,6 +370,10 @@ final class CommandServer: @unchecked Sendable {
     private func route(_ request: HTTPRequest, on connection: NWConnection) {
         if let rejection = rejection(for: request) {
             send(connection, status: rejection.status, document: ["ok": false, "error": rejection.code])
+            return
+        }
+        guard String(data: request.body, encoding: .utf8) != nil else {
+            send(connection, status: 400, document: ["ok": false, "error": "body_not_utf8"])
             return
         }
         guard !Self.exceedsNesting(request.body, limit: Self.maxJSONDepth) else {
@@ -391,8 +401,9 @@ final class CommandServer: @unchecked Sendable {
     /// JSON 바이트의 배열·객체 중첩이 limit를 넘는지 문자열 밖의 괄호만 세어 본다(파싱 전, 선형 시간).
     ///
     /// 왜: JSONSerialization은 아주 깊은 중첩에서 Swift 오류가 아니라 스택 넘침으로 프로세스를 죽일 수 있어, 파서에
-    /// 넘기기 전에 거절한다.
+    /// 넘기기 전에 거절한다. UTF-8이 아니거나 닫는 괄호가 먼저 나와 깊이가 음수가 되면(정상 JSON이 아님) 역시 true다.
     static func exceedsNesting(_ data: Data, limit: Int) -> Bool {
+        guard String(data: data, encoding: .utf8) != nil else { return true }
         var depth = 0, isInString = false, isEscaped = false
         for byte in data {
             if isInString {
@@ -405,7 +416,7 @@ final class CommandServer: @unchecked Sendable {
             case 0x5D, 0x7D: depth -= 1
             default: break
             }
-            if depth > limit { return true }
+            if depth > limit || depth < 0 { return true }
         }
         return false
     }
