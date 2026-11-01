@@ -1,8 +1,10 @@
 """간편 모드 CLI(init·doctor·build·inspect) 계약. Xcode 없이 FakeToolRunner와 input patch로 실행된다."""
 import contextlib
+import errno
 import io
 import json
 import os
+import stat
 import tempfile
 import unittest
 from collections import namedtuple
@@ -292,6 +294,67 @@ class SimpleCliTests(unittest.TestCase):
             code, _, err, _, _ = self.run_cli(["build"], [])
         self.assertEqual(code, 2)
         self.assertIn("reproof app init", err)
+
+    def write_app_config(self):
+        """생성기 없는 sample_config를 앱 폴더(self.app)에 쓰고 경로를 돌려준다(build가 이 폴더를 복사한다)."""
+        path = self.app / CONFIG_FILE_NAME
+        path.write_text(render_config(replace(sample_config(), generator="none", generator_spec=None)),
+                        encoding="utf-8")
+        return path
+
+    def test_unreadable_source_file_is_reported_in_korean_without_traceback(self):
+        """앱 폴더에 읽을 수 없는 파일이 있으면 트레이스백 대신 원인·파일 이름·해결을 한국어로 알리고 2를 돌려주는지 본다."""
+        path = self.write_app_config()
+        secret = self.app / "Secret.swift"
+        secret.write_text("let value = 1\n", encoding="utf-8")
+        secret.chmod(0)
+        self.addCleanup(secret.chmod, 0o644)
+        code, _, err, _, _ = self.run_cli(["build", "--config", str(path)],
+                                          [(["xcodebuild", "-version"], "Xcode 27.0\nBuild version 27A")])
+        self.assertEqual(code, 2)
+        self.assertIn("문제:", err)
+        self.assertIn(str(secret), err)
+        self.assertIn("권한", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_disk_full_is_reported_with_free_space_remedy(self):
+        """디스크가 가득 찬 OSError(ENOSPC)는 파일 이름과 함께 여유 공간 확보를 안내하는지 본다."""
+        path = self.write_app_config()
+        full = OSError(errno.ENOSPC, "No space left on device", "/작업/builds/abc.partial")
+        with mock.patch("reproof.simple.cli.prepare_build", side_effect=full):
+            code, _, err, _, _ = self.run_cli(["build", "--config", str(path)], [])
+        self.assertEqual(code, 2)
+        self.assertIn("No space left on device", err)
+        self.assertIn("/작업/builds/abc.partial", err)
+        self.assertIn("여유 공간", err)
+
+    def test_unexpected_error_writes_private_crash_log(self):
+        """예상 밖 예외는 트레이스백을 작업 공간 logs/crash-*.log(0600)에 쓰고 그 경로만 안내하는지 본다."""
+        path = self.write_app_config()
+        with mock.patch("reproof.simple.cli.prepare_build", side_effect=RuntimeError("예상 밖 상태")):
+            code, _, err, _, _ = self.run_cli(["build", "--config", str(path)], [])
+        self.assertEqual(code, 2)
+        self.assertIn("내부 오류입니다. 이 로그를 첨부해 알려 주세요: ", err)
+        self.assertNotIn("Traceback", err)
+        logs = list((self.tmp / "home" / "logs").glob("crash-*.log"))
+        self.assertEqual(len(logs), 1)
+        self.assertIn(str(logs[0]), err)
+        self.assertEqual(stat.S_IMODE(logs[0].stat().st_mode), 0o600)
+        written = logs[0].read_text(encoding="utf-8")
+        self.assertIn("Traceback", written)
+        self.assertIn("예상 밖 상태", written)
+
+    def test_unexpected_error_falls_back_to_stderr_when_crash_log_cannot_be_written(self):
+        """crash 로그를 쓸 수 없으면(logs 자리에 파일) 원래 트레이스백을 stderr에 싣고 2를 돌려주는지 본다."""
+        path = self.write_app_config()
+        (self.tmp / "home").mkdir()
+        (self.tmp / "home" / "logs").write_text("폴더 자리를 차지한 파일", encoding="utf-8")
+        with mock.patch("reproof.simple.cli.prepare_build", side_effect=RuntimeError("예상 밖 상태")):
+            code, _, err, _, _ = self.run_cli(["build", "--config", str(path)], [])
+        self.assertEqual(code, 2)
+        self.assertIn("내부 오류입니다", err)
+        self.assertIn("RuntimeError: 예상 밖 상태", err)
+
 
 
 if __name__ == "__main__":

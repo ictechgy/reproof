@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import json
 import math
 import os
@@ -14,6 +15,7 @@ import re
 import sys
 import tempfile
 import time
+import traceback
 from collections.abc import Iterator, Sequence
 from dataclasses import replace
 from datetime import datetime
@@ -472,11 +474,65 @@ def run_inspect_command(arguments: argparse.Namespace) -> int:
 _COMMANDS = {"init": run_init_command, "doctor": run_doctor_command, "build": run_build_command,
              "inspect": run_inspect_command}
 
+# 디스크 공간 부족과 권한 문제를 뜻하는 errno. 해결 안내를 고르는 데 쓴다.
+_DISK_FULL_ERRNOS = frozenset({errno.ENOSPC, errno.EDQUOT})
+_PERMISSION_ERRNOS = frozenset({errno.EACCES, errno.EPERM, errno.EROFS})
+
+
+def _os_error_remedy(number: int | None) -> str:
+    """errno에 맞는 해결 방법을 고른다. 모르는 errno면 권한과 여유 공간을 함께 확인하라고 안내한다."""
+    if number in _DISK_FULL_ERRNOS:
+        return "디스크 여유 공간을 확보한 뒤 다시 실행하세요. 작업 공간(~/.reproof 또는 REPROOF_HOME)의 오래된 빌드를 지워도 됩니다."
+    if number in _PERMISSION_ERRNOS:
+        return "해당 파일·폴더의 권한(`ls -l`)을 확인해 읽기·쓰기가 되게 하거나, 읽기 전용 위치라면 다른 위치를 지정한 뒤 다시 실행하세요."
+    return "해당 파일·폴더의 권한과 디스크 여유 공간을 확인한 뒤 다시 실행하세요."
+
+
+def os_error_as_simple_error(error: OSError) -> SimpleError:
+    """파일·디스크 작업의 OSError를 원인(strerror)·파일 이름·해결 방법을 담은 file_operation_failed로 바꾼다.
+
+    왜: 읽을 수 없는 파일, 가득 찬 디스크, 읽기 전용 폴더 같은 환경 문제는 코드 결함이 아니므로 트레이스백 대신
+    무엇을 고치면 되는지 알려 주려는 것이다.
+    """
+    names = [str(name) for name in (error.filename, error.filename2) if name is not None]
+    where = f" ({', '.join(names)})" if names else ""
+    reason = error.strerror or str(error) or type(error).__name__
+    return SimpleError("file_operation_failed", f"파일 작업이 실패했습니다: {reason}{where}", _os_error_remedy(error.errno))
+
+
+def write_crash_log(workspace_root: Path, details: str) -> Path:
+    """트레이스백(details)을 `<작업 공간>/logs/crash-<시각>.log`에 소유자만 읽게(0600) 쓰고 경로를 돌려준다.
+
+    왜 파일인가: 사용자 화면에는 할 일만 보이고, 개발자가 원인을 찾을 전체 기록은 첨부할 수 있게 남기려는 것이다.
+    O_EXCL로 만들어 기존 파일·링크를 덮어쓰지 않는다.
+    """
+    folder = workspace_root / "logs"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"crash-{datetime.now():%Y%m%d-%H%M%S-%f}.log"
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write(details)
+    return path
+
+
+def report_internal_error(arguments: argparse.Namespace) -> str:
+    """처리 중인 예상 밖 예외를 crash 로그에 남기고 사용자 안내문을 돌려준다.
+
+    로그를 쓰지 못하면 그 이유와 원래 트레이스백을 안내문에 그대로 싣는다(어떤 경우에도 원인을 버리지 않으려는 것).
+    """
+    details = traceback.format_exc()
+    try:
+        path = write_crash_log(_workspace_root(arguments), details)
+    except Exception as error:  # 로그 쓰기 실패가 원래 오류를 가리지 않게, 이유를 밝히고 원래 내용을 화면에 낸다.
+        return f"내부 오류입니다. 로그 파일을 쓰지 못해({error}) 내용을 아래에 출력합니다. 이 내용을 첨부해 알려 주세요.\n{details}"
+    return f"내부 오류입니다. 이 로그를 첨부해 알려 주세요: {path}"
+
 
 def main(argv: Sequence[str]) -> int:
     """간편 모드 CLI를 실행한다.
 
-    반환: 0 성공, 2 SimpleError 또는 doctor 점검 실패, 130 KeyboardInterrupt. 오류 안내문은 stderr로 낸다.
+    반환: 0 성공, 2 오류(SimpleError·OSError·예상 밖 예외) 또는 doctor 점검 실패, 130 KeyboardInterrupt.
+    오류 안내문은 stderr로 낸다. OSError는 원인·파일·해결로, 그 밖의 예외는 crash 로그 경로로 안내한다.
     --help는 argparse가 SystemExit(0)로 처리한다.
     """
     arguments = build_parser().parse_args(list(argv))
@@ -488,3 +544,9 @@ def main(argv: Sequence[str]) -> int:
     except KeyboardInterrupt:
         print("사용자가 중단했습니다.", file=sys.stderr)
         return 130
+    except OSError as error:
+        print(os_error_as_simple_error(error).user_message(), file=sys.stderr)
+        return 2
+    except Exception:
+        print(report_internal_error(arguments), file=sys.stderr)
+        return 2
