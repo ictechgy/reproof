@@ -38,9 +38,9 @@ def devicetypes_json():
     ]})
 
 
-def device(udid, name, type_id=TYPE_16):
+def device(udid, name, type_id=TYPE_16, state="Shutdown", available=True):
     """devices 출력의 기기 항목 하나를 만든다."""
-    return {"udid": udid, "name": name, "state": "Shutdown", "isAvailable": True,
+    return {"udid": udid, "name": name, "state": state, "isAvailable": available,
             "deviceTypeIdentifier": type_id}
 
 
@@ -89,15 +89,47 @@ class SimulatorTests(unittest.TestCase):
         self.assertEqual(self.mutating(fake), [])
 
     def test_reset_order_is_shutdown_erase_boot_bootstatus(self):
-        fake = FakeToolRunner(self.base_responses({RUNTIME_27: [device("U", "reproof-shop")]})
+        fake = FakeToolRunner(self.base_responses({RUNTIME_27: [device("U", "reproof-shop", state="Booted")]})
                               + [(["xcrun", "simctl"], "")])
         SimulatorManager(fake).reset("U")
         self.assertEqual(self.mutating(fake), [
             ["xcrun", "simctl", "shutdown", "U"], ["xcrun", "simctl", "erase", "U"],
             ["xcrun", "simctl", "boot", "U"], ["xcrun", "simctl", "bootstatus", "U", "-b"]])
 
+    def test_reset_skips_shutdown_for_shutdown_device(self):
+        fake = FakeToolRunner(self.base_responses({RUNTIME_27: [device("U", "reproof-shop")]})
+                              + [(["xcrun", "simctl"], "")])
+        SimulatorManager(fake).reset("U")
+        self.assertEqual([c[2] for c in self.mutating(fake)], ["erase", "boot", "bootstatus"])
+
+    def test_reset_propagates_shutdown_failure_with_empty_tail_for_booted_device(self):
+        base = self.base_responses({RUNTIME_27: [device("U", "reproof-shop", state="Booted")]})
+        fake = FakeToolRunner(base + [(["xcrun", "simctl", "shutdown"],
+                                       ToolFailure("xcrun", log_path=None, output_tail=""))])
+        with self.assertRaises(ToolFailure):
+            SimulatorManager(fake).reset("U")
+        self.assertFalse(any("erase" in c["argv"] for c in fake.calls))
+
+    def test_ensure_device_ignores_unavailable_device(self):
+        fake = FakeToolRunner(self.base_responses(
+            {RUNTIME_27: [device("OLD", "reproof-shop", available=False)]})
+            + [(["xcrun", "simctl", "create"], "UDID-NEW\n")])
+        self.assertEqual(SimulatorManager(fake).ensure_device("shop", SETTINGS), "UDID-NEW")
+
+    def test_unexpected_json_raises_simulator_output_invalid(self):
+        bad_runtimes = json.dumps({"runtimes": [{"identifier": "x.SimRuntime.iOS-27-0"}]})
+        with self.assertRaises(SimpleError) as caught:
+            list_runtimes(FakeToolRunner([(["xcrun"], bad_runtimes)]))
+        self.assertEqual(caught.exception.code, "simulator_output_invalid")
+        bad_types = json.dumps({"devicetypes": [{"identifier": "x"}]})
+        fake = FakeToolRunner([(["xcrun", "simctl", "list", "runtimes"], runtimes_json()),
+                               (["xcrun", "simctl", "list", "devicetypes"], bad_types)])
+        with self.assertRaises(SimpleError) as caught:
+            SimulatorManager(fake).ensure_device("shop", SETTINGS)
+        self.assertEqual(caught.exception.code, "simulator_output_invalid")
+
     def test_reset_ignores_only_already_shutdown_failure(self):
-        base = self.base_responses({RUNTIME_27: [device("U", "reproof-shop")]})
+        base = self.base_responses({RUNTIME_27: [device("U", "reproof-shop", state="Booted")]})
         already = ToolFailure("xcrun", log_path=None,
                               output_tail="Unable to shutdown device in current state: Shutdown")
         fake = FakeToolRunner(base + [(["xcrun", "simctl", "shutdown"], already),

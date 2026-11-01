@@ -36,20 +36,29 @@ def _simctl_json(runner: ToolRunner, subcommand: str) -> dict[str, Any]:
     try:
         parsed = json.loads(output)
     except json.JSONDecodeError as error:
-        raise SimpleError("simctl_output_invalid", f"simctl {subcommand} 출력을 해석하지 못했습니다: {error}",
+        raise SimpleError("simulator_output_invalid", f"simctl {subcommand} 출력을 해석하지 못했습니다: {error}",
                           "Xcode가 정상 설치됐는지 `xcrun simctl list`로 확인한 뒤 다시 실행하세요.") from error
     if not isinstance(parsed, dict):
-        raise SimpleError("simctl_output_invalid", f"simctl {subcommand} 출력이 객체가 아닙니다.",
+        raise SimpleError("simulator_output_invalid", f"simctl {subcommand} 출력이 객체가 아닙니다.",
                           "Xcode가 정상 설치됐는지 `xcrun simctl list`로 확인한 뒤 다시 실행하세요.")
     return parsed
+
+
+def _unexpected_output(subcommand: str, error: Exception) -> SimpleError:
+    """simctl JSON 구조가 예상과 다를 때 KeyError 대신 보여줄 오류를 만든다(Xcode 버전 차이 대비)."""
+    return SimpleError("simulator_output_invalid", f"simctl {subcommand} 출력 구조가 예상과 다릅니다: {error!r}",
+                       "Xcode가 정상 설치됐는지 `xcrun simctl list`로 확인한 뒤 다시 실행하세요.")
 
 
 def list_runtimes(runner: ToolRunner) -> tuple[Runtime, ...]:
     """설치된 iOS 런타임만 모아 돌려준다(watchOS 등은 제외). 사용 불가 항목도 포함하고 표시만 한다."""
     entries = _simctl_json(runner, "runtimes").get("runtimes", [])
-    return tuple(
-        Runtime(item["identifier"], item["name"], str(item.get("version", "")), bool(item.get("isAvailable")))
-        for item in entries if _IOS_RUNTIME_MARKER in item.get("identifier", ""))
+    try:
+        return tuple(
+            Runtime(item["identifier"], item["name"], str(item.get("version", "")), bool(item.get("isAvailable")))
+            for item in entries if _IOS_RUNTIME_MARKER in item.get("identifier", ""))
+    except (KeyError, TypeError, AttributeError) as error:
+        raise _unexpected_output("runtimes", error) from error
 
 
 def _version_key(runtime: Runtime) -> tuple[int, ...]:
@@ -101,10 +110,13 @@ class SimulatorManager:
     def _find_device_type(self, name: str) -> str:
         """기기 이름으로 device type 식별자를 찾는다. 없으면 사용 가능한 iPhone 이름을 알린다."""
         types = _simctl_json(self._runner, "devicetypes").get("devicetypes", [])
-        for item in types:
-            if item.get("name") == name:
-                return item["identifier"]
-        iphones = ", ".join(item["name"] for item in types if item.get("name", "").startswith("iPhone"))
+        try:
+            for item in types:
+                if item["name"] == name:
+                    return item["identifier"]
+            iphones = ", ".join(item["name"] for item in types if item["name"].startswith("iPhone"))
+        except (KeyError, TypeError, AttributeError) as error:
+            raise _unexpected_output("devicetypes", error) from error
         raise SimpleError("device_type_not_found", f"기기 종류 '{name}'을(를) 찾지 못했습니다. 사용 가능한 iPhone: {iphones}",
                           "reproof.toml의 [simulator] device_type을 위 이름 중 하나로 고치세요.")
 
@@ -112,7 +124,8 @@ class SimulatorManager:
         """이름·종류·런타임이 모두 같은 기존 기기의 udid를 찾는다. 없으면 None."""
         devices = _simctl_json(self._runner, "devices").get("devices", {})
         for item in devices.get(runtime_id, []):
-            if item.get("name") == name and item.get("deviceTypeIdentifier") == type_id:
+            is_match = item.get("name") == name and item.get("deviceTypeIdentifier") == type_id
+            if is_match and item.get("isAvailable") is True:  # 사용 불가 기기는 재사용하지 않고 새로 만든다.
                 return item["udid"]
         return None
 
@@ -130,18 +143,24 @@ class SimulatorManager:
             return existing
         return self._simctl(["create", name, type_id, runtime.identifier]).strip()
 
-    def _require_owned(self, udid: str) -> None:
-        """udid가 reproof- 접두사 기기인지 확인한다. 아니거나 모르는 기기면 simulator_not_owned."""
+    def _require_owned(self, udid: str) -> str:
+        """udid가 reproof- 접두사 기기인지 확인하고 현재 state를 돌려준다. 아니거나 모르는 기기면 simulator_not_owned."""
         devices = _simctl_json(self._runner, "devices").get("devices", {})
         for group in devices.values():
             for item in group:
                 if item.get("udid") == udid and item.get("name", "").startswith(OWNED_PREFIX):
-                    return
+                    return str(item.get("state", ""))
         raise SimpleError("simulator_not_owned", f"Simulator {udid}은(는) reproof 전용 기기가 아니어서 변경할 수 없습니다.",
                           "reproof가 만든 'reproof-' 기기만 사용합니다. 설정을 다시 확인하거나 ensure_device로 전용 기기를 만드세요.")
 
-    def _shutdown_if_running(self, udid: str) -> None:
-        """기기를 끈다. 이미 꺼져 있다는 실패만 무시하고 나머지는 그대로 전파한다."""
+    def _shutdown_if_running(self, udid: str, state: str) -> None:
+        """Shutdown 상태면 건너뛰고, 아니면 끈다.
+
+        왜 state를 보나: HostToolRunner는 log_path 없이는 출력 꼬리를 싣지 않아 문구 매칭만으로는
+        새로 만든 기기(항상 Shutdown)의 shutdown 실패를 구분할 수 없다. 문구 매칭은 보조 수단이다.
+        """
+        if state == "Shutdown":
+            return
         try:
             self._simctl(["shutdown", udid])
         except ToolFailure as failure:
@@ -150,8 +169,8 @@ class SimulatorManager:
 
     def reset(self, udid: str) -> None:
         """shutdown, erase, boot, 부팅 완료 대기 순서로 깨끗한 상태를 만든다. 매 재생을 같은 상태에서 시작하려는 것이다."""
-        self._require_owned(udid)
-        self._shutdown_if_running(udid)
+        state = self._require_owned(udid)
+        self._shutdown_if_running(udid, state)
         self._simctl(["erase", udid])
         self._simctl(["boot", udid])
         self._simctl(["bootstatus", udid, "-b"], timeout=_BOOT_WAIT_TIMEOUT)
