@@ -187,6 +187,196 @@ MixedShop 사본에 적용한 변경(`spikes/locator-coverage/edits.py`, 대상:
 `coverage-details.json`). 세션 폴더(`runner-session-*`)는 모두 정상 종료로 지워졌다. Simulator `reproof-mixedshop`,
 `reproof-wikipedia-ios`는 켜 둔 상태다(`inspect`와 같은 동작).
 
+## S2 — 앱 안 SwiftUI 터치 해석
+
+### 판정
+
+**고정 규칙을 그대로 적용하면 앱 안 해석은 기준에 못 미친다(판정 일치율 20/30 = 66.7%, 기준 95%). 그래서 계획 2는
+직접 터치를 설계 6장의 "변환 실행"으로 해석한다(잠정).** element_at과 같은 승격 규칙을 앱 안에도 적용한 참고값 B도
+28/30 = 93.3%라, 어느 정의로 읽어도 결정은 같다.
+
+"잠정"인 이유: 사람의 Simulator 창 클릭 대신 두 가지 대체 측정을 썼다(아래 "측정 방법"의 대체 기록). 앱 1개(MixedShop),
+화면 2개, iOS 27.0 Simulator 한 종류에서 잰 값이다. 물리 iPhone은 재지 않았다(승인 범위 밖).
+
+| 앱 구성 | 조건 | A(판정) | B(참고) | 앱 안 접근성 요소(census) |
+|---|---|---|---|---|
+| 기본 | taps(실행기 `tap_point`, XCUITest 연결됨) | 20/30 = 66.7% | 28/30 = 93.3% | 재지 않음 |
+| 기본 | selfcheck(XCUITest 없음) | 0/30 = 0% | 0/30 = 0% | 요약 0개, 옵션 0개 |
+| 활성화 1가지(`_AXSSetAutomationEnabled`) | selfcheck | 20/30 = 66.7% | 28/30 = 93.3% | 요약 7개, 옵션 16개 |
+| 활성화 1가지 | taps | 20/30 = 66.7% | 28/30 = 93.3% | 재지 않음 |
+
+판정 일치율은 측정 전에 "같은 앱 구성의 taps와 selfcheck 중 낮은 A"로 정했다. 기본 구성은 XCUITest 없이 SwiftUI 요소가
+하나도 보이지 않아 활성화 구성을 썼고, 그 값은 min(20/30, 20/30) = 66.7%다. 66.7% < 95%이므로 규칙대로 변환 실행이다.
+
+숫자를 읽을 때 주의할 점:
+
+1. **XCUITest 없이 띄운 앱(실제 직접 터치와 같은 조건)은 기본 상태에서 접근성 요소가 하나도 없다.** SwiftUI뿐 아니라
+   UIKit 탭 버튼도 `isAccessibilityElement`가 false였다. 화면은 실제로 떠 있었다(census가 방문한 view에 SwiftUI 호스팅
+   view 1개, 옵션 화면의 List 셀 6개, 탭 버튼이 있었다). 즉 기본 상태의 앱 안 해석은 직접 터치에서 전혀 되지 않는다.
+2. **XCUITest가 붙으면 앱의 `+load` 시점에 이미 접근성이 켜져 있다**(`_AXSAutomationEnabled`,
+   `_AXSApplicationAccessibilityEnabled` 모두 1. XCUITest 없이 띄운 기본 selfcheck에서는 둘 다 0). 기본 구성 taps의 66.7%는
+   XCUITest가 켜 준 접근성 덕분이라 실제 직접 터치를 대표하지 않는다. selfcheck 조건을 따로 잰 이유다.
+3. **활성화 방법 1가지는 XCUITest 없이도 XCUITest가 붙었을 때와 같은 결과를 만들었다.** 접근성이 켜진 세 run(기본 taps,
+   활성화 selfcheck, 활성화 taps)은 탭 30개의 A·B 일치 여부, 앱 안 종류, 앱 안 클래스가 모두 같다. 남은 불일치 10건은
+   접근성이 켜져 있어도 생기는 구조 차이다(아래 표).
+4. 일치한 20건은 앱 안 `accessibilityFrame`이 실행기 계층 frame과 같았다(네 값의 최대 차 0). 순수 SwiftUI 요약 화면은
+   가장자리 탭 8개를 포함해 12/12였다. 좌표를 포함하는 같은 깊이의 접근성 요소가 둘 이상인 경우는 없었다.
+5. 앱 안 해석 시간은 터치 하나에 중앙값 약 1 ms, 최대 18.1 ms(활성화 selfcheck에서 화면별 첫 질의)였다.
+
+### 결과: 탭별 (활성화 taps)
+
+활성화 selfcheck와 기본 taps도 일치 여부가 탭마다 같다. `새로고침 N회`·`합계 N`의 N은 앞 탭의 동작으로 바뀐 값이다(selfcheck는 동작이 없어 0). 좌표 단위는 pt다.
+
+| id | 분류 | 위치 | 좌표 | element_at | 앱 안 A | A | B |
+|---|---|---|---|---|---|---|---|
+| S01 | text | center | 196.5, 377.7 | staticText `주문 요약` | staticText `주문 요약` | ✓ | ✓ |
+| S02 | text | center | 196.5, 414.0 | staticText `새로고침 0회` | staticText `새로고침 0회` | ✓ | ✓ |
+| S03 | button | center | 196.5, 450.5 | button `새로고침` | button `새로고침` | ✓ | ✓ |
+| S04 | button | left | 168.5, 450.5 | button `새로고침` | button `새로고침` | ✓ | ✓ |
+| S05 | button | right | 224.5, 450.5 | button `새로고침` | button `새로고침` | ✓ | ✓ |
+| S06 | button | top | 196.5, 441.8 | button `새로고침` | button `새로고침` | ✓ | ✓ |
+| S07 | text | left | 153.7, 414.0 | staticText `새로고침 4회` | staticText `새로고침 4회` | ✓ | ✓ |
+| S08 | text | right | 226.7, 377.7 | staticText `주문 요약` | staticText `주문 요약` | ✓ | ✓ |
+| S09 | button | bottom | 196.5, 459.2 | button `새로고침` | button `새로고침` | ✓ | ✓ |
+| S10 | text | bottom | 196.5, 386.3 | staticText `주문 요약` | staticText `주문 요약` | ✓ | ✓ |
+| S11 | text | right | 239.0, 414.0 | staticText `새로고침 5회` | staticText `새로고침 5회` | ✓ | ✓ |
+| S12 | button | center | 196.5, 450.5 | button `새로고침` | button `새로고침` | ✓ | ✓ |
+| O01 | text | center | 63.7, 174.2 | switch `선물 포장` | switch `선물 포장` | ✓ | ✓ |
+| O02 | toggle | center | 331.5, 174.3 | switch (빈 label) | switch `선물 포장` | ✗ | ✗ |
+| O03 | toggle | center | 196.5, 174.2 | switch `선물 포장` | switch `선물 포장` | ✓ | ✓ |
+| O04 | toggle | left | 301.5, 174.3 | switch (빈 label) | switch `선물 포장` | ✗ | ✗ |
+| O05 | text | center | 46.8, 278.8 | cell (빈 label) | staticText `사과` | ✗ | ✓ |
+| O06 | button | center | 346.2, 278.8 | button `추가` | button `추가` | ✓ | ✓ |
+| O07 | text | center | 39.5, 331.2 | cell (빈 label) | staticText `배` | ✗ | ✓ |
+| O08 | button | center | 346.2, 331.2 | button `추가` | button `추가` | ✓ | ✓ |
+| O09 | text | center | 39.5, 383.5 | cell (빈 label) | staticText `귤` | ✗ | ✓ |
+| O10 | button | center | 346.2, 383.5 | button `추가` | button `추가` | ✓ | ✓ |
+| O11 | button | left | 332.8, 278.8 | button `추가` | button `추가` | ✓ | ✓ |
+| O12 | button | right | 359.5, 331.2 | button `추가` | button `추가` | ✓ | ✓ |
+| O13 | button | bottom | 346.2, 392.2 | button `추가` | button `추가` | ✓ | ✓ |
+| O14 | text | center | 196.5, 435.8 | cell (빈 label) | staticText `합계 6` | ✗ | ✓ |
+| O15 | text | left | 17.5, 435.8 | cell (빈 label) | staticText `합계 6` | ✗ | ✓ |
+| O16 | textField | center | 196.5, 226.3 | textField (빈 label) | staticText `메모` | ✗ | ✓ |
+| O17 | textField | left | 33.5, 226.3 | textField (빈 label) | staticText `메모` | ✗ | ✓ |
+| O18 | textField | right | 359.5, 226.3 | textField (빈 label) | staticText `메모` | ✗ | ✓ |
+
+### 불일치 10건 (접근성이 켜진 세 run에서 모두 같음)
+
+| 탭 | 수 | element_at | 앱 안 A | 원인 | B(승격) |
+|---|---|---|---|---|---|
+| List 행 Text: O05 `사과`, O07 `배`, O09 `귤`, O14·O15 `합계 N` | 5 | cell (빈 label) | staticText `사과` 등 | element_at은 가장 깊은 staticText를 감싼 interactive 조상 `cell`로 올린다. 브리프의 프로브 방법은 가장 깊은 요소를 그대로 쓴다(정의 차이) | ✓ cell (빈 label)(앱 안 경로의 `SwiftUI.ListCollectionViewCell`) |
+| TextField: O16–O18 | 3 | textField (빈 label) | staticText `메모`(`UITextFieldLabel`) | SwiftUI TextField는 앱 안에서 `SwiftUI.UIKitTextField`(UITextField 하위 클래스)이고, 그 subview인 placeholder 라벨도 접근성 요소다. 프로브는 접근성 요소 아래 subview까지 내려가 이 라벨을 고른다. 실행기 계층에는 이 라벨이 없다 | ✓ textField (빈 label) |
+| Toggle 스위치 부분: O02(가운데), O04(왼쪽 가장자리) | 2 | 안쪽 switch (빈 label) | 바깥 switch `선물 포장` | 실행기 계층은 Toggle 아래에 staticText `선물 포장`과 label 없는 안쪽 switch(frame 300, 160.3, 63×28)를 자식으로 보여 준다. 앱 안 Toggle 노드(`SwiftUI.AccessibilityNode`, traits button + toggleButton)에는 `accessibilityElements` 자식이 없다. XCUITest가 어떤 경로로 이 자식을 얻는지는 확인하지 않았다 | ✗(같은 이유) |
+
+B는 측정 전에 정한 참고값이고 판정에 쓰지 않는다. B로 판정했어도 93.3%라 기준 밖이다. 남는 2건(Toggle 스위치 부분)은
+앱 안 정보만으로는 실행기 계층의 안쪽 switch를 만들 수 없는 경우다.
+
+### 활성화 방법 1가지 — 전과 후
+
+- 방법: `dlopen("/usr/lib/libAccessibility.dylib")` → `dlsym("_AXSSetAutomationEnabled")` → 인자 1로 호출. `+load`
+  (`TouchProbeBootstrap.m`)가 부르는 `install()`에서, 실행 환경 변수 `TOUCH_PROBE_ACTIVATE_AX=1`일 때만 부른다. 비공개
+  API이고 Debug 사본에만 들어 있다. UI 테스트 도구(EarlGrey)가 XCUITest 없이 접근성을 켤 때 쓰던 방법으로 알고 있어
+  골랐다(기억에 의존, 이번에 확인하지 않음). 다른 방법은 시도하지 않았다.
+- `libAccessibility.dylib`는 두 구성 모두 프로브 시작 전에 이미 올라와 있었다(`RTLD_NOLOAD`로 확인).
+- 이 설정이 Simulator 전체에 남는지, 다른 앱에 영향을 주는지는 재지 않았다. run마다 Simulator를 초기화했고 기본 run 두 개를
+  먼저 돌려 활성화가 기본 측정에 섞이지 않게 했다. XCUITest가 접근성을 켠 기본 taps 바로 뒤의 기본 selfcheck도 시작 상태 값이
+  0/0이어서, 초기화 뒤에는 접근성 상태가 이어지지 않는다는 것을 확인했다.
+
+| | 기본 selfcheck | 활성화 selfcheck |
+|---|---|---|
+| 프로브 시작 때 `_AXSAutomationEnabled` / `_AXSApplicationAccessibilityEnabled` | 0 / 0 | 1 / 1(호출 직후) |
+| 요약 화면 접근성 요소 | 0개 | 7개: SwiftUI 3(`주문 요약`, `새로고침 0회`, `새로고침`), 탭 버튼 2와 그 라벨 2 |
+| 옵션 화면 접근성 요소 | 0개 | 16개: SwiftUI 쪽 10(Toggle 노드, `UIKitTextField`, `UITextFieldLabel`, 상품 Text 3, `추가` 3, `합계 0`), 뒤로 버튼·제목 2, 탭 버튼 2와 그 라벨 2 |
+| A / B | 0/30 / 0/30 | 20/30 / 28/30 |
+| 좌표 해석 시간(중앙값/최대) | 0.1 / 0.4 ms | 0.8 / 18.1 ms |
+
+### 측정 방법
+
+- 환경: S1과 같은 Mac(macOS 26.7.2, Xcode 27.0 (27A266a), iOS 27.0 Simulator 런타임, Python 3.14.7). Simulator는
+  `reproof-mixedshop`만 썼고 run마다 `prepare_simulator`로 초기화·표시 고정·새 설치를 했다. run 순서: 기본 taps → 기본
+  selfcheck → 활성화 selfcheck → 활성화 taps.
+- 빌드: `spikes/inapp-touch/apply.py`가 `examples/simple-ios/MixedShop`을 `~/.reproof/spikes/s2/source/MixedShop`으로
+  복사하고, 사본 `project.yml`의 앱 타깃 sources에 `TouchProbe/`(`TouchProbe.swift`, `TouchProbeBootstrap.m`)를 더했다.
+  Release 구성에서는 `EXCLUDED_SOURCE_FILE_NAMES`로 두 파일을 빼고, 파일 안에도 `#if DEBUG`가 있다(Release는 빌드하지
+  않았다). `examples/`는 바꾸지 않았다. `prepare_build`로 Debug 빌드 `772e9c23a42ae18d`(기본)와 `810617ef2af63903`
+  (활성화. 소스는 같고 설정의 launch 환경 변수만 달라 빌드 ID가 다르다)를 만들었다. 프로브 클래스 두 개가
+  `MixedShop.debug.dylib`에 들어간 것을 `nm`으로 확인했다(Xcode Debug 빌드는 앱 코드를 이 dylib에 둔다).
+- 프로브(브리프의 고정 방법): ObjC `+load`가 Swift `install()`을 부르고, `install()`이 `UIApplication.sendEvent(_:)`를
+  교체한다. touch `.ended`마다 window 좌표를 화면 좌표로 바꾼다. 원래 sendEvent보다 먼저(버튼 동작이 라벨을 바꾸기 전)
+  key window부터 재귀로 돈다. 자식은 `accessibilityElements`가 있으면 그것, 없으면
+  `accessibilityElementCount`/`accessibilityElement(at:)`, 그것도 없으면 subview다. 숨김·투명·`accessibilityElementsHidden`
+  객체는 건너뛰고, 부모 frame 밖의 자식도 본다. `accessibilityFrame`이 좌표를 포함하는 `isAccessibilityElement == true`
+  객체 중 가장 깊은 것을 고른다(같은 깊이면 나중에 방문한 것).
+- 기록: 앱 데이터 컨테이너의 `Documents/touch-probe.jsonl`(`xcrun simctl get_app_container <udid>
+  io.reproof.example.mixedshop data`로 읽음). 한 줄에 window·화면 좌표, 찾은 요소의 label·traits(원값·16진·이름)·
+  identifier·frame·클래스, key window부터 찾은 요소까지의 경로, 좌표를 포함한 모든 접근성 요소, 방법 이름, 접근성 상태 값,
+  시각을 남긴다.
+- **대체 기록(브리프가 허용한 대체):** 사람이 Simulator 창을 클릭하는 대신 다음 두 가지를 썼다.
+  - taps: `RunnerClient.tap_point`. XCUITest가 실제 터치 이벤트를 넣어 `sendEvent` 경로를 지난다. 다만 XCUITest가 붙으면
+    앱의 접근성이 켜진다(판정의 주의 2).
+  - selfcheck: 실행기 없이 `simctl launch`로 띄우고, 프로브가 탭 바 `selectedIndex`와 "옵션" 버튼 `sendActions`로 화면을
+    옮긴 뒤 같은 30개 좌표를 같은 함수로 해석한다. 터치 경로는 거치지 않는다. 동작이 없으므로 정답은 기본 taps run에서
+    화면마다 처음 읽은 계층(초기 상태)으로 계산했다. S1에서 로컬 화면 계층이 run마다 같다는 것을 확인했고, 이번에도 일치한
+    20건의 앱 안 frame이 그 계층과 같았다.
+  - 두 대체는 브리프 조건(실제 터치 경로 + XCUITest 없음)을 절반씩만 가진다. 그래서 판정에는 둘 중 낮은 값을 쓰기로
+    측정 전에 정했다.
+- 탭 30개(측정 전에 정함, `measure.py`의 `MEASURED_TAPS`): 요약 12개(Text `주문 요약`·`새로고침 N회` 6, 버튼 `새로고침`
+  6), 옵션 18개(Toggle 라벨 Text 1, Toggle 스위치 부분 2, Toggle 행의 빈 곳 1, 상품 Text 3, `추가` 6, `합계 N` Text 2,
+  TextField 3). Text 탭은 12개(최소 5개), 가장자리 탭은 15개(최소 3개, 요소 frame 안쪽 1.5 pt, 다른 축은 가운데)다. 좌표는
+  탭 직전에 읽은 실행기 계층의 대상 frame으로 정했다. 화면 이동 탭 3개(UIKit 탭 버튼 2, "옵션" 버튼)는 세지 않았다.
+- 정답: 탭 직전 실행기 계층에서 `element_at(같은 좌표)`의 (type, label).
+- A(판정): 앱 안에서 찾은 요소의 종류를 아래 대응표로 정하고, (종류, label)이 정답과 같으면 일치. 못 찾으면 불일치.
+- B(참고): A의 종류가 `INTERACTIVE_TYPES`가 아니면, 프로브가 기록한 경로에서 가장 가까운 interactive 조상으로 올린 값
+  (element_at과 같은 승격).
+- 처음 빌드(`0524820f863c998c`, census에 방문 클래스 수를 더하기 전)로 기본 taps·selfcheck를 한 번 돌렸을 때도 숫자가 같았다
+  (A 20/30, B 28/30 / 0/30). 그 run은 위 빌드로 다시 돌려 덮어썼다.
+
+### 종류 대응표 (클래스·UIAccessibilityTraits → XCUIElement 종류)
+
+먼저 맞는 규칙이 이긴다. 측정 전에 정했고 측정 뒤에 바꾸지 않았다(`measure.py`의 `CLASS_TYPES`, `TRAIT_TYPES`, `inapp_type`).
+
+| 순서 | 앱 안 근거 | XCUIElement 종류 | 이번 측정에서 실제로 나온 것 |
+|---|---|---|---|
+| 1 | 공개 UIKit 클래스 계통: UISwitch, UISearchTextField, UITextField, UITextView, UISlider, UISegmentedControl, UICollectionViewCell·UITableViewCell, UINavigationBar, UITabBar, UIWindow, UICollectionView, UITableView, UIScrollView | 차례로 switch, searchField, textField, textView, slider, segmentedControl, cell, navigationBar, tabBar, window, collectionView, table, scrollView | SwiftUI TextField = `SwiftUI.UIKitTextField`(traits는 비공개 bit18뿐) → textField. Form 행 = `SwiftUI.ListCollectionViewCell` → cell(B에서만 쓰임) |
+| 2 | trait `toggleButton`(iOS 17 공개) | switch | SwiftUI Toggle 노드: traits button + toggleButton |
+| 3 | 비공개 bit18(textEntry로 추정): bit24(secure 추정)면 secureTextField, searchField면 searchField, bit47(textArea 추정)면 textView, 아니면 textField | 왼쪽과 같음 | 1번 규칙이 먼저 맞아 이번에는 쓰이지 않음 |
+| 4 | trait searchField, adjustable, link, button, image, staticText(이 순서) | searchField, slider, link, button, image, staticText | SwiftUI Button(`새로고침`, `추가`) → button, SwiftUI Text → staticText, `UITextFieldLabel` → staticText, UIKit `_UITabButton`(button + selected + bit28) → button |
+| 5 | 그 밖 | other | |
+
+한계: UIButton·UILabel·UIImageView는 클래스 규칙에 넣지 않고 trait으로 정했다. adjustable → slider는 stepper·picker도
+adjustable이라 하나로 정해지지 않는다(이번 화면에는 없음). header trait만 있는 요소(내비게이션 제목 `UILabel` `옵션`)는
+other가 되지만 실행기 계층에서는 staticText다(이번 탭 30개에는 없음). 비공개 비트 이름은 공개 문서에 없어 추정이다.
+
+### 발견 (계획 2에서 다룰 것, 이번에는 툴을 고치지 않음)
+
+1. **직접 터치(실행기 없음)에서는 앱 안 접근성 트리가 기본으로 비어 있다.** SwiftUI든 UIKit이든 `isAccessibilityElement`가
+   모두 false였다. 변환 실행을 쓰더라도 녹화 때 앱 안에서 label·trait을 함께 남기려면 활성화가 필요하다. iOS 27.0
+   Simulator에서는 `_AXSSetAutomationEnabled(1)`로 됐다(비공개 API, Debug 전용). 물리 iPhone에서 되는지는 재지 않았다.
+2. **권고(추정, 측정 안 함): 앱 안 기록을 변환 실행의 대조 근거로 쓴다.** 접근성을 켜면 앱 안 기록은 A로 20/30(요약 화면
+   12/12)에서 실행기 계층과 같은 (종류, label, frame)을, B로는 28/30에서 같은 (종류, label)을 줬다. 변환 실행이 "원본 화면과 다르게 흘러갔는지" 판단할 때, 녹화
+   때 앱 안에서 본 label·frame과 변환 실행에서 XCUITest가 찾은 요소를 비교하는 방법이 있다.
+3. **iOS 27 탭 바에서 `element_at`이 탭 버튼 대신 장식용 `other`를 고른다.** 화면 이동 탭 2개(UIKit 탭 버튼 `요약`,
+   `장바구니`)에서 `element_at`은 `other ''`를 돌려줬다. 실행기 계층에서 탭 버튼(깊이 11)보다 깊은 label 없는 `other`
+   (깊이 12·15, 같은 영역)가 있기 때문이다. 앱 안 프로브는 `_UITabButton` `요약`(button)을 찾았다. 측정 30개 밖(UIKit)이라
+   일치율에는 넣지 않았다. `inspect --point`와 녹화의 요소 고르기에 영향이 있으므로, 계획 2에서 "더 깊은 label 없는
+   other보다 interactive 요소 우선" 같은 규칙을 정해야 한다.
+4. **SwiftUI Toggle의 스위치 부분을 누르면 `element_at`이 label 없는 안쪽 `switch`를 고른다.** 그러면 녹화 locator가 빈
+   label 근거가 된다(S1 지침의 "확인 필요"). 같은 Toggle의 행을 누르면 label 있는 바깥 `switch '선물 포장'`이다. 계획
+   2에서 두 switch를 하나로 볼지 정해야 한다.
+5. **SwiftUI TextField는 앱 안에서 UIKit `UITextField`(`SwiftUI.UIKitTextField`)다.** 실행기 계층에서 label은 비고
+   placeholder(`메모`)만 있으며, 앱 안에서는 placeholder가 별도 접근성 요소(`UITextFieldLabel`)로 보인다. 앱 안 탐색을
+   계획 2에서 쓴다면 "접근성 요소인 UIView 아래로는 내려가지 않는다"는 규칙이 필요하다(이번 프로브는 브리프 방법대로
+   내려갔다).
+
+### 이 spike가 남긴 것
+
+커밋: `spikes/inapp-touch/`(`TouchProbe.swift`, `TouchProbeBootstrap.m`, `apply.py`, `measure.py`, README), 이 절, 설계 문서
+7장 spike 2의 잠정 결정. 툴 코드는 바꾸지 않았다.
+
+이 Mac에 남은 것: `~/.reproof/spikes/s2/`(약 464 MB: 프로브를 넣은 사본 소스, 빌드 3개, run 4개의 JSONL·탭 직전 계층·세션
+로그, `report.md`(전체 탭별 표), `details.json`). 세션 폴더는 모두 정상 종료로 지워졌다. Simulator `reproof-mixedshop`은
+켜 둔 상태다(`inspect`와 같은 동작).
+
 ## S3 — Wikipedia 빌드
 
 ### 판정
