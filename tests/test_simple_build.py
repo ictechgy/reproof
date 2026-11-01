@@ -126,6 +126,24 @@ class SimpleBuildTests(unittest.TestCase):
         self.assertTrue((included.working_copy.root / ".env").exists())
         self.assertNotEqual(included.build_id, prepared.build_id)
 
+    def test_build_failure_mentions_include_when_files_were_excluded(self):
+        """비밀 가능 파일을 뺀 빌드가 실패하면 안내에 [source] include로 다시 넣는 방법을 덧붙인다(빠진 파일이 원인일 수 있다)."""
+        failure = ToolFailure("xcodebuild", log_path=None, output_tail="error: missing Config/.env")
+
+        def raise_failure(argv, cwd, env_extra):
+            raise failure
+
+        with self.assertRaises(ToolFailure) as plain:
+            prepare_build(self.source, self.config, workspace_root=self.workspace,
+                          runner=self._runner(raise_failure), progress=lambda _: None)
+        self.assertNotIn("[source] include", plain.exception.remedy)
+        (self.source / ".env").write_text("A=1\n")
+        with self.assertRaises(ToolFailure) as excluded:
+            prepare_build(self.source, self.config, workspace_root=self.workspace,
+                          runner=self._runner(raise_failure), progress=lambda _: None)
+        self.assertIn("[source] include", excluded.exception.remedy)
+        self.assertIn("[source] include", excluded.exception.user_message())
+
     def test_second_prepare_reuses_completed_build_without_xcodebuild(self):
         first = prepare_build(self.source, self.config, workspace_root=self.workspace, runner=self._runner(),
                               progress=lambda _: None)

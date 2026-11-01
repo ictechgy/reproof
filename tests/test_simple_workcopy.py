@@ -160,7 +160,7 @@ class WorkingCopyTests(unittest.TestCase):
                         "fastlane/AuthKey_AB12.p8", "certs/dev.p12", "certs/dev.pfx", "certs/server.pem",
                         "certs/server.key", "android/release.keystore", "android/release.jks",
                         "profiles/App.mobileprovision", "profiles/App.provisionprofile", "keys/id_rsa",
-                        "keys/id_ed25519.pub", "certs/apple.cer", "certs/UPPER.P12")
+                        "keys/id_ed25519.pub", "certs/UPPER.P12")
     """비밀이 들어 있을 수 있는 파일 이름 예(대문자 확장자 포함)."""
 
     def test_credential_files_are_excluded_without_opening_and_reported_once(self):
@@ -181,10 +181,20 @@ class WorkingCopyTests(unittest.TestCase):
         for name in expected:
             self.assertFalse(os.path.lexists(dest / name), name)
         self.assertEqual(copy.excluded_paths, expected)
-        self.assertEqual(sorted(notices), [f"제외함(비밀 가능 파일): {name}" for name in expected])
+        self.assertEqual(sorted(notices[:-1]), [f"제외함(비밀 가능 파일): {name}" for name in expected])
+        self.assertIn("[source] include", notices[-1])  # 뺀 파일이 있으면 마지막에 한 번 다시 넣는 방법을 알린다.
         self.assertTrue((dest / "Keychain.swift").exists())
         self.assertTrue((dest / "environment.swift").exists())
         self.assertEqual(copy.manifest_digest, tree_digest(dest))
+
+    def test_public_certificates_are_copied_and_no_hint_without_exclusions(self):
+        """공개 인증서(.cer)는 SSL pinning 앱이 번들에 넣으므로 빼지 않는다. 뺀 파일이 없으면 include 안내도 없다."""
+        source, dest = self.tmp / "src", self.tmp / "dest"
+        write(source / "Pinning" / "server.cer", "PUBLIC CERT")
+        notices = []
+        copy = materialize_working_copy(source, dest, notice=notices.append)
+        self.assertEqual((dest / "Pinning" / "server.cer").read_text(), "PUBLIC CERT")
+        self.assertEqual((copy.excluded_paths, notices), ((), []))
 
     def test_included_credential_file_is_copied(self):
         """[source] include로 지정한 상대 경로의 파일은 비밀 가능 이름이어도 복사한다."""

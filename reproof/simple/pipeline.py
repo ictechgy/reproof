@@ -19,7 +19,7 @@ from .identity import BuildIdentity, capture_build_identity
 from .locking import package_cache_lock, project_lock
 from .packages import package_cache_dir, resolve_packages
 from .process import ToolRunner
-from .workcopy import WorkingCopy, _make_tree_writable, materialize_working_copy, tree_digest
+from .workcopy import WorkingCopy, _make_tree_writable, add_include_hint, materialize_working_copy, tree_digest
 
 # 완성된 빌드의 산출물 요약 파일 이름. 이 파일이 있고 앱이 실제로 있어야 "완성"이다.
 PRODUCTS_FILE = "products.json"
@@ -283,10 +283,17 @@ def _prepare_locked(source_root: Path, config: ProjectConfig, workspace_root: Pa
 def _finish_build(partial: Path, final: Path, build_id: str, identity: BuildIdentity, copy: WorkingCopy,
                   config: ProjectConfig, workspace_root: Path, runner: ToolRunner,
                   progress: Callable[[str], None]) -> PreparedBuild:
-    """partial에서 빌드하고 기록 파일을 쓴 뒤 final로 rename한다. 실패하면 partial을 남기고 예외를 그대로 던진다."""
+    """partial에서 빌드하고 기록 파일을 쓴 뒤 final로 rename한다. 실패하면 partial을 남기고 예외를 그대로 던진다.
+
+    작업 사본에서 비밀 가능 파일을 뺐으면 생성·패키지·빌드 실패 안내에 [source] include 안내를 덧붙인다.
+    """
     working_copy = WorkingCopy(partial / "source", copy.manifest_digest, copy.file_count, copy.total_bytes,
                                copy.excluded_paths)
-    products = _run_build_steps(partial, working_copy, config, workspace_root / "cache", runner, progress)
+    try:
+        products = _run_build_steps(partial, working_copy, config, workspace_root / "cache", runner, progress)
+    except SimpleError as error:
+        add_include_hint(error, copy.excluded_paths)  # 빠진 비밀 가능 파일이 실패 원인일 수 있다.
+        raise
     (partial / "identity.json").write_text(json.dumps(identity.to_document(), ensure_ascii=False, indent=2),
                                            encoding="utf-8")
     (partial / PRODUCTS_FILE).write_text(json.dumps(_relative_document(products, partial), ensure_ascii=False,

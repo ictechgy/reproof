@@ -178,8 +178,10 @@ reproof app inspect
 작업 사본은 작업 공간(`~/.reproof`)에 남고 다음 단계에서 AI가 읽을 수 있으므로, 비밀이 들어 있을 수 있는 이름의 파일은
 **열지도 않고** 빼며 파일마다 한 번 `제외함(비밀 가능 파일): <경로>`를 출력한다. 이름 규칙(어느 폴더든, 대소문자 무시):
 `.env`, `.env.*`, `.git-credentials`, `.netrc`, `.npmrc`, `*.p8`, `*.p12`, `*.pfx`, `*.pem`, `*.key`, `*.keystore`, `*.jks`,
-`*.mobileprovision`, `*.provisionprofile`, `id_rsa*`, `id_ed25519*`, `*.cer`. 뺀 목록은 빌드 식별(`identity.json`의
-`excludedPaths`)에 들어가고, 이런 파일의 변경은 `dirty.patch`에도 넣지 않는다.
+`*.mobileprovision`, `*.provisionprofile`, `id_rsa*`, `id_ed25519*`. 공개 인증서(`*.cer`)는 비밀이 아니고 SSL pinning 앱이
+번들에 넣어야 하므로 그대로 복사한다. 뺀 목록은 빌드 식별(`identity.json`의 `excludedPaths`)에 들어가고, 이런 파일의 변경은
+`dirty.patch`에도 넣지 않는다. 뺀 파일이 있으면 마지막에, 그리고 생성·패키지·빌드가 실패하면 안내에
+"필요한 파일이 빠졌다면 reproof.toml의 [source] include에 경로를 넣으세요"를 덧붙인다.
 
 빌드에 꼭 필요한 파일(예: 개발용 설정 `Config/Dev.env`)은 경로를 지정해 넣는다. 지정한 파일은 작업 사본에 복사되지만
 `dirty.patch`에는 여전히 들어가지 않는다(내용은 작업 사본 digest로 식별에 반영된다).

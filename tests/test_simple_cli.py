@@ -167,6 +167,18 @@ class SimpleCliTests(unittest.TestCase):
         self.assertFalse((self.app / "MixedShop.xcodeproj").exists())
         self.assertEqual(list((self.tmp / "home" / "tmp").iterdir()), [])
 
+    def test_init_generate_failure_mentions_include_when_files_were_excluded(self):
+        """init의 생성기 실행이 실패했고 작업 사본에서 비밀 가능 파일을 뺐다면 [source] include 안내를 덧붙인다."""
+        (self.app / "MixedShop.xcodeproj").rmdir()
+        (self.app / "project.yml").write_text("name: MixedShop\n", encoding="utf-8")
+        (self.app / ".env").write_text("A=1\n", encoding="utf-8")
+        failure = ToolFailure("xcodegen", log_path=None, output_tail="Spec references missing file .env")
+        with mock.patch("reproof.simple.generation.generator_tool_path", return_value=Path("/bin/xcodegen")):
+            code, out, err, _, _ = self.run_cli(self.init_args("--non-interactive"), [(["xcodegen"], failure)])
+        self.assertEqual(code, 2)
+        self.assertIn("제외함(비밀 가능 파일): .env", out)
+        self.assertIn("[source] include", err)
+
     def test_init_skips_scheme_whose_settings_cannot_be_read(self):
         responses = [(["xcodebuild", "-showBuildSettings", "-json", "-scheme", "Broken"],
                       ToolFailure("xcodebuild", log_path=None, output_tail=""))]

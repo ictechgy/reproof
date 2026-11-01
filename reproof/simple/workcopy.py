@@ -30,9 +30,11 @@ ROOT_ONLY_EXCLUDED_NAMES = frozenset({"build"})
 
 CREDENTIAL_NAME_PATTERNS = (
     ".env", ".env.*", ".git-credentials", ".netrc", ".npmrc", "*.p8", "*.p12", "*.pfx", "*.pem", "*.key",
-    "*.keystore", "*.jks", "*.mobileprovision", "*.provisionprofile", "id_rsa*", "id_ed25519*", "*.cer",
+    "*.keystore", "*.jks", "*.mobileprovision", "*.provisionprofile", "id_rsa*", "id_ed25519*",
 )
-"""비밀(토큰·서명 키·인증서·프로비저닝 프로필)이 들어 있을 수 있는 파일 이름(fnmatch, 소문자로 비교).
+"""비밀(토큰·서명 키·개인 키가 든 인증서 묶음·프로비저닝 프로필)이 들어 있을 수 있는 파일 이름(fnmatch, 소문자로 비교).
+
+`*.cer`(공개 인증서)는 넣지 않는다: 비밀이 아니고, SSL pinning을 하는 앱은 번들에 넣어 빌드해야 하기 때문이다.
 
 왜: 작업 사본은 작업 공간(~/.reproof)에 남고 나중 단계에서 AI가 읽을 수 있다. gitignore된 .env나 Fastlane .p8 키가
 그대로 복사되면 '툴은 인증 값을 읽거나 저장하지 않는다'는 약속이 깨지므로 기본으로 열지도 않고 뺀다. 빌드에 꼭 필요한
@@ -60,6 +62,16 @@ class WorkingCopy:
     total_bytes: int
     excluded_paths: tuple[str, ...] = ()
     """비밀 가능 이름이라 복사하지 않은 파일·링크의 상대 경로(정렬됨). 빌드 식별에 넣어 무엇이 빠졌는지 남긴다."""
+
+
+INCLUDE_HINT = "필요한 파일이 빠졌다면 reproof.toml의 [source] include에 경로를 넣으세요."
+"""비밀 가능 파일을 뺐을 때 알림과 빌드·생성 실패 안내에 덧붙이는 문장."""
+
+
+def add_include_hint(error: SimpleError, excluded_paths: tuple[str, ...]) -> None:
+    """뺀 파일이 있으면 error.remedy에 INCLUDE_HINT를 한 번 덧붙인다. 왜: 빌드·생성 실패의 원인이 빠진 파일일 수 있다."""
+    if excluded_paths and INCLUDE_HINT not in error.remedy:
+        error.remedy = f"{error.remedy} 작업 사본에서 비밀 가능 파일 {len(excluded_paths)}개를 뺐습니다. {INCLUDE_HINT}"
 
 
 def is_credential_name(name: str) -> bool:
@@ -337,7 +349,8 @@ def materialize_working_copy(source: Path, destination: Path, limits: CopyLimits
     """source를 destination으로 복사한다(빌드·VCS 부산물과 비밀 가능 파일 제외, 실행 권한 보존).
 
     include_paths: 비밀 가능 이름이어도 복사할 상대 POSIX 경로(reproof.toml [source] include, 검증된 값).
-    notice: 제외한 비밀 가능 파일을 파일마다 한 번 '제외함(비밀 가능 파일): <경로>'로 알리는 함수.
+    notice: 제외한 비밀 가능 파일을 파일마다 한 번 '제외함(비밀 가능 파일): <경로>'로 알리는 함수. 뺀 파일이 있으면
+    마지막에 INCLUDE_HINT를 한 번 더 알린다.
     destination은 존재하면 안 된다(남은 이전 결과를 섞어 쓰지 않으려는 것). 실패하면 만들다 만
     destination을 지워 반쯤 복사된 사본이 재사용되지 않게 하고 오류는 그대로 다시 던진다.
     반환: WorkingCopy(excluded_paths는 정렬됨). 주의: 소스 밖을 가리키는 링크·특수 파일·상한 초과는 SimpleError.
@@ -355,6 +368,8 @@ def materialize_working_copy(source: Path, destination: Path, limits: CopyLimits
     except BaseException as error:
         _discard_partial_copy(destination, error)
         raise
+    if manifest.excluded:
+        notice(INCLUDE_HINT)
     return WorkingCopy(destination, manifest.digest(), manifest.file_count, manifest.total_bytes,
                        tuple(sorted(manifest.excluded)))
 

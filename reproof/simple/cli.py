@@ -37,7 +37,7 @@ from .pipeline import (PreparedBuild, _remove_tree, default_workspace_root, make
 from .process import HostToolRunner, ToolRunner
 from .runner_client import RunnerClient, RunnerSession, build_runner, free_loopback_port
 from .simulator import SimulatorManager, launch_locale_settings, owned_device_name
-from .workcopy import materialize_working_copy, write_private_file
+from .workcopy import add_include_hint, materialize_working_copy, write_private_file
 
 LAUNCH_SETTLE_SECONDS = 3.0
 """앱 실행 후 화면이 자리 잡을 때까지 기다리는 시간(초). 첫 화면 전환·로딩 중 계층을 읽지 않으려는 것이다."""
@@ -301,8 +301,12 @@ def _discovery_copy(root: Path, scan: ContainerScan, workspace_root: Path,
         directory = Path(tempfile.mkdtemp(prefix="init-", dir=tmp_root))
         try:
             copy = materialize_working_copy(root, directory / "source")
-            generate_project(copy.root, _provisional_config(root, scan), runner,
-                             log_path=workspace_root / "logs" / "init-generate.log")
+            try:
+                generate_project(copy.root, _provisional_config(root, scan), runner,
+                                 log_path=workspace_root / "logs" / "init-generate.log")
+            except SimpleError as error:
+                add_include_hint(error, copy.excluded_paths)  # 빠진 비밀 가능 파일이 생성 실패 원인일 수 있다.
+                raise
             yield copy.root, DiscoveryPaths(directory / "dd", packages_dir)
         finally:
             _remove_tree(directory)
