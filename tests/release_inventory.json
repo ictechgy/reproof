@@ -1786,6 +1786,23 @@
           "timeoutSeconds": 120,
           "evidence": "unittest-summary",
           "gate": "software"
+        },
+        {
+          "id": "simple-simulator",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_simple_simulator"
+          ],
+          "environment": "local-python-synthetic-no-native-execution",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
         }
       ]
     },
