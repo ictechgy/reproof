@@ -219,7 +219,8 @@ git ls-remote git@github.com:회사/비공개-패키지.git     # 목록이 나�
   (`cache/spm`), 실행기(`runner`), crash 로그(`logs`). 새 작업 공간 폴더와 도구 폴더(`projects`·`builds`·`cache`·`runner`·
   `logs`·`tmp`)는 소유자만 쓰는 0700이다. 도구 폴더가 링크·파일이거나 다른 사용자 것이면 쓰지 않고 `workspace_untrusted`로
   멈춘다(다른 디스크를 쓰려면 하위 폴더 링크 대신 `REPROOF_HOME`·`--workspace`로 작업 공간 자체를 옮긴다). 이미 있던 작업
-  공간 폴더 자체는 내 소유여야 하고, 그룹·다른 사용자 쓰기가 열려 있으면 0700으로 좁힌다(그 밖의 권한은 바꾸지 않는다). 완성 빌드는 재사용 전에 `.app`의 digest·bundle id·경로가 기록과 같은지 다시 확인하고, 다르면 다시 빌드한다. 빌드는 크다(Wikipedia 앱은 빌드 하나에 약 3.8 GB). 소스·설정·Xcode가
+  공간 폴더 자체는 내 소유여야 한다. 그룹·다른 사용자 쓰기가 열려 있으면 기본 위치(`~/.reproof`)는 0700으로 좁히고,
+  사용자가 지정한 위치(`--workspace`·`REPROOF_HOME`)는 권한을 바꾸지 않고 `chmod 700 <경로>`를 안내하며 멈춘다. 완성 빌드는 재사용 전에 `.app`의 digest·bundle id·경로가 기록과 같은지 다시 확인하고, 다르면 다시 빌드한다. 빌드는 크다(Wikipedia 앱은 빌드 하나에 약 3.8 GB). 소스·설정·Xcode가
   바뀌면 새 빌드 ID 폴더가 생기고 옛 폴더는 자동으로 지우지 않는다. 지울 때는 그 프로젝트의 `build`·`inspect`가 돌고 있지
   않을 때 `rm -rf ~/.reproof/projects/<이름>/builds/<빌드 ID>`처럼 폴더 단위로 지운다(`.partial`로 끝나는 폴더는 진행 중이거나
   끊긴 빌드이고, 다음 실행이 어차피 다시 만든다). 작업 사본은 원본의 읽기 전용 권한을 그대로 가져오므로 `Permission denied`가 나면

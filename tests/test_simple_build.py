@@ -380,15 +380,34 @@ class SimpleBuildTests(unittest.TestCase):
         with mock.patch("reproof.simple.pipeline.os.lstat", side_effect=foreign_lstat):
             self._assert_workspace_untrusted()
 
-    def test_group_or_other_writable_workspace_root_is_tightened_or_refused(self):
-        """작업 공간 루트가 그룹·다른 사용자에게 쓰기 가능하면 내 것은 0700으로 좁히고, 남의 것이면 거절한다."""
+    def test_group_or_other_writable_user_workspace_root_is_refused_not_changed(self):
+        """사용자가 지정한 기존 작업 공간(--workspace·REPROOF_HOME)이 그룹·다른 사용자 쓰기 가능이면 권한을 바꾸지 않고
+        `chmod 700 <경로>`를 안내하며 workspace_untrusted로 멈춘다. 남의 폴더도 거절한다.
+
+        왜 바꾸지 않나: 사용자가 일부러 공유한 폴더일 수 있어, 도구가 권한을 몰래 좁히면 다른 사람의 작업이 깨진다.
+        """
         self.workspace.mkdir()
         os.chmod(self.workspace, 0o777)
-        self._first_build()
-        self.assertEqual(os.stat(self.workspace).st_mode & 0o777, 0o700)
+        with self.assertRaises(SimpleError) as raised:
+            self._first_build()
+        self.assertEqual(raised.exception.code, "workspace_untrusted")
+        self.assertIn("chmod 700", raised.exception.remedy)
+        self.assertIn(str(self.workspace), raised.exception.remedy)
+        self.assertEqual(os.stat(self.workspace).st_mode & 0o777, 0o777)
+        os.chmod(self.workspace, 0o755)
         with mock.patch("reproof.simple.pipeline._current_uid", return_value=os.getuid() + 1):
-            self.builds.clear()
             self._assert_workspace_untrusted()
+
+    def test_group_writable_default_workspace_is_tightened(self):
+        """도구 기본 위치(~/.reproof)는 도구가 만든 폴더이므로, 그룹·다른 사용자 쓰기가 열려 있으면 0700으로 좁힌다."""
+        home = self.tmp / "home"
+        default = home / ".reproof"
+        default.mkdir(parents=True)
+        os.chmod(default, 0o775)
+        with mock.patch("pathlib.Path.home", return_value=home):
+            prepare_build(self.source, self.config, workspace_root=default, runner=self._runner(),
+                          progress=lambda _: None)
+        self.assertEqual(os.stat(default).st_mode & 0o777, 0o700)
 
     def test_find_app_bundle_skips_plist_with_non_dict_root(self):
         products = self.tmp / "products"

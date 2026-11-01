@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shlex
 import shutil
 import stat
 import uuid
@@ -78,19 +79,33 @@ def make_private_directory(path: Path) -> Path:
     return path
 
 
-def _check_workspace_root(workspace_root: Path) -> None:
-    """작업 공간 루트(링크면 대상)가 내 소유의 폴더인지 보고, 그룹·다른 사용자 쓰기가 열려 있으면 0700으로 좁힌다.
+def _is_default_workspace(workspace_root: Path) -> bool:
+    """workspace_root가 도구 기본 위치(~/.reproof)인지 본다. 기본 위치는 도구가 만든 폴더로 본다."""
+    return workspace_root.absolute() == default_workspace_root({})
 
-    왜 루트는 링크를 허용하나: 사용자가 작업 공간을 다른 디스크로 옮기려고 ~/.reproof를 링크로 둘 수 있다. 대신 대상이
-    남의 폴더면 거절한다. 쓰기가 막힌 기존 권한(예: 0755)은 사용자가 정한 것이라 바꾸지 않는다.
+
+def _check_workspace_root(workspace_root: Path) -> None:
+    """작업 공간 루트(링크면 대상)가 내 소유의 폴더인지 보고, 그룹·다른 사용자 쓰기가 열려 있으면 처리한다.
+
+    기본 위치(~/.reproof, 도구가 만든 폴더)면 0700으로 좁히고, 사용자가 지정한 위치(--workspace·REPROOF_HOME)면 권한을
+    바꾸지 않고 workspace_untrusted로 멈춰 `chmod 700 <경로>`를 안내한다. 왜: 사용자가 일부러 공유한 폴더일 수 있어
+    몰래 좁히면 다른 사람의 작업이 깨지고, 그대로 쓰면 다른 계정이 소스 사본을 바꿀 수 있다.
+    왜 루트는 링크를 허용하나: 사용자가 작업 공간을 다른 디스크로 옮기려고 ~/.reproof를 링크로 둘 수 있다. 대상이 남의
+    폴더면 거절한다. 쓰기가 막힌 기존 권한(예: 0755)은 사용자가 정한 것이라 바꾸지 않는다.
     """
     info = os.stat(workspace_root)
     if not stat.S_ISDIR(info.st_mode):
         raise _untrusted(workspace_root, "폴더가 아닙니다")
     if info.st_uid != _current_uid():
         raise _untrusted(workspace_root, "다른 사용자의 폴더입니다")
-    if info.st_mode & 0o022:
-        os.chmod(workspace_root, 0o700)
+    if not info.st_mode & 0o022:
+        return
+    if not _is_default_workspace(workspace_root):
+        raise SimpleError("workspace_untrusted",
+                          f"작업 공간 {workspace_root}을(를) 그룹·다른 사용자도 쓸 수 있습니다(권한 {stat.S_IMODE(info.st_mode):o}).",
+                          f"본인만 쓰게 `chmod 700 {shlex.quote(str(workspace_root))}`을 실행하거나, 다른 작업 공간을 "
+                          "지정한 뒤 다시 실행하세요.")
+    os.chmod(workspace_root, 0o700)
 
 
 def prepare_workspace(workspace_root: Path) -> None:
