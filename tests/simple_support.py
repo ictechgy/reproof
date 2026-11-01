@@ -6,7 +6,7 @@ class FakeToolRunner:
     """미리 정한 응답을 돌려주는 ToolRunner 대역.
 
     왜: 단위 테스트가 xcodebuild 같은 실제 도구에 의존하지 않게 하려는 것이다.
-    responses: (argv 앞부분, 출력 문자열 또는 던질 예외) 목록. 앞부분이 일치하는 첫 응답을 쓴다.
+    responses: (argv 앞부분, 출력 문자열 / 던질 예외 / 콜백) 목록. 콜백은 (argv, cwd, env_extra)를 받아 출력 문자열을 돌려준다(파일 생성 등 부수 효과용). 앞부분이 일치하는 첫 응답을 쓴다.
     calls: 호출 기록. 각 항목은 {"argv", "cwd", "env_extra"}.
     주의: 일치하는 응답이 없으면 AssertionError를 내서 예상 밖 호출을 바로 드러낸다.
     """
@@ -23,6 +23,8 @@ class FakeToolRunner:
             if tuple(argv[:len(prefix)]) == tuple(prefix):
                 if isinstance(response, Exception):
                     raise response
+                if callable(response):
+                    return response(list(argv), Path(cwd), env_extra)
                 return response
         raise AssertionError(f"일치하는 응답이 없습니다: {argv}")
 
