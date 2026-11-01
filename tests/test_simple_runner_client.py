@@ -1,8 +1,10 @@
 """실행기 Python 클라이언트·세션·빌드 캐시 테스트. loopback 가짜 실행기와 FakeToolRunner를 써서 Xcode 없이 실행된다."""
 import contextlib
+import errno
 import hashlib
 import hmac
 import json
+import os
 import re
 import signal
 import socketserver
@@ -16,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
+from reproof import repair
 from reproof.resources import ResourceError
 from reproof.simple import runner_client
 from reproof.simple.errors import SimpleError
@@ -23,7 +26,7 @@ from reproof.simple.hierarchy import INTERACTIVE_TYPES
 from reproof.simple.runner_client import (
     RUNNER_FILES, RunnerClient, RunnerProducts, RunnerSession, build_runner, free_loopback_port,
 )
-from tests.simple_support import FakeToolRunner
+from tests.simple_support import FakeToolRunner, spawn_zombie_group
 
 BUNDLE = "io.reproof.example.mixedshop"
 TOKEN = "test-session-token"
@@ -606,6 +609,59 @@ class RunnerClientTests(unittest.TestCase):
                 self.assertEqual(killpg.call_args_list[-2:],
                                  [mock.call(4321, signal.SIGTERM), mock.call(4321, signal.SIGKILL)])
                 self.assertTrue(session._log.closed)
+
+    def test_zombie_leader_does_not_skip_cleanup_or_hide_stop_failure(self):
+        """xcodebuild가 스스로 끝나 회수 전(좀비)인 그룹에서도 정리를 끝내고 runner_stop_failed를 내는지 본다.
+
+        왜: macOS는 좀비만 남은 그룹의 killpg에 EPERM을 낸다. 예전에는 PermissionError가 SIGKILL 정리와
+        세션 폴더 처리를 건너뛰고 원래 오류(stop 실패)를 가렸다. 실제 프로세스와 실제 커널 EPERM으로 확인한다.
+        """
+        def reject_stop(body, token, env):
+            if body.get("action") == "stop":
+                return 401, {"ok": False, "error": "unauthorized"}
+            return _honest_runner(body, token, env)
+
+        server = self.start_fake_runner(reject_stop)
+        spawned, environments = [], []
+        real_popen = subprocess.Popen
+
+        def spawn_short_lived(argv, **kwargs):
+            """세션 xcodebuild 대신 곧 끝나는 셸을 같은 옵션(새 세션 그룹 포함)으로 띄운다."""
+            environments.append(kwargs["env"])
+            spawned.append(real_popen(["/bin/sh", "-c", "sleep 0.3"], **kwargs))
+            return spawned[-1]
+
+        server.session_env = lambda: environments[0] if environments else None
+        with mock.patch.object(runner_client.subprocess, "Popen", side_effect=spawn_short_lived), \
+                mock.patch.object(runner_client, "build_default_environment", return_value={}):
+            with self.assertRaises(SimpleError) as raised:
+                with self.session(server.server_address[1]):
+                    zombie_deadline = time.monotonic() + 5
+                    while time.monotonic() < zombie_deadline:  # 리더가 끝나 좀비가 될 때까지 기다린다(회수하지 않음).
+                        try:
+                            os.killpg(spawned[0].pid, 0)
+                        except PermissionError:
+                            break
+                        time.sleep(0.01)
+        self.assertEqual(raised.exception.code, "runner_stop_failed")
+        self.assertIsNotNone(spawned[0].returncode)
+
+    def test_group_that_stays_eperm_is_noted_and_cleanup_continues(self):
+        """재시도 한도 뒤에도 EPERM이면 로그에 남기고 SIGKILL·회수·세션 폴더 정리를 이어 가며 원래 예외를 지키는지 본다."""
+        server = self.start_fake_runner()
+        process = _fake_process(exits_after_stop=True)
+        with patched_process(process, server) as (popen, killpg), \
+                mock.patch.object(repair, "_GROUP_SIGNAL_RETRY_SECONDS", 0.1, create=True):
+            killpg.side_effect = PermissionError(errno.EPERM, "Operation not permitted")
+            with self.assertRaises(KeyError):
+                with self.session(server.server_address[1]):
+                    raise KeyError("본문 오류")
+        signals = [call.args[1] for call in killpg.call_args_list]
+        self.assertIn(signal.SIGTERM, signals)
+        self.assertIn(signal.SIGKILL, signals)
+        self.assertEqual(process.wait.call_args_list[-1], mock.call())
+        self.assertFalse(session_dir_of(popen).exists())
+        self.assertIn("EPERM", self.log_path.read_text(encoding="utf-8"))
 
     # --- 빌드·리소스 ---
 

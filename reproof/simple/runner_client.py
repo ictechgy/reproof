@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from ..repair import signal_process_group
 from ..resources import ResourceError, read_resource
 from .errors import SimpleError
 from .hierarchy import Element, parse_hierarchy
@@ -567,19 +568,24 @@ class RunnerSession:
         SIGKILL은 finally에 둔다: 대기 중 Ctrl-C나 로그 쓰기 오류가 나도 그룹이 남지 않게 하려는 것이다.
         """
         try:
-            _signal_group(self._process.pid, signal.SIGTERM)
+            self._signal_group(signal.SIGTERM)
             try:
                 self._process.wait(timeout=_TERMINATE_GRACE_SECONDS)
             except subprocess.TimeoutExpired:
                 self._note(f"xcodebuild가 {_TERMINATE_GRACE_SECONDS}초 안에 끝나지 않아 SIGKILL로 정리합니다.")
         finally:
-            _signal_group(self._process.pid, signal.SIGKILL)
+            self._signal_group(signal.SIGKILL)
             self._process.wait()
 
+    def _signal_group(self, signal_number: int) -> None:
+        """세션 프로세스 그룹에 신호를 보낸다. EPERM은 signal_process_group이 최대 2초 다시 시도한다.
 
-def _signal_group(pid: int, signal_number: int) -> None:
-    """프로세스 그룹 전체에 신호를 보낸다. 그룹이 이미 없으면 정리할 것이 없으므로 그대로 돌아간다."""
-    try:
-        os.killpg(pid, signal_number)
-    except ProcessLookupError:
-        return  # 이미 모두 끝난 그룹이다. 정리 목적은 달성됐다.
+        그래도 EPERM이면 로그에만 남기고 돌아간다. 왜: 여기서 PermissionError를 던지면 SIGKILL·회수·세션 폴더 정리를
+        건너뛰고, 본문의 원래 오류까지 가린다. 남았을 수 있는 프로세스는 로그 안내로 알린다.
+        """
+        try:
+            signal_process_group(self._process, signal_number)
+        except PermissionError as error:
+            name = signal.Signals(signal_number).name
+            self._note(f"프로세스 그룹에 {name}를 보내지 못했습니다(EPERM, 2초 재시도 후): {error}. 정리를 이어 갑니다. "
+                       "남은 xcodebuild가 있으면 `pgrep -fl SimpleRunner`로 확인하세요.")

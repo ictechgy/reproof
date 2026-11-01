@@ -1,14 +1,20 @@
 """간편 모드의 오류 형식, 명령 실행기, CLI 진입점 계약. Xcode 없이 실행된다."""
 import contextlib
+import errno
 import io
+import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import reproof.cli
+from reproof import repair
+from reproof.repair import run_command
 from reproof.simple.errors import SimpleError, ToolFailure
 from reproof.simple.process import HostToolRunner
-from tests.simple_support import FakeToolRunner
+from tests.simple_support import FakeToolRunner, spawn_zombie_group
 
 
 class SimpleProcessTests(unittest.TestCase):
@@ -61,6 +67,46 @@ class SimpleProcessTests(unittest.TestCase):
             code = reproof.cli.main(["app", "build", "--config", "/없는/경로/reproof.toml"])
         self.assertEqual(code, 2)
         self.assertIn("문제:", err.getvalue())
+
+
+
+class RunCommandGroupCleanupTests(unittest.TestCase):
+    """repair.run_command가 끝난 뒤 프로세스 그룹을 정리할 때 macOS의 일시적 EPERM을 견디는지 확인한다."""
+
+    def test_successful_command_survives_zombie_only_group_until_reaped(self):
+        """좀비만 남은 그룹(실제 커널 EPERM)이 100 ms 뒤 회수되면 성공한 명령이 그대로 성공으로 끝나는지 본다.
+
+        왜: 예전에는 ProcessLookupError만 잡아, 성공한 명령도 PermissionError 트레이스백으로 실패했다.
+        killpg를 좀비 그룹으로 돌려 보내 실제 EPERM을 받게 하고, 첫 killpg 호출 100 ms 뒤 다른 스레드가 좀비를 회수한다.
+        """
+        zombie = spawn_zombie_group()
+        real_killpg = os.killpg
+        reaper = threading.Timer(0.1, zombie.wait)
+
+        def killpg_into_zombie_group(pid, number):
+            """첫 호출에서 회수 타이머를 켜고, 신호는 좀비 그룹으로 보낸다."""
+            if not reaper.is_alive() and not reaper.finished.is_set():
+                reaper.start()
+            return real_killpg(zombie.pid, number)
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("os.killpg", side_effect=killpg_into_zombie_group):
+            try:
+                output = run_command(["/bin/sh", "-c", "echo ok"], tmp, timeout=10)
+            finally:
+                if reaper.is_alive():
+                    reaper.join()
+                zombie.wait()
+        self.assertTrue(reaper.finished.is_set())
+        self.assertEqual(output, "ok\n")
+
+    def test_group_that_stays_eperm_is_retried_then_reraised(self):
+        """재시도 한도 뒤에도 EPERM이면 예전처럼 PermissionError를 다시 던지는지(실패 쪽으로 닫힘) 본다."""
+        denied = PermissionError(errno.EPERM, "Operation not permitted")
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(repair, "_GROUP_SIGNAL_RETRY_SECONDS", 0.2, create=True), \
+                mock.patch("os.killpg", side_effect=denied) as killpg, self.assertRaises(PermissionError):
+            run_command(["/bin/sh", "-c", "exit 0"], tmp, timeout=10)
+        self.assertGreater(killpg.call_count, 1)
 
 
 if __name__ == "__main__":

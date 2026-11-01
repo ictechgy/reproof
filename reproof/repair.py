@@ -16,6 +16,30 @@ class CommandError(RuntimeError):
     pass
 
 
+# 프로세스 그룹 신호가 EPERM일 때 다시 시도하는 최대 시간(초)과 간격(초).
+_GROUP_SIGNAL_RETRY_SECONDS=2.0
+_GROUP_SIGNAL_RETRY_INTERVAL=.05
+
+
+def signal_process_group(process,signal_number):
+    """process가 이끄는 프로세스 그룹 전체에 신호를 보낸다. 그룹이 이미 없으면(ESRCH) 그대로 돌아간다.
+
+    process: 그룹 리더 Popen(pid와 poll()을 쓴다). signal_number: 보낼 신호.
+    왜 EPERM을 다시 시도하나: macOS는 좀비만 남은 그룹(리더나 자식이 끝났지만 아직 회수 전)에 killpg하면 EPERM을 낸다.
+    50 ms 간격으로 최대 2초 다시 시도하고, 그 사이 poll()로 리더를 회수해 좀비가 사라지게 돕는다.
+    주의: 한도 뒤에도 EPERM이면 PermissionError를 그대로 던진다(정말 신호를 보낼 권한이 없는 그룹일 수 있어 숨기지 않는다).
+    """
+    deadline=time.monotonic()+_GROUP_SIGNAL_RETRY_SECONDS
+    while True:
+        try:
+            os.killpg(process.pid,signal_number);return
+        except ProcessLookupError:
+            return  # 이미 모두 끝나 회수된 그룹이다. 정리 목적은 달성됐다.
+        except PermissionError:
+            if time.monotonic()>=deadline:raise
+        process.poll();time.sleep(_GROUP_SIGNAL_RETRY_INTERVAL)
+
+
 def apply_edits(root, edits, allowed):
     root=Path(root).resolve();require(isinstance(edits,list) and 0<len(edits)<=10,'Expected 1–10 explicit edits')
     staged={}
@@ -133,16 +157,14 @@ def run_command(command,cwd,*,stdin=None,timeout=300,max_output=2*1024*1024,env_
                     except OSError:
                         pass  # Optional diagnostics must never prevent child-process cleanup.
                 # Terminate the whole job group, including children left by a completed parent.
-                try:os.killpg(process.pid,signal.SIGTERM)
-                except ProcessLookupError:pass
+                signal_process_group(process,signal.SIGTERM)
                 try:
                     process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     pass
                 finally:
                     # A completed parent does not imply that its children exited.
-                    try:os.killpg(process.pid,signal.SIGKILL)
-                    except ProcessLookupError:pass
+                    signal_process_group(process,signal.SIGKILL)
                     process.wait()
 
 

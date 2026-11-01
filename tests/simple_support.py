@@ -50,3 +50,27 @@ def sample_config():
         launch_arguments=("-AppleLanguages", "(ko)"),
         launch_environment=(("API_TOKEN", "env:REPROOF_APP_API_TOKEN"),),
     )
+
+
+def spawn_zombie_group(timeout=5.0):
+    """리더가 끝났지만 아직 회수(wait)되지 않은 프로세스 그룹을 만들고 그 Popen을 돌려준다.
+
+    왜: macOS는 좀비만 남은 그룹에 killpg하면 EPERM(PermissionError)을 내므로, 정리 코드가 이 경우를 견디는지
+    실제 커널 동작으로 확인하려는 것이다. 신호 0으로 그룹을 살펴 PermissionError가 나오면 좀비 상태다
+    (Python 3.11의 macOS 빌드에는 os.waitid가 없어 이 방법을 쓴다).
+    주의: 호출자가 끝에 wait()로 회수해야 한다. timeout초 안에 좀비가 되지 않으면 AssertionError.
+    """
+    import os
+    import subprocess
+    import time
+
+    process = subprocess.Popen(["/bin/sh", "-c", "exit 0"], start_new_session=True)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(process.pid, 0)
+        except PermissionError:
+            return process
+        time.sleep(0.01)
+    process.wait()
+    raise AssertionError("테스트용 프로세스가 제한 시간 안에 좀비 상태가 되지 않았습니다.")
