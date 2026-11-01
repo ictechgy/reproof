@@ -237,7 +237,7 @@ git ls-remote git@github.com:회사/비공개-패키지.git     # 목록이 나�
 | `<도구> 실행이 시간 제한 N초를 넘겼습니다` | 시간 초과 | 빌드·패키지 단계면 `reproof.toml`의 `[build] timeout_seconds`를 늘리고, 아니면 네트워크·Simulator 상태 확인 |
 | `point_invalid` | `--point` 형식 오류 | `--point 195,420`처럼 숫자 두 개 |
 | `runner_start_failed` | 실행기 세션이 시작되지 않음 | `inspect-session.log`를 확인하고, Simulator가 부팅됐는지 `xcrun simctl list devices`로 확인 |
-| `project_busy` / `runner_busy` / `simulator_busy` | 다른 터미널에서 같은 프로젝트(또는 실행기 준비, 같은 Simulator)가 실행 중 | 그 실행이 끝난 뒤 다시 실행(잠금은 실행이 끝나면 자동으로 풀림) |
+| `project_busy` / `runner_busy` / `simulator_busy` / `package_cache_busy` | 다른 터미널에서 같은 프로젝트(또는 실행기 준비, 같은 Simulator, 같은 Swift 패키지 캐시)가 실행 중 | 그 실행이 끝난 뒤 다시 실행(잠금은 실행이 끝나면 자동으로 풀림) |
 | `lock_directory_untrusted` | 임시 폴더의 `reproof-<uid>` 잠금 폴더가 링크이거나 다른 사용자 것 | 그 경로를 확인해 지우거나 `TMPDIR`을 본인 폴더로 바꿈 |
 | `file_operation_failed` | 읽을 수 없는 파일, 디스크 부족, 읽기 전용 폴더 | 안내된 파일의 권한(`ls -l`)이나 디스크 여유 공간 확인 |
 | `내부 오류입니다. 이 로그를 첨부해 알려 주세요` | 예상하지 못한 오류 | 안내된 `crash-*.log`(작업 공간 `logs/`)를 첨부해 알림 |

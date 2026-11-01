@@ -31,7 +31,7 @@ from .errors import SimpleError
 from .generation import generate_project
 from .hierarchy import Element, element_at, parse_hierarchy
 from .locator import capture_evidence, resolve
-from .locking import project_lock, simulator_lock
+from .locking import package_cache_lock, project_lock, simulator_lock
 from .pipeline import PreparedBuild, _remove_tree, default_workspace_root, prepare_build
 from .process import HostToolRunner, ToolRunner
 from .runner_client import RunnerClient, RunnerSession, build_runner, free_loopback_port
@@ -291,20 +291,27 @@ def _discovery_copy(root: Path, scan: ContainerScan, workspace_root: Path,
     탐색 폴더: DerivedData는 사본과 함께 지워지는 임시 폴더 안, 패키지는 작업 공간의 `cache/spm/discovery`에 둔다
     (init을 다시 해도 패키지를 다시 받지 않게 하고, ~/Library/Developer/Xcode/DerivedData를 쓰지 않으려는 것).
     """
-    tmp_root = workspace_root / "tmp"
-    tmp_root.mkdir(parents=True, exist_ok=True)
-    (workspace_root / "logs").mkdir(parents=True, exist_ok=True)
-    directory = Path(tempfile.mkdtemp(prefix="init-", dir=tmp_root))
-    try:
-        copy = materialize_working_copy(root, directory / "source")
-        provisional = ProjectConfig(
-            name=slugify_name(root.name), container="", generator=scan.generator or "none",
-            generator_spec=scan.generator_spec, scheme="", app_target="", bundle_id="", test_scheme=None,
-            simulator=SimulatorSettings(DEFAULT_DEVICE_TYPE, "latest"))
-        generate_project(copy.root, provisional, runner, log_path=workspace_root / "logs" / "init-generate.log")
-        yield copy.root, DiscoveryPaths(directory / "dd", workspace_root / "cache" / "spm" / "discovery")
-    finally:
-        _remove_tree(directory)
+    packages_dir = workspace_root / "cache" / "spm" / "discovery"
+    with package_cache_lock(packages_dir):  # 다른 init과 탐색용 패키지 캐시를 동시에 쓰지 않게 복사 전에 잡는다.
+        tmp_root = workspace_root / "tmp"
+        tmp_root.mkdir(parents=True, exist_ok=True)
+        (workspace_root / "logs").mkdir(parents=True, exist_ok=True)
+        directory = Path(tempfile.mkdtemp(prefix="init-", dir=tmp_root))
+        try:
+            copy = materialize_working_copy(root, directory / "source")
+            generate_project(copy.root, _provisional_config(root, scan), runner,
+                             log_path=workspace_root / "logs" / "init-generate.log")
+            yield copy.root, DiscoveryPaths(directory / "dd", packages_dir)
+        finally:
+            _remove_tree(directory)
+
+
+def _provisional_config(root: Path, scan: ContainerScan) -> ProjectConfig:
+    """탐색 전 생성기 실행에만 쓰는 임시 설정(이름·생성기만 채움)을 만든다."""
+    return ProjectConfig(
+        name=slugify_name(root.name), container="", generator=scan.generator or "none",
+        generator_spec=scan.generator_spec, scheme="", app_target="", bundle_id="", test_scheme=None,
+        simulator=SimulatorSettings(DEFAULT_DEVICE_TYPE, "latest"))
 
 
 def discover_config(root: Path, runner: ToolRunner, workspace_root: Path, prompter: Prompter) -> ProjectConfig:

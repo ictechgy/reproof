@@ -1,7 +1,8 @@
 """같은 작업 공간 자원을 두 실행이 동시에 쓰지 못하게 하는 파일 잠금(fcntl.flock, 기다리지 않음).
 
 지키는 것: 프로젝트 잠금(`projects/<이름>/.lock`)은 그 프로젝트의 staging·partial 빌드 폴더를, 실행기 잠금
-(`runner/.lock`)은 공유하는 runner-src·runner-dd를 지킨다. Simulator 잠금(`<임시 폴더>/reproof-<uid>/sim-<기기>.lock`)은
+(`runner/.lock`)은 공유하는 runner-src·runner-dd를, 패키지 캐시 잠금(`cache/spm/<키>.lock`)은 여러 프로젝트가 함께 쓰는
+SwiftPM 체크아웃 폴더를 지킨다. Simulator 잠금(`<임시 폴더>/reproof-<uid>/sim-<기기>.lock`)은
 작업 공간과 무관하게 사용자 전체에서 `reproof-*` 기기 하나의 초기화·설치·세션을 지킨다.
 왜 flock인가: 프로세스가 끝나면(강제 종료 포함) 커널이 잠금을 풀어, 남은 잠금 파일 때문에 영영 막히는 일이 없다.
 왜 기다리지 않나: 다른 실행이 몇 분 걸리는 빌드 중일 수 있어, 멈춘 듯 보이게 하지 않고 바로 이유를 알린다.
@@ -113,3 +114,16 @@ def simulator_lock(device_name: str) -> contextlib.AbstractContextManager[None]:
         "simulator_busy", f"다른 터미널에서 Simulator {device_name}를 쓰는 중입니다(잠금 파일: {path}).",
         "그 터미널의 `reproof app inspect`가 끝난 뒤 다시 실행하세요. 잠금은 그 실행이 끝나면(강제 종료 포함) 자동으로 "
         "풀리므로 잠금 파일을 지울 필요는 없습니다."))
+
+
+def package_cache_lock(cache_dir: Path) -> contextlib.AbstractContextManager[None]:
+    """패키지 캐시 폴더 옆 `<cache_dir>.lock` 잠금. 그 캐시를 쓰는 패키지 해석과 빌드(또는 init 탐색) 동안 쥔다.
+
+    왜: 캐시 키가 Package.resolved 내용(또는 탐색용 고정 이름)이라 다른 프로젝트·작업 트리도 같은 폴더를 쓰는데, 두
+    xcodebuild가 같은 -clonedSourcePackagesDirPath에 동시에 체크아웃하면 캐시가 깨진다. 잠겨 있으면 package_cache_busy.
+    """
+    path = cache_dir.with_name(cache_dir.name + ".lock")
+    return exclusive_lock(path, lambda: SimpleError(
+        "package_cache_busy", f"다른 터미널에서 같은 Swift 패키지 캐시({cache_dir})를 쓰는 중입니다(잠금 파일: {path}).",
+        "그 터미널의 `reproof app build`·`inspect`·`init`이 패키지 해석·빌드를 마친 뒤 다시 실행하세요. 잠금은 그 실행이 "
+        "끝나면 자동으로 풀립니다."))

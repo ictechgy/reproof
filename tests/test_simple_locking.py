@@ -13,7 +13,7 @@ from unittest import mock
 
 from reproof.simple.cli import main
 from reproof.simple.config import CONFIG_FILE_NAME, render_config
-from reproof.simple.errors import SimpleError
+from reproof.simple.errors import SimpleError, ToolFailure
 from reproof.simple.pipeline import prepare_build
 from reproof.simple.runner_client import build_runner
 from tests.simple_support import FakeToolRunner, sample_config
@@ -166,6 +166,38 @@ class SimpleLockingTests(unittest.TestCase):
                 code = main(["inspect", "--config", str(config_path), "--workspace", str(self.workspace)])
         self.assertEqual(code, 2)
         self.assertIn(device_name, err.getvalue())
+        self.assertEqual(runner.calls, [])
+
+    def test_shared_package_cache_busy_stops_before_resolving(self):
+        """같은 패키지 캐시(`cache/spm/<키>`)를 다른 실행이 쓰는 중이면 해석·빌드 전에 package_cache_busy로 멈춘다.
+
+        왜: 캐시 키가 Package.resolved 내용이라 다른 프로젝트·작업 트리도 같은 폴더를 쓰며, 두 xcodebuild가 같은
+        -clonedSourcePackagesDirPath에 동시에 체크아웃하면 캐시가 깨진다(프로젝트 잠금으로는 막지 못한다).
+        """
+        from reproof.simple.config import config_digest
+        cache = self.workspace / "cache" / "spm" / ("unpinned-" + config_digest(self.config)[:16])
+        self.hold_with_other_descriptor(cache.with_name(cache.name + ".lock"))
+        git_failure = ToolFailure("git", log_path=None, output_tail="not a git repository")
+        runner = FakeToolRunner([(("git",), git_failure), (("xcodebuild", "-version"), "Xcode 27.0\n")])
+        with self.assertRaises(SimpleError) as raised:
+            prepare_build(self.source, self.config, workspace_root=self.workspace, runner=runner,
+                          progress=lambda _: None)
+        self.assertEqual(raised.exception.code, "package_cache_busy")
+        self.assertEqual([c["argv"][:2] for c in runner.calls if c["argv"][0] == "xcodebuild"],
+                         [["xcodebuild", "-version"]])
+
+    def test_init_discovery_cache_busy_stops_before_xcodebuild(self):
+        """init 탐색용 패키지 캐시(`cache/spm/discovery`)를 다른 init이 쓰는 중이면 xcodebuild 전에 멈춘다."""
+        app = self.tmp / "앱"
+        (app / "MixedShop.xcodeproj").mkdir(parents=True)
+        self.hold_with_other_descriptor(self.workspace / "cache" / "spm" / "discovery.lock")
+        runner, err = FakeToolRunner([]), io.StringIO()
+        with mock.patch("reproof.simple.cli._new_runner", return_value=runner), \
+                mock.patch.dict(os.environ, {"REPROOF_HOME": str(self.workspace)}), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = main(["init", "--path", str(app), "--non-interactive"])
+        self.assertEqual(code, 2)
+        self.assertIn("패키지 캐시", err.getvalue())
         self.assertEqual(runner.calls, [])
 
     def test_lock_is_reentrant_within_one_process(self):

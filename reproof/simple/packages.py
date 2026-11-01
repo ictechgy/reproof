@@ -62,6 +62,11 @@ def _cache_dir_for(cache_root: Path, config: ProjectConfig, resolved: Path | Non
     return cache_root / "spm" / digest, digest
 
 
+def package_cache_dir(working_copy: Path, config: ProjectConfig, cache_root: Path) -> Path:
+    """resolve_packages가 쓸 패키지 캐시 폴더를 돌려준다. 호출자가 그 폴더의 잠금(package_cache_lock)을 미리 쥐려고 쓴다."""
+    return _cache_dir_for(cache_root, config, find_package_resolved(working_copy, config))[0]
+
+
 def _resolve_argv(config: ProjectConfig, cache_dir: Path, is_pinned: bool, derived_data: Path) -> list[str]:
     """xcodebuild -resolvePackageDependencies argv를 만든다. 시스템 git(scmProvider system)을 써 기존 인증을 따른다.
 

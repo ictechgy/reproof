@@ -13,8 +13,8 @@ from .build import BUILD_RECIPE_VERSION, BuildProducts, build_for_simulator, rea
 from .config import ProjectConfig, config_digest
 from .generation import generate_project
 from .identity import BuildIdentity, capture_build_identity
-from .locking import project_lock
-from .packages import resolve_packages
+from .locking import package_cache_lock, project_lock
+from .packages import package_cache_dir, resolve_packages
 from .process import ToolRunner
 from .workcopy import WorkingCopy, _make_tree_writable, materialize_working_copy
 
@@ -91,19 +91,24 @@ def _rebase(prepared_source: WorkingCopy, products: BuildProducts, partial: Path
 
 def _run_build_steps(partial: Path, working_copy: WorkingCopy, config: ProjectConfig, cache_root: Path,
                      runner: ToolRunner, progress: Callable[[str], None]) -> BuildProducts:
-    """생성 → 패키지 → 빌드를 partial 폴더 안에서 실행한다. 진행 메시지는 고정 순서로 낸다."""
+    """생성 → 패키지 → 빌드를 partial 폴더 안에서 실행한다. 진행 메시지는 고정 순서로 낸다.
+
+    패키지 해석과 빌드는 공유 패키지 캐시 잠금(package_cache_lock) 안에서 한다. 왜: 같은 캐시를 쓰는 다른 프로젝트의
+    실행이 체크아웃을 동시에 바꾸지 못하게 하려는 것이다(빌드도 그 체크아웃을 읽는다).
+    """
     logs = partial / "logs"
     logs.mkdir(exist_ok=True)
     if config.generator != "none":
         progress("프로젝트 생성 중")
         generate_project(working_copy.root, config, runner, log_path=logs / "generate.log")
-    progress("패키지 받는 중")
-    derived_data = partial / "DerivedData"  # 패키지 해석과 빌드가 같은 폴더를 써 전역 DerivedData를 건드리지 않는다.
-    packages = resolve_packages(working_copy.root, config, cache_root=cache_root, runner=runner,
-                                log_path=logs / "packages.log", warn=progress, derived_data=derived_data)
-    progress("앱 빌드 중")
-    return build_for_simulator(working_copy.root, config, derived_data=derived_data, packages=packages,
-                               runner=runner, log_path=logs / "build.log")
+    with package_cache_lock(package_cache_dir(working_copy.root, config, cache_root)):
+        progress("패키지 받는 중")
+        derived_data = partial / "DerivedData"  # 패키지 해석과 빌드가 같은 폴더를 써 전역 DerivedData를 건드리지 않는다.
+        packages = resolve_packages(working_copy.root, config, cache_root=cache_root, runner=runner,
+                                    log_path=logs / "packages.log", warn=progress, derived_data=derived_data)
+        progress("앱 빌드 중")
+        return build_for_simulator(working_copy.root, config, derived_data=derived_data, packages=packages,
+                                   runner=runner, log_path=logs / "build.log")
 
 
 def _stage_working_copy(source_root: Path, project_dir: Path, config: ProjectConfig, progress: Callable[[str], None]):
