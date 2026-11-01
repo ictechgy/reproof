@@ -729,6 +729,25 @@ class RunnerClientTests(unittest.TestCase):
         self.assertEqual([case for case, name in pairs if case != name], [])
         self.assertLessEqual(INTERACTIVE_TYPES, {name for _, name in pairs})
 
+    def test_swift_runner_limits_match_python_contract(self):
+        """Swift 실행기의 계층 상한(깊이 64·노드 8000)이 Python hierarchy와 같고, 인증 전 본문 상한·JSON 중첩 상한,
+        전체 화면이 아닌 앱의 좌표 입력 거절, 비유한 frame의 크기 0 처리, 연결 자리 한 번만 돌려주기가 있는지 본다.
+
+        왜: 실행기(Swift)는 이 Mac에서만 빌드·실행되므로, 계약 값이 한쪽만 바뀌는 것을 CI에서도 잡으려는 것이다.
+        """
+        from reproof.simple.hierarchy import MAX_DEPTH, MAX_NODE_COUNT
+        export = (REPOSITORY / "ios/SimpleRunner/RunnerTests/HierarchyExport.swift").read_text(encoding="utf-8")
+        server = (REPOSITORY / "ios/SimpleRunner/RunnerTests/CommandServer.swift").read_text(encoding="utf-8")
+        session = (REPOSITORY / "ios/SimpleRunner/RunnerTests/RunnerSessionTests.swift").read_text(encoding="utf-8")
+        self.assertIn(f"static let maxDepth = {MAX_DEPTH}", export)
+        self.assertIn(f"static let maxNodeCount = {MAX_NODE_COUNT}", export)
+        self.assertIn('"hierarchy_too_large"', export)
+        self.assertIn("[0, 0, 0, 0]", export)
+        self.assertIn("static let maxUnauthenticatedBodyBytes = 1024", server)
+        self.assertIn('"json_too_deep"', server)
+        self.assertIn("claimRelease()", server)
+        self.assertIn('"app_frame_not_full_screen"', session)
+
     def test_build_runner_copies_sources_builds_once_and_reuses_cache(self):
         """소스 복사, 고정 argv, 캐시 디렉터리 이름(16자), 두 번째 호출의 재사용을 확인한다(경로에 공백·한글 포함)."""
         builds = []

@@ -137,7 +137,8 @@ class SimpleNativeRunnerTests(unittest.TestCase):
             self.runner.run(["xcrun", "simctl", "shutdown", udid], cwd=Path.cwd(), timeout=120)
 
     def assert_request_guards(self, port: int, token: str) -> None:
-        """토큰 없는 명령·틀린 토큰은 401, 토큰 없는 handshake는 proof만, Origin·다른 Host는 403, JSON이 아니면 415인지 본다."""
+        """토큰 없는 명령·틀린 토큰은 401, 토큰 없는 handshake는 proof만, Origin·다른 Host는 403, JSON이 아니면 415,
+        인증 전 큰 본문은 413, 깊은 중첩 JSON은 400인지 본다."""
         unauthorized = (401, {"ok": False, "error": "unauthorized"})
         tap = {"action": "tap", "x": 1, "y": 1}
         self.assertEqual(raw_command(port, {}, tap), unauthorized)
@@ -150,6 +151,14 @@ class SimpleNativeRunnerTests(unittest.TestCase):
         self.assertEqual(raw_command(port, {**bearer, "Host": f"evil.example:{port}"}, tap)[0], 403)
         self.assertEqual(raw_command(port, bearer, tap, content_type="text/plain")[0], 415)
         self.assertEqual(raw_command(port, {**bearer, "Host": f"localhost:{port}"}, status_body())[0], 200)
+        # 인증 전 요청은 본문 1 KiB까지만 받고, 인증된 요청도 아주 깊은 JSON은 파싱 전에 거절한다.
+        self.assertEqual(raw_command(port, {}, {**status_body(), "pad": "x" * 2048}),
+                         (413, {"ok": False, "error": "body_too_large"}))
+        nested: list = []
+        for _ in range(100):
+            nested = [nested]
+        self.assertEqual(raw_command(port, bearer, {"action": "tap", "x": nested}),
+                         (400, {"ok": False, "error": "json_too_deep"}))
 
     def assert_session_dir_holds_xcode_results(self, session: RunnerSession) -> None:
         """세션 폴더가 0700이고 xcodebuild 결과 묶음이 실제로 그 안에 쓰이는지 확인한다."""

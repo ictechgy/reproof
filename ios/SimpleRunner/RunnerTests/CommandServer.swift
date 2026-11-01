@@ -48,7 +48,8 @@ struct HTTPRequest {
     /// Content-Length만큼의 본문.
     let body: Data
 
-    /// 지금까지 받은 바이트를 해석한다. 헤더 16 KiB, 본문 1 MiB를 넘으면 invalid다. chunked 전송은 받지 않는다.
+    /// 지금까지 받은 바이트를 해석한다. 헤더 16 KiB, 본문 1 MiB(Authorization이 없으면 1 KiB)를 넘으면 invalid다.
+    /// chunked 전송은 받지 않는다.
     static func parse(_ data: Data) -> ParseResult {
         guard let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) else {
             return data.count > CommandServer.maxHeaderBytes ? .invalid(431, "headers_too_large") : .incomplete
@@ -85,16 +86,36 @@ struct HTTPRequest {
         guard let length = Int(headers["content-length"] ?? "0"), length >= 0 else {
             return .invalid(400, "invalid_content_length")
         }
-        guard length <= CommandServer.maxBodyBytes else { return .invalid(413, "body_too_large") }
+        // 인증 전 요청(handshake status)은 작으므로 본문을 받기 전에 1 KiB로 묶는다. 토큰 없는 상대가 큰 본문으로
+        // 메모리를 쓰게 하거나 JSON 파서를 괴롭히지 못하게 하려는 것이다.
+        let limit = headers["authorization"] == nil ? CommandServer.maxUnauthenticatedBodyBytes : CommandServer.maxBodyBytes
+        guard length <= limit else { return .invalid(413, "body_too_large") }
         guard data.distance(from: start, to: data.endIndex) >= length else { return .incomplete }
         let body = data.subdata(in: start..<data.index(start, offsetBy: length))
         return .complete(HTTPRequest(method: method, path: path, headers: headers, body: body))
     }
 }
 
+/// 연결 하나가 잡은 연결 수 자리를 정확히 한 번만 돌려주게 하는 표시. 연결 처리 큐에서만 쓴다.
+///
+/// 왜: 연결은 `.failed` 뒤 `.cancelled`로 가기도 하고 `.failed`에서 멈추기도 한다. 한쪽에서만 돌려주면 자리가 새고
+/// (16개가 다 차면 진짜 클라이언트도 못 들어온다), 양쪽에서 돌려주면 수가 음수가 되어 상한이 무너진다.
+final class ConnectionSlot {
+    /// 이미 돌려줬는지.
+    private var isReleased = false
+
+    /// 처음 부르면 true(지금 자리를 돌려줘야 함), 그 뒤로는 false를 돌려준다.
+    func claimRelease() -> Bool {
+        guard !isReleased else { return false }
+        isReleased = true
+        return true
+    }
+}
+
 /// 127.0.0.1에만 바인드하는 최소 HTTP/1.1 명령 서버.
 ///
-/// `POST /command`(JSON 객체 본문, 최대 1 MiB)만 받는다. loopback이 아닌 상대는 바로 끊는다.
+/// `POST /command`(JSON 객체 본문, 최대 1 MiB, Authorization이 없으면 1 KiB, 중첩 16단계까지)만 받는다.
+/// loopback이 아닌 상대는 바로 끊는다.
 /// 요청 검사 순서: Origin 헤더가 있으면 403(브라우저가 보낸 요청 차단), Host가 `127.0.0.1:<port>`나
 /// `localhost:<port>`가 아니면 403(DNS rebinding 차단), 다른 경로는 404, Content-Type이 application/json이
 /// 아니면 415, 본문이 JSON 객체가 아니면 400, 그다음 인증이다. Authorization이 있으면 세션 토큰과 같아야 하고
@@ -123,6 +144,10 @@ final class CommandServer: @unchecked Sendable {
 
     /// 요청 본문 상한(1 MiB).
     static let maxBodyBytes = 1 << 20
+    /// Authorization이 없는(인증 전) 요청의 본문 상한(1 KiB). handshake(status) 본문은 100바이트 남짓이다.
+    static let maxUnauthenticatedBodyBytes = 1024
+    /// 요청 JSON의 최대 중첩 깊이. 명령 본문은 2단계(객체 안의 environment·arguments)면 충분하다.
+    static let maxJSONDepth = 16
     /// 요청 헤더 상한(16 KiB).
     static let maxHeaderBytes = 16 * 1024
     /// 연결을 받은 순간부터 요청 전체를 받기까지의 제한 시간(초). 조각이 와도 다시 늘리지 않는다.
@@ -274,10 +299,12 @@ final class CommandServer: @unchecked Sendable {
             connection.cancel()
             return
         }
+        let slot = ConnectionSlot()
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             switch state {
-            case .failed: connection?.cancel()
-            case .cancelled: self?.releaseConnection()
+            case .failed, .cancelled:
+                if slot.claimRelease() { self?.releaseConnection() }
+                connection?.cancel()  // .failed면 자원 정리를 마치게 한다(.cancelled에서는 아무 일도 하지 않는다).
             default: break
             }
         }
@@ -339,6 +366,10 @@ final class CommandServer: @unchecked Sendable {
             send(connection, status: rejection.status, document: ["ok": false, "error": rejection.code])
             return
         }
+        guard !Self.exceedsNesting(request.body, limit: Self.maxJSONDepth) else {
+            send(connection, status: 400, document: ["ok": false, "error": "json_too_deep"])
+            return
+        }
         let object: Any
         do {
             object = try JSONSerialization.jsonObject(with: request.body)
@@ -355,6 +386,28 @@ final class CommandServer: @unchecked Sendable {
             return
         }
         enqueue(PendingCommand(body: body, connection: connection, server: self))
+    }
+
+    /// JSON 바이트의 배열·객체 중첩이 limit를 넘는지 문자열 밖의 괄호만 세어 본다(파싱 전, 선형 시간).
+    ///
+    /// 왜: JSONSerialization은 아주 깊은 중첩에서 Swift 오류가 아니라 스택 넘침으로 프로세스를 죽일 수 있어, 파서에
+    /// 넘기기 전에 거절한다.
+    static func exceedsNesting(_ data: Data, limit: Int) -> Bool {
+        var depth = 0, isInString = false, isEscaped = false
+        for byte in data {
+            if isInString {
+                (isEscaped, isInString) = isEscaped ? (false, true) : (byte == 0x5C, byte != 0x22)
+                continue
+            }
+            switch byte {
+            case 0x22: isInString = true
+            case 0x5B, 0x7B: depth += 1
+            case 0x5D, 0x7D: depth -= 1
+            default: break
+            }
+            if depth > limit { return true }
+        }
+        return false
     }
 
     /// 인증을 확인한다. Authorization이 있으면 세션 토큰과 같아야 하고, 없으면 handshake(status)만 허용한다.

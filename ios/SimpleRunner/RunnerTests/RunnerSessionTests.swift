@@ -79,15 +79,28 @@ final class RunnerSessionTests: XCTestCase {
     private var configuration: SessionConfiguration!
     /// stop을 받았는지.
     private var isStopRequested = false
-    /// 현재 명령을 실행하는 동안 XCTest가 기록한 문제. 응답을 실패로 바꾸는 데 쓴다.
+    /// 현재 명령을 실행하는 동안 XCTest가 기록한 문제. 응답을 실패로 바꾸는 데 쓴다. `issuesLock`으로만 다룬다.
     private var commandIssues: [String] = []
+    /// commandIssues 보호용 잠금. XCTest가 `record`를 메인 스레드가 아닌 곳에서 부를 수 있기 때문이다.
+    private let issuesLock = NSLock()
 
     /// XCTest 문제를 원래대로 기록하면서 현재 명령의 실패 원인으로도 모은다.
     ///
     /// 왜: 탭·입력 실패는 Swift 오류가 아니라 XCTest 문제로만 드러나므로, 이렇게 모아야 Python이 알 수 있다.
     override func record(_ issue: XCTIssue) {
+        issuesLock.lock()
         commandIssues.append(issue.compactDescription)
+        issuesLock.unlock()
         super.record(issue)
+    }
+
+    /// 모아 둔 문제를 꺼내고 비운다. 명령 시작 때(앞 명령 뒤에 남은 것 버리기)와 끝날 때(이 명령의 문제) 부른다.
+    private func drainIssues() -> [String] {
+        issuesLock.lock()
+        defer { issuesLock.unlock() }
+        let drained = commandIssues
+        commandIssues.removeAll()
+        return drained
     }
 
     /// 세션 본체. 서버를 열고 명령을 메인 스레드에서 하나씩 처리한다.
@@ -125,11 +138,12 @@ final class RunnerSessionTests: XCTestCase {
     /// 명령 하나를 실행해 응답 사전을 만든다. 오류와 XCTest 문제는 {"ok": false, "error": ...}로 바꾼다.
     @MainActor
     private func execute(_ body: [String: Any]) -> [String: Any] {
-        commandIssues.removeAll()
+        _ = drainIssues()  // 명령 사이(응답 전송 중 등)에 기록된 문제가 이 명령의 실패로 섞이지 않게 버린다.
         do {
             let result = try perform(body)
-            guard commandIssues.isEmpty else {
-                return failure("xctest_issue: " + commandIssues.joined(separator: " | "))
+            let issues = drainIssues()
+            guard issues.isEmpty else {
+                return failure("xctest_issue: " + issues.joined(separator: " | "))
             }
             return result
         } catch let commandFailure as CommandFailure {
@@ -150,7 +164,7 @@ final class RunnerSessionTests: XCTestCase {
             return ["ok": true, "targetBundle": configuration.targetBundle, "proof": proof,
                     "targetState": Self.stateName(application.state)]
         case "hierarchy":
-            return ["ok": true, "root": HierarchyExport.node(from: try application.snapshot())]
+            return ["ok": true, "root": try HierarchyExport.document(from: try application.snapshot())]
         case "screenshot":
             return ["ok": true, "png": XCUIScreen.main.screenshot().pngRepresentation.base64EncodedString()]
         case "launch": try launch(body)
@@ -182,10 +196,12 @@ final class RunnerSessionTests: XCTestCase {
     ///
     /// x, y는 hierarchy의 frame과 같은 화면 좌표계 값이다. `coordinate(withNormalizedOffset: .zero)`는 앱 frame의
     /// 원점이고 offset은 그 원점 기준이다. iPhone에서는 앱이 전체 화면이라 원점이 (0, 0)이어서 두 좌표계가 같다.
-    /// iPad 분할 화면·Slide Over처럼 앱이 화면 일부만 차지하면 이 가정이 깨지므로 지원하지 않는다.
+    /// 앱 frame 원점이 (0, 0)이 아니면(iPad 분할 화면·Slide Over) 다른 컨트롤을 누를 수 있으므로 누르지 않고
+    /// `app_frame_not_full_screen`으로 실패한다(fail closed).
     @MainActor
     private func coordinate(_ body: [String: Any], x: String, y: String) throws -> XCUICoordinate {
         let offset = CGVector(dx: try number(body, x), dy: try number(body, y))
+        guard application.frame.origin == .zero else { throw CommandFailure(code: "app_frame_not_full_screen") }
         return application.coordinate(withNormalizedOffset: .zero).withOffset(offset)
     }
 
