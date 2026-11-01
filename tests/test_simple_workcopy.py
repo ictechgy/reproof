@@ -226,6 +226,19 @@ class WorkingCopyTests(unittest.TestCase):
                 materialize_working_copy(source, self.tmp / "d", limits)
             self.assertEqual(caught.exception.code, "source_too_large")
 
+    def test_include_entries_are_normalized_case_insensitive_and_unmatched_ones_reported(self):
+        """include 항목은 './'·중복 '/'를 접고 대소문자 없이 맞춘다. 아무 제외 대상과도 맞지 않은 항목은 알린다."""
+        source, dest = self.tmp / "src", self.tmp / "dest"
+        write(source / "Config" / ".env.dev", "MODE=dev")
+        notices = []
+        copy = materialize_working_copy(source, dest, include_paths=("./config//.ENV.dev", "Missing/.env"),
+                                        notice=notices.append)
+        self.assertEqual((dest / "Config" / ".env.dev").read_text(), "MODE=dev")
+        self.assertEqual(copy.excluded_paths, ())
+        self.assertEqual(len(notices), 1)
+        self.assertIn("Missing/.env", notices[0])
+        self.assertNotIn("config//.ENV.dev", notices[0])
+
     def test_handles_space_and_korean_path(self):
         source = self.tmp / "회사 앱" / "My App"
         write(source / "화면 1.swift", "내용")

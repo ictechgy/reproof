@@ -15,7 +15,7 @@ import stat
 import tempfile
 from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from reproof.simple.errors import SimpleError
 
@@ -94,8 +94,10 @@ class _Manifest:
         """복사 중일 때 사본 루트. 링크를 사본 안으로 다시 계산할 때 쓴다."""
         self.links: list[Path] = []
         """복사 중에 사본에 만든 링크들. 복사가 끝난 뒤 사본 안으로 풀리는지 한꺼번에 확인한다."""
-        self.include_paths: Collection[str] = frozenset()
-        """비밀 가능 이름이어도 복사할 상대 경로(reproof.toml [source] include)."""
+        self.include_paths: dict[str, str] = {}
+        """비밀 가능 이름이어도 복사할 경로: 비교용 정리 값(_include_key) → 설정에 적힌 원래 값([source] include)."""
+        self.matched_includes: set[str] = set()
+        """실제로 제외 대상 파일과 맞은 include 항목(비교용 값). 맞지 않은 항목은 복사 뒤 알린다."""
         self.excluded: list[str] = []
         """복사하지 않은 비밀 가능 파일의 상대 경로."""
         self.notice: Callable[[str], None] = print
@@ -288,12 +290,29 @@ def _is_skipped_in_copy(entry: os.DirEntry, is_root: bool, root: Path, manifest:
     return _is_excluded(entry.name, is_root) or _skips_credential(entry, root, manifest)
 
 
+def _include_key(value: str) -> str:
+    """include 항목·상대 경로를 비교용으로 정리한다: './' 앞부분·중복 '/'를 접고(PurePosixPath) 소문자로 바꾼다.
+
+    왜 소문자인가: 제외 규칙이 대소문자를 무시하므로(APFS 기본과 같게) 다시 넣는 규칙도 같게 맞춘다.
+    """
+    return PurePosixPath(value).as_posix().lower()
+
+
+def _report_unmatched_includes(manifest: _Manifest) -> None:
+    """어느 제외 대상 파일과도 맞지 않은 include 항목을 알린다(오타·옮겨진 파일을 바로 알게)."""
+    for key, original in sorted(manifest.include_paths.items()):
+        if key not in manifest.matched_includes:
+            manifest.notice(f"[source] include의 '{original}'와 맞는 제외 대상 파일이 없습니다. "
+                            "저장소 루트 기준 경로와 파일 이름을 확인하세요.")
+
+
 def _skips_credential(entry: os.DirEntry, root: Path, manifest: _Manifest) -> bool:
     """비밀 가능 이름의 파일·링크(디렉터리는 아님)이고 include에 없으면 기록·알림 후 True를 돌려준다(열지 않는다)."""
     if entry.is_dir(follow_symlinks=False) or not is_credential_name(entry.name):
         return False
     relative = Path(os.path.relpath(entry.path, root)).as_posix()
-    if relative in manifest.include_paths:
+    if _include_key(relative) in manifest.include_paths:
+        manifest.matched_includes.add(_include_key(relative))
         return False
     manifest.excluded.append(relative)
     manifest.notice(f"제외함(비밀 가능 파일): {relative}")
@@ -348,7 +367,8 @@ def materialize_working_copy(source: Path, destination: Path, limits: CopyLimits
                              notice: Callable[[str], None] = print) -> WorkingCopy:
     """source를 destination으로 복사한다(빌드·VCS 부산물과 비밀 가능 파일 제외, 실행 권한 보존).
 
-    include_paths: 비밀 가능 이름이어도 복사할 상대 POSIX 경로(reproof.toml [source] include, 검증된 값).
+    include_paths: 비밀 가능 이름이어도 복사할 상대 POSIX 경로(reproof.toml [source] include, 검증된 값). './'·중복 '/'를
+    접고 대소문자 없이 맞추며, 아무 제외 대상과도 맞지 않은 항목은 notice로 알린다.
     notice: 제외한 비밀 가능 파일을 파일마다 한 번 '제외함(비밀 가능 파일): <경로>'로 알리는 함수. 뺀 파일이 있으면
     마지막에 INCLUDE_HINT를 한 번 더 알린다.
     destination은 존재하면 안 된다(남은 이전 결과를 섞어 쓰지 않으려는 것). 실패하면 만들다 만
@@ -358,7 +378,8 @@ def materialize_working_copy(source: Path, destination: Path, limits: CopyLimits
     source_root = Path(os.path.realpath(source))
     _validate_paths(source_root, destination)
     manifest = _Manifest(limits, is_copy=True)
-    manifest.copy_root, manifest.include_paths, manifest.notice = destination, include_paths, notice
+    manifest.copy_root, manifest.notice = destination, notice
+    manifest.include_paths = {_include_key(value): value for value in include_paths}
     destination.mkdir(parents=True)
     manifest.directory_modes.append((destination, stat.S_IMODE(os.stat(source_root).st_mode) & _PERMISSION_BITS))
     try:
@@ -368,6 +389,7 @@ def materialize_working_copy(source: Path, destination: Path, limits: CopyLimits
     except BaseException as error:
         _discard_partial_copy(destination, error)
         raise
+    _report_unmatched_includes(manifest)
     if manifest.excluded:
         notice(INCLUDE_HINT)
     return WorkingCopy(destination, manifest.digest(), manifest.file_count, manifest.total_bytes,
