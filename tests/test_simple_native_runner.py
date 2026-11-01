@@ -4,6 +4,8 @@ reproof 전용 Simulator `reproof-mixedshop`만 만들거나 초기화하고, �
 """
 from __future__ import annotations
 
+import http.client
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +28,21 @@ def mixedshop_config() -> ProjectConfig:
                          generator_spec="project.yml", scheme="MixedShop", app_target="MixedShop",
                          bundle_id=BUNDLE, test_scheme="MixedShopTests",
                          simulator=SimulatorSettings("iPhone 16", "latest"))
+
+
+def raw_command(port: int, headers: dict[str, str], *, content_type: str = "application/json") -> tuple[int, dict]:
+    """Python 클라이언트를 거치지 않고 status 요청을 보내 (상태 코드, 응답 JSON)을 돌려준다.
+
+    왜: 클라이언트는 항상 맞는 헤더를 보내므로, 실행기의 인증·Host·Origin·Content-Type 검사는 원시 요청으로만 확인할 수 있다.
+    """
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        connection.request("POST", "/command", body=b'{"action": "status"}',
+                           headers={"Content-Type": content_type, **headers})
+        response = connection.getresponse()
+        return response.status, json.loads(response.read())
+    finally:
+        connection.close()
 
 
 class SimpleNativeRunnerTests(unittest.TestCase):
@@ -60,11 +77,27 @@ class SimpleNativeRunnerTests(unittest.TestCase):
         if "(Booted)" in names:
             self.runner.run(["xcrun", "simctl", "shutdown", udid], cwd=Path.cwd(), timeout=120)
 
+    def assert_request_guards(self, port: int, token: str) -> None:
+        """토큰 없음·틀린 토큰은 401, Origin·다른 Host는 맞는 토큰이어도 403, JSON이 아니면 415인지 확인한다."""
+        unauthorized = (401, {"ok": False, "error": "unauthorized"})
+        self.assertEqual(raw_command(port, {}), unauthorized)
+        self.assertEqual(raw_command(port, {"Authorization": "Bearer wrong"}), unauthorized)
+        bearer = {"Authorization": f"Bearer {token}"}
+        self.assertEqual(raw_command(port, {**bearer, "Origin": "http://evil.example"})[0], 403)
+        self.assertEqual(raw_command(port, {**bearer, "Host": f"evil.example:{port}"})[0], 403)
+        self.assertEqual(raw_command(port, bearer, content_type="text/plain")[0], 415)
+        self.assertEqual(raw_command(port, {**bearer, "Host": f"localhost:{port}"})[0], 200)
+
     def test_hierarchy_contains_uikit_and_embedded_swiftui_elements(self) -> None:
-        """'담기' 탭으로 수량이 늘고, '옵션' 탭으로 들어간 SwiftUI 화면에 '추가' 버튼 3개가 보이는지 확인한다."""
+        """요청 검사 뒤, '담기' 탭으로 수량이 늘고 '옵션' 탭으로 들어간 SwiftUI 화면에 '추가' 버튼 3개가 보이는지 확인한다."""
         log = self.workspace / "logs" / "runner-session.log"
-        with RunnerSession(self.products, udid=self.udid, target_bundle=BUNDLE, port=free_loopback_port(),
-                           log_path=log) as client:
+        port = free_loopback_port()
+        session = RunnerSession(self.products, udid=self.udid, target_bundle=BUNDLE, port=port, log_path=log)
+        with session as client:
+            # 테스트 전용으로 비공개 비밀 값을 읽는다: 인증이 통과한 상태에서도 Host·Origin·Content-Type 검사가
+            # 각각 동작하는지 보려면 맞는 토큰이 필요하고, 로그에 비밀 값이 없는지도 확인해야 한다.
+            token, proof_key = session._token, session._proof_key
+            self.assert_request_guards(port, token)
             client.launch(*launch_locale_settings(self.config.simulator))
             root = client.hierarchy()
             self.assertTrue(any(e.label == "담기" and e.element_type == "button" for e in iter_elements(root)))
@@ -76,6 +109,10 @@ class SimpleNativeRunnerTests(unittest.TestCase):
             client.tap_point(*options.frame.center())
             self.assertEqual(sum(1 for e in iter_elements(client.hierarchy())
                                  if e.label == "추가" and e.element_type == "button"), 3)
+        written = log.read_text(encoding="utf-8", errors="replace")
+        self.assertIn("RunnerSessionTests", written)  # xcodebuild 출력이 실제로 로그에 있는지 먼저 확인한다.
+        self.assertNotIn(token, written)
+        self.assertNotIn(proof_key, written)
 
 
 if __name__ == "__main__":

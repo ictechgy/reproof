@@ -7,9 +7,11 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import http.client
 import json
 import os
+import secrets
 import shutil
 import signal
 import socket
@@ -58,6 +60,10 @@ _POLL_INTERVAL = 0.5
 _TERMINATE_GRACE_SECONDS = 2
 # 세션 xcodebuild에 물려주는 사용자 환경 변수. repair.run_command와 같은 최소 집합이다.
 _INHERITED_ENVIRONMENT = ("HOME", "USER", "LANG", "LC_ALL", "PATH")
+# status proof HMAC 메시지 접두사. 실행기(Swift)와 같은 값이어야 한다.
+STATUS_PROOF_PREFIX = "reproof-runner-status:"
+# 세션 토큰·proof 키 엔트로피(바이트). secrets.token_urlsafe(32)는 43자 이상의 URL-safe 문자열이다.
+_TOKEN_BYTES = 32
 # http_proxy 같은 환경 변수를 따르지 않는 opener. loopback 요청이 프록시로 새면 안 되기 때문이다.
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -157,6 +163,17 @@ def _store_products(built: Path, final: Path) -> RunnerProducts:
     return RunnerProducts(_single_xctestrun(final))
 
 
+def status_proof(proof_key: str, target_bundle: str) -> str:
+    """실행기가 status에 실어 보내는 proof: hex(HMAC-SHA256(key=proof_key, msg=접두사 + target_bundle)).
+
+    왜 Bearer 토큰이 아니라 별도 proof 키인가: 토큰은 모든 요청에 실려 포트를 먼저 가로챈 프로세스도 첫 status
+    요청에서 받는다. 그 토큰으로 proof를 만들 수 있으면 사칭을 막지 못한다. proof 키는 xcodebuild 환경으로만
+    넘기고 HTTP로는 절대 보내지 않으므로, 진짜 실행기만 맞는 proof를 만들 수 있다.
+    """
+    message = (STATUS_PROOF_PREFIX + target_bundle).encode("utf-8")
+    return hmac.new(proof_key.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
 def free_loopback_port() -> int:
     """127.0.0.1에서 지금 비어 있는 TCP 포트 번호를 돌려준다.
 
@@ -195,12 +212,14 @@ def _decode_response(raw: bytes, action: str) -> dict[str, Any]:
 
 
 class RunnerClient:
-    """실행기 HTTP 명령 API(`POST http://127.0.0.1:<port>/command`) 클라이언트."""
+    """실행기 HTTP 명령 API(`POST http://127.0.0.1:<port>/command`) 클라이언트. 모든 요청에 세션 토큰을 싣는다."""
 
-    def __init__(self, port: int, *, timeout: float = 30.0):
-        """port: 실행기 포트. timeout: 명령 하나의 응답 대기 시간(초)."""
+    def __init__(self, port: int, *, token: str, timeout: float = 30.0):
+        """port: 실행기 포트. token: 세션 토큰(Bearer로 보낸다. 로그·오류에 넣지 않는다).
+        timeout: 명령 하나의 응답 대기 시간(초)."""
         self.port = port
         self._url = f"http://127.0.0.1:{port}/command"
+        self._token = token
         self._timeout = timeout
 
     def command(self, action: str, **payload: Any) -> dict[str, Any]:
@@ -215,8 +234,9 @@ class RunnerClient:
 
     def _post(self, body: dict[str, Any], action: str) -> bytes:
         """본문을 POST하고 응답 바이트를 돌려준다. 4xx/5xx도 실행기가 JSON 오류를 담아 보내므로 본문을 읽는다."""
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self._token}"}
         request = urllib.request.Request(self._url, data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-                                         headers={"Content-Type": "application/json"}, method="POST")
+                                         headers=headers, method="POST")
         try:
             response = _OPENER.open(request, timeout=self._timeout)
         except urllib.error.HTTPError as error:
@@ -277,7 +297,6 @@ class RunnerSession:
         self._log_path = Path(log_path)
         self._start_timeout = start_timeout
         self._last_probe_error = "아직 응답 없음"
-        self.client = RunnerClient(port)
 
     def session_argv(self) -> list[str]:
         """세션 xcodebuild argv. 경로는 인자 하나로 넘겨 공백·한글이 깨지지 않는다."""
@@ -290,10 +309,18 @@ class RunnerSession:
         environment.update(build_default_environment())
         environment["TEST_RUNNER_REPROOF_RUNNER_PORT"] = str(self._port)
         environment["TEST_RUNNER_REPROOF_TARGET_BUNDLE"] = self._target_bundle
+        environment["TEST_RUNNER_REPROOF_RUNNER_TOKEN"] = self._token
+        environment["TEST_RUNNER_REPROOF_RUNNER_PROOF_KEY"] = self._proof_key
         return environment
 
     def __enter__(self) -> RunnerClient:
-        """xcodebuild를 새 세션 그룹으로 띄우고 status가 응답할 때까지 기다린다. 실패하면 그룹을 정리하고 다시 던진다."""
+        """새 토큰·proof 키로 xcodebuild를 새 세션 그룹으로 띄우고, status와 proof가 맞을 때까지 기다린다.
+
+        실패하면 그룹을 정리하고 다시 던진다. 두 값은 세션마다 새로 만든다(이전 세션 값으로 조작·사칭하지 못하게).
+        """
+        self._token = secrets.token_urlsafe(_TOKEN_BYTES)
+        self._proof_key = secrets.token_urlsafe(_TOKEN_BYTES)
+        self.client = RunnerClient(self._port, token=self._token)
         self._log = self._open_log()
         self._process = self._spawn()
         try:
@@ -328,7 +355,7 @@ class RunnerSession:
     def _wait_until_ready(self) -> None:
         """status가 성공할 때까지 0.5초 간격으로 묻는다. xcodebuild가 먼저 끝나거나 시간이 지나면 runner_start_failed."""
         deadline = time.monotonic() + self._start_timeout
-        probe = RunnerClient(self._port, timeout=_PROBE_TIMEOUT)
+        probe = RunnerClient(self._port, token=self._token, timeout=_PROBE_TIMEOUT)
         while time.monotonic() < deadline:
             exit_code = self._process.poll()
             if exit_code is not None:
@@ -353,10 +380,19 @@ class RunnerSession:
             return None
 
     def _check_target(self, status: dict[str, Any]) -> None:
-        """응답한 실행기가 요청한 앱을 구동하는지 확인한다. 같은 포트의 다른 세션에 붙는 사고를 막는다."""
+        """응답한 쪽이 이 세션의 실행기이고 요청한 앱을 구동하는지 확인한다.
+
+        targetBundle이 같아도 proof(proof 키로 만든 HMAC, status_proof 참고)가 맞아야 한다. 왜: 포트를 먼저 가로챈
+        다른 프로세스가 targetBundle만 흉내 내 명령(입력할 글자 등)을 받아 가지 못하게 하려는 것이다.
+        비교는 상수 시간으로 한다.
+        """
         if status.get("targetBundle") != self._target_bundle:
-            raise self._start_failed(f"포트 {self._port}의 실행기가 다른 앱({status.get('targetBundle')!r})을 "
+            raise self._start_failed(f"포트 {self._port}의 실행기가 다른 앱({str(status.get('targetBundle'))[:100]!r})을 "
                                      "구동하고 있습니다.")
+        proof, expected = status.get("proof"), status_proof(self._proof_key, self._target_bundle)
+        if not isinstance(proof, str) or not hmac.compare_digest(expected.encode("utf-8"), proof.encode("utf-8")):
+            raise self._start_failed(f"포트 {self._port}에서 응답한 프로그램이 이 세션의 실행기임을 증명하지 못했습니다"
+                                     "(status proof 불일치).")
 
     def _start_failed(self, detail: str) -> SimpleError:
         """runner_start_failed 오류를 만든다. 로그 경로를 함께 싣는다."""
@@ -371,7 +407,7 @@ class RunnerSession:
         왜 다시 던지지 않나: __exit__에서 던지면 with 본문의 원래 예외를 가린다. 프로세스는 어차피 강제로 정리한다.
         """
         try:
-            RunnerClient(self._port, timeout=_PROBE_TIMEOUT).command("stop")
+            RunnerClient(self._port, token=self._token, timeout=_PROBE_TIMEOUT).command("stop")
         except SimpleError as error:
             self._note(f"stop 명령을 보내지 못해 프로세스 그룹을 강제로 정리합니다: {error.cause}")
 

@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 
 /// 실행 환경 변수에서 읽은 세션 설정.
@@ -8,15 +9,48 @@ struct SessionConfiguration {
     let port: UInt16
     /// 구동할 대상 앱의 bundle id. `REPROOF_TARGET_BUNDLE`.
     let targetBundle: String
+    /// 세션 토큰. `REPROOF_RUNNER_TOKEN`. 요청 인증(Bearer)에만 쓰고 절대 기록하지 않는다.
+    let token: String
+    /// status proof 키. `REPROOF_RUNNER_PROOF_KEY`. HTTP로 오가지 않으므로 이 실행기만 맞는 proof를 만든다.
+    let proofKey: String
 
-    /// 두 환경 변수를 읽는다. 없거나 형식이 틀리면 nil.
+    /// status proof HMAC 메시지 접두사. Python `STATUS_PROOF_PREFIX`와 같아야 한다.
+    static let statusProofPrefix = "reproof-runner-status:"
+    /// 토큰·proof 키 길이 상한. 비정상적으로 긴 값을 거절한다.
+    static let maxSecretLength = 512
+
+    /// 네 환경 변수를 읽는다. 없거나 형식이 틀리면 nil.
     init?(environment: [String: String]) {
         guard let portText = environment["REPROOF_RUNNER_PORT"], let port = UInt16(portText), port > 0,
-              let bundle = environment["REPROOF_TARGET_BUNDLE"], !bundle.isEmpty else {
+              let bundle = environment["REPROOF_TARGET_BUNDLE"], !bundle.isEmpty,
+              let token = Self.secret(environment["REPROOF_RUNNER_TOKEN"]),
+              let proofKey = Self.secret(environment["REPROOF_RUNNER_PROOF_KEY"]) else {
             return nil
         }
         self.port = port
         self.targetBundle = bundle
+        self.token = token
+        self.proofKey = proofKey
+    }
+
+    /// 비밀 값 형식을 확인한다. 비어 있거나, 너무 길거나, 공백·줄바꿈이 있으면 nil.
+    private static func secret(_ value: String?) -> String? {
+        guard let value, !value.isEmpty, value.count <= maxSecretLength,
+              !value.contains(where: { $0.isWhitespace }) else {
+            return nil
+        }
+        return value
+    }
+
+    /// status에 실을 proof: hex(HMAC-SHA256(key=proofKey, msg=접두사 + targetBundle)).
+    ///
+    /// 왜 Bearer 토큰이 아닌 별도 키인가: 토큰은 요청마다 실려 포트를 가로챈 프로세스도 받는다. 그 토큰으로
+    /// proof를 만들 수 있으면 Python이 가짜 실행기를 구별하지 못한다.
+    func statusProof() -> String {
+        let key = SymmetricKey(data: Data(proofKey.utf8))
+        let message = Data((Self.statusProofPrefix + targetBundle).utf8)
+        let code = HMAC<SHA256>.authenticationCode(for: message, using: key)
+        return code.map { String(format: "%02x", $0) }.joined()
     }
 }
 
@@ -41,8 +75,8 @@ final class RunnerSessionTests: XCTestCase {
 
     /// 구동 대상 앱.
     private var application: XCUIApplication!
-    /// 대상 앱 bundle id(status 응답용).
-    private var targetBundle = ""
+    /// 세션 설정(대상 앱, 토큰). status 응답과 proof에 쓴다.
+    private var configuration: SessionConfiguration!
     /// stop을 받았는지.
     private var isStopRequested = false
     /// 현재 명령을 실행하는 동안 XCTest가 기록한 문제. 응답을 실패로 바꾸는 데 쓴다.
@@ -61,11 +95,13 @@ final class RunnerSessionTests: XCTestCase {
     func testSession() throws {
         continueAfterFailure = true  // 명령 하나의 실패가 세션 전체를 끝내지 않게 한다.
         let environment = ProcessInfo.processInfo.environment
-        let configuration = try XCTUnwrap(SessionConfiguration(environment: environment),
-                                          "REPROOF_RUNNER_PORT·REPROOF_TARGET_BUNDLE 환경 변수가 없거나 잘못됐습니다.")
-        targetBundle = configuration.targetBundle
+        let configuration = try XCTUnwrap(
+            SessionConfiguration(environment: environment),
+            "REPROOF_RUNNER_PORT·REPROOF_TARGET_BUNDLE·REPROOF_RUNNER_TOKEN·REPROOF_RUNNER_PROOF_KEY 환경 변수가 "
+                + "없거나 잘못됐습니다.")
+        self.configuration = configuration
         application = XCUIApplication(bundleIdentifier: configuration.targetBundle)
-        let server = try CommandServer(port: configuration.port)
+        let server = try CommandServer(port: configuration.port, token: configuration.token)
         defer { server.stop() }
         guard server.waitUntilReady(timeout: 10) else {
             XCTFail("127.0.0.1:\(configuration.port) 리스너를 열지 못했습니다. 포트를 다른 프로그램이 쓰는지 확인하세요.")
@@ -109,7 +145,8 @@ final class RunnerSessionTests: XCTestCase {
         guard let action = body["action"] as? String else { throw CommandFailure(code: "invalid_action") }
         switch action {
         case "status":
-            return ["ok": true, "targetBundle": targetBundle, "targetState": Self.stateName(application.state)]
+            return ["ok": true, "targetBundle": configuration.targetBundle, "proof": configuration.statusProof(),
+                    "targetState": Self.stateName(application.state)]
         case "hierarchy":
             return ["ok": true, "root": HierarchyExport.node(from: try application.snapshot())]
         case "screenshot":

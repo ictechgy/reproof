@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Network
 
@@ -29,7 +30,7 @@ final class PendingCommand {
     }
 }
 
-/// 받은 HTTP 요청 하나(메서드, 경로, 본문).
+/// 받은 HTTP 요청 하나(메서드, 경로, 헤더, 본문).
 struct HTTPRequest {
     /// 파싱 결과. incomplete면 더 받아야 하고, invalid면 (상태 코드, 오류 코드)로 답한다.
     enum ParseResult {
@@ -42,6 +43,8 @@ struct HTTPRequest {
     let method: String
     /// 요청 경로(예: /command).
     let path: String
+    /// 소문자 이름 → 값 헤더. 같은 이름이 두 번 오면 요청 자체를 거절한다(검사를 엇갈리게 하는 요청 방지).
+    let headers: [String: String]
     /// Content-Length만큼의 본문.
     let body: Data
 
@@ -59,16 +62,17 @@ struct HTTPRequest {
         guard requestLine.count == 3, requestLine[2].hasPrefix("HTTP/1.") else {
             return .invalid(400, "invalid_request_line")
         }
-        return parseBody(data, from: headerEnd.upperBound, headers: headerFields(lines.dropFirst()),
-                         method: requestLine[0], path: requestLine[1])
+        guard let headers = headerFields(lines.dropFirst()) else { return .invalid(400, "invalid_header_fields") }
+        return parseBody(data, from: headerEnd.upperBound, headers: headers, method: requestLine[0], path: requestLine[1])
     }
 
-    /// 헤더 줄들을 소문자 이름 → 값 사전으로 바꾼다.
-    private static func headerFields(_ lines: ArraySlice<String>) -> [String: String] {
+    /// 헤더 줄들을 소문자 이름 → 값 사전으로 바꾼다. 콜론이 없는 줄이나 같은 이름이 두 번 나오면 nil.
+    private static func headerFields(_ lines: ArraySlice<String>) -> [String: String]? {
         var fields: [String: String] = [:]
         for line in lines {
-            guard let colon = line.firstIndex(of: ":") else { continue }
+            guard let colon = line.firstIndex(of: ":") else { return nil }
             let name = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+            guard fields[name] == nil else { return nil }
             fields[name] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         }
         return fields
@@ -84,19 +88,30 @@ struct HTTPRequest {
         guard length <= CommandServer.maxBodyBytes else { return .invalid(413, "body_too_large") }
         guard data.distance(from: start, to: data.endIndex) >= length else { return .incomplete }
         let body = data.subdata(in: start..<data.index(start, offsetBy: length))
-        return .complete(HTTPRequest(method: method, path: path, body: body))
+        return .complete(HTTPRequest(method: method, path: path, headers: headers, body: body))
     }
 }
 
 /// 127.0.0.1에만 바인드하는 최소 HTTP/1.1 명령 서버.
 ///
-/// `POST /command`(JSON 객체 본문, 최대 1 MiB)만 받고 나머지 경로는 404로 답한다. loopback이 아닌 상대는
-/// 바로 끊는다. 요청은 네트워크 큐에서 읽고, 명령은 `next(timeout:)`으로 메인 스레드에 넘긴다.
+/// `POST /command`(JSON 객체 본문, 최대 1 MiB)만 받는다. loopback이 아닌 상대는 바로 끊는다.
+/// 요청 검사 순서: Origin 헤더가 있으면 403(브라우저가 보낸 요청 차단), Host가 `127.0.0.1:<port>`나
+/// `localhost:<port>`가 아니면 403(DNS rebinding 차단), 세션 토큰이 다르면 401, 다른 경로는 404,
+/// Content-Type이 application/json이 아니면 415. 토큰은 SHA-256 digest만 보관하고 상수 시간으로 비교하며
+/// 어디에도 기록하지 않는다. 요청은 네트워크 큐에서 읽고, 명령은 `next(timeout:)`으로 메인 스레드에 넘긴다.
 final class CommandServer: @unchecked Sendable {
     /// 서버를 만들 수 없을 때의 오류.
     enum ServerError: Error {
         /// 포트가 0이거나 범위를 벗어났다.
         case invalidPort(UInt16)
+        /// 세션 토큰이 비어 있다.
+        case missingToken
+    }
+
+    /// 요청을 거절하는 이유. status는 HTTP 상태 코드, code는 응답 `error` 값이다.
+    private struct Rejection {
+        let status: Int
+        let code: String
     }
 
     /// 리스너 상태. starting → ready 또는 failed.
@@ -115,6 +130,10 @@ final class CommandServer: @unchecked Sendable {
 
     /// 127.0.0.1:<port> 리스너.
     private let listener: NWListener
+    /// 바인드한 포트. Host 헤더 검사에 쓴다.
+    private let port: UInt16
+    /// 세션 토큰의 SHA-256 digest. 원문 대신 digest를 비교해 길이가 새지 않게 한다.
+    private let expectedTokenDigest: Data
     /// 연결 처리 전용 직렬 큐.
     private let queue = DispatchQueue(label: "io.reproof.simple-runner.server")
     /// inbox·상태 보호와 대기용 조건 변수.
@@ -126,14 +145,19 @@ final class CommandServer: @unchecked Sendable {
     /// 열린 연결 수.
     private var connectionCount = 0
 
-    /// 127.0.0.1:port에 리스너를 열기 시작한다. 준비 여부는 `waitUntilReady(timeout:)`로 확인한다.
-    init(port: UInt16) throws {
+    /// 127.0.0.1:port에 리스너를 열기 시작한다. token: 모든 요청이 Bearer로 보내야 하는 세션 토큰.
+    /// 준비 여부는 `waitUntilReady(timeout:)`로 확인한다.
+    init(port: UInt16, token: String) throws {
         guard port > 0, let endpointPort = NWEndpoint.Port(rawValue: port) else {
             throw ServerError.invalidPort(port)
         }
+        guard !token.isEmpty else { throw ServerError.missingToken }
+        self.port = port
+        expectedTokenDigest = Self.digest(token)
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: endpointPort)
-        parameters.allowLocalEndpointReuse = true
+        // 주소 재사용(SO_REUSEPORT)은 켜지 않는다. 켜면 다른 프로세스가 같은 포트에 함께 바인드할 수 있다.
+        parameters.allowLocalEndpointReuse = false
         listener = try NWListener(using: parameters)
         listener.stateUpdateHandler = { [weak self] state in self?.updateListener(state) }
         listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
@@ -207,8 +231,11 @@ final class CommandServer: @unchecked Sendable {
         switch status {
         case 200: return "OK"
         case 400: return "Bad Request"
+        case 401: return "Unauthorized"
+        case 403: return "Forbidden"
         case 404: return "Not Found"
         case 413: return "Payload Too Large"
+        case 415: return "Unsupported Media Type"
         case 431: return "Request Header Fields Too Large"
         default: return "Internal Server Error"
         }
@@ -297,10 +324,10 @@ final class CommandServer: @unchecked Sendable {
         }
     }
 
-    /// `POST /command`만 inbox에 넣고, 다른 경로는 404, 본문이 JSON 객체가 아니면 400으로 답한다.
+    /// 검사를 통과한 `POST /command`만 inbox에 넣는다. 본문이 JSON 객체가 아니면 400으로 답한다.
     private func route(_ request: HTTPRequest, on connection: NWConnection) {
-        guard request.method == "POST", request.path == "/command" else {
-            send(connection, status: 404, document: ["ok": false, "error": "not_found"])
+        if let rejection = rejection(for: request) {
+            send(connection, status: rejection.status, document: ["ok": false, "error": rejection.code])
             return
         }
         let object: Any
@@ -315,6 +342,51 @@ final class CommandServer: @unchecked Sendable {
             return
         }
         enqueue(PendingCommand(body: body, connection: connection, server: self))
+    }
+
+    /// 요청 헤더·경로를 검사한다. 통과하면 nil, 아니면 거절 이유. 순서는 타입 설명과 같다.
+    private func rejection(for request: HTTPRequest) -> Rejection? {
+        if request.headers["origin"] != nil { return Rejection(status: 403, code: "origin_rejected") }
+        guard isAllowedHost(request.headers["host"]) else { return Rejection(status: 403, code: "host_rejected") }
+        guard isAuthorized(request.headers["authorization"]) else { return Rejection(status: 401, code: "unauthorized") }
+        guard request.method == "POST", request.path == "/command" else {
+            return Rejection(status: 404, code: "not_found")
+        }
+        guard Self.isJSON(request.headers["content-type"]) else {
+            return Rejection(status: 415, code: "unsupported_media_type")
+        }
+        return nil
+    }
+
+    /// Host가 정확히 `127.0.0.1:<port>`나 `localhost:<port>`인지 본다(대소문자 무시). 없으면 거절한다.
+    private func isAllowedHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else { return false }
+        return host == "127.0.0.1:\(port)" || host == "localhost:\(port)"
+    }
+
+    /// `Authorization: Bearer <token>`의 토큰 digest가 세션 토큰 digest와 같은지 상수 시간으로 비교한다.
+    private func isAuthorized(_ value: String?) -> Bool {
+        guard let value, value.hasPrefix("Bearer ") else { return false }
+        return Self.constantTimeEqual(Self.digest(String(value.dropFirst(7))), expectedTokenDigest)
+    }
+
+    /// Content-Type의 미디어 타입(`;` 앞)이 application/json인지 본다. charset 같은 매개변수는 허용한다.
+    private static func isJSON(_ value: String?) -> Bool {
+        guard let mediaType = value?.split(separator: ";", maxSplits: 1).first else { return false }
+        return mediaType.trimmingCharacters(in: .whitespaces).lowercased() == "application/json"
+    }
+
+    /// 문자열의 SHA-256 digest.
+    private static func digest(_ text: String) -> Data {
+        Data(SHA256.hash(data: Data(text.utf8)))
+    }
+
+    /// 두 값을 내용과 무관하게 같은 시간에 비교한다(타이밍으로 토큰을 추측하지 못하게).
+    private static func constantTimeEqual(_ left: Data, _ right: Data) -> Bool {
+        guard left.count == right.count else { return false }
+        var difference: UInt8 = 0
+        for (a, b) in zip(left, right) { difference |= a ^ b }
+        return difference == 0
     }
 
     /// 명령을 inbox에 넣고 메인 스레드를 깨운다.
