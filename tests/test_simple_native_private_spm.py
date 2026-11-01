@@ -34,9 +34,14 @@ CONFIG = ProjectConfig(name="mixedshop", container="MixedShop.xcodeproj", genera
 
 
 def _git(*args: str, cwd: Path) -> None:
-    """테스트용 git 명령을 실행한다. 실패하면 CalledProcessError로 바로 드러낸다(저장소 준비 오류를 숨기지 않기 위해)."""
+    """테스트용 git 명령을 실행한다. 실패하면 CalledProcessError로 바로 드러낸다(저장소 준비 오류를 숨기지 않기 위해).
+
+    사용자·시스템 git 설정을 읽지 않는다(GIT_CONFIG_GLOBAL=/dev/null, GIT_CONFIG_NOSYSTEM=1). 왜: 개발자 Mac의 서명·hook·
+    URL 재작성 설정이 테스트 저장소 준비에 섞이지 않게 하려는 것이다.
+    """
+    environment = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
     subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false",
-                    *args], cwd=cwd, check=True, capture_output=True)
+                    *args], cwd=cwd, check=True, capture_output=True, env=environment)
 
 
 def _publish_private_badge(repositories_root: Path, scratch: Path) -> None:
@@ -96,7 +101,8 @@ class SimpleNativePrivateSpmTests(unittest.TestCase):
     def _resolve(self, config: ProjectConfig = CONFIG):
         """임시 HOME 러너로 resolve_packages를 호출한다. config로 시간 제한 등을 바꿀 수 있다."""
         return resolve_packages(self.app, config, cache_root=self.scratch / "cache", runner=HomeOverrideRunner(self.home),
-                                log_path=self.scratch / "resolve.log", warn=lambda _: None)
+                                log_path=self.scratch / "resolve.log", warn=lambda _: None,
+                                derived_data=self.scratch / "DerivedData")
 
     def test_private_package_resolves_with_existing_git_credentials(self) -> None:
         """기존 git 자격 증명(store helper)만으로 인증 필요한 패키지가 체크아웃된다."""

@@ -289,6 +289,16 @@ class SimpleCliTests(unittest.TestCase):
         self.assertIn("X,Y", err)
         self.assertEqual(runner.calls, [])
 
+    def test_inspect_reports_missing_env_reference_before_building(self):
+        """launch.environment의 env: 참조가 없으면 빌드·Simulator 부팅 전에 env_missing으로 멈추는지 본다."""
+        path = self.write_config()
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("REPROOF_APP_API_TOKEN", None)
+            code, _, err, runner, _ = self.run_cli(["inspect", "--config", str(path)], [])
+        self.assertEqual(code, 2)
+        self.assertIn("REPROOF_APP_API_TOKEN", err)
+        self.assertEqual(runner.calls, [])
+
     def test_build_without_config_explains_init(self):
         with mock.patch("pathlib.Path.cwd", return_value=self.tmp):
             code, _, err, _, _ = self.run_cli(["build"], [])

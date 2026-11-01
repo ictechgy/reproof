@@ -58,18 +58,23 @@ def _cache_dir_for(cache_root: Path, config: ProjectConfig, resolved: Path | Non
     return cache_root / "spm" / digest, digest
 
 
-def _resolve_argv(config: ProjectConfig, cache_dir: Path, is_pinned: bool) -> list[str]:
-    """xcodebuild -resolvePackageDependencies argv를 만든다. 시스템 git(scmProvider system)을 써 기존 인증을 따른다."""
+def _resolve_argv(config: ProjectConfig, cache_dir: Path, is_pinned: bool, derived_data: Path) -> list[str]:
+    """xcodebuild -resolvePackageDependencies argv를 만든다. 시스템 git(scmProvider system)을 써 기존 인증을 따른다.
+
+    -derivedDataPath: 주지 않으면 xcodebuild가 ~/Library/Developer/Xcode/DerivedData에 실행마다 `<이름>-<해시>` 로그
+    폴더를 남긴다. Xcode 27.0에서 -scheme과 함께 받아들이는 것을 MixedShop으로 확인했다.
+    """
     argv = ["xcodebuild", "-resolvePackageDependencies", f"-{config.container_kind}", config.container,
-            "-scheme", config.scheme, "-clonedSourcePackagesDirPath", str(cache_dir), "-scmProvider", "system"]
+            "-scheme", config.scheme, "-clonedSourcePackagesDirPath", str(cache_dir), "-scmProvider", "system",
+            "-derivedDataPath", str(derived_data)]
     if is_pinned:
         argv.append("-onlyUsePackageVersionsFromResolvedFile")
     return argv
 
 
 def resolve_packages(working_copy: Path, config: ProjectConfig, *, cache_root: Path, runner: ToolRunner,
-                     log_path: Path, warn: Callable[[str], None]) -> PackageResolution:
-    """패키지를 공유 캐시에 해석한다.
+                     log_path: Path, warn: Callable[[str], None], derived_data: Path) -> PackageResolution:
+    """패키지를 공유 캐시에 해석한다. derived_data: xcodebuild가 로그 등을 쓸 작업 공간 쪽 DerivedData 폴더.
 
     Package.resolved가 있으면 그 버전만 쓰고, 없으면 경고 후 고정 없이 해석한다(실행마다 버전이 달라질 수 있음).
     인증 실패는 package_auth_failed, 그 외 도구 실패는 package_resolution_failed로 바꿔 낸다.
@@ -80,7 +85,7 @@ def resolve_packages(working_copy: Path, config: ProjectConfig, *, cache_root: P
         warn("Package.resolved가 없어 패키지 버전을 고정하지 못합니다. 실행할 때마다 의존성 버전이 달라질 수 있으니 "
              "Package.resolved를 저장소에 커밋하는 것을 권장합니다.")
     cache_dir.mkdir(parents=True, exist_ok=True)
-    argv = _resolve_argv(config, cache_dir, resolved is not None)
+    argv = _resolve_argv(config, cache_dir, resolved is not None, derived_data)
     try:
         runner.run(argv, cwd=working_copy, timeout=config.build_timeout_seconds, log_path=log_path)
     except ToolFailure as failure:

@@ -29,7 +29,8 @@ class SimplePackagesTests(unittest.TestCase):
         runner = runner or FakeToolRunner([(("xcodebuild",), "")])
         warnings = warnings if warnings is not None else []
         resolution = resolve_packages(working_copy, config, cache_root=working_copy / "cache", runner=runner,
-                                      log_path=working_copy / "r.log", warn=warnings.append)
+                                      log_path=working_copy / "r.log", warn=warnings.append,
+                                      derived_data=working_copy / "DerivedData")
         return resolution, runner
 
     def test_resolve_uses_system_scm_cache_and_pinned_versions(self):
@@ -47,6 +48,8 @@ class SimplePackagesTests(unittest.TestCase):
             self.assertEqual(resolution.cache_dir, root / "cache" / "spm" / digest)
             self.assertTrue(resolution.cache_dir.is_dir())
             self.assertEqual(argv[argv.index("-clonedSourcePackagesDirPath") + 1], str(resolution.cache_dir))
+            # 전역 ~/Library/Developer/Xcode/DerivedData에 <이름>-<해시> 폴더를 남기지 않게 작업 공간 쪽 폴더를 준다.
+            self.assertEqual(argv[argv.index("-derivedDataPath") + 1], str(root / "DerivedData"))
 
     def test_resolve_without_resolved_file_warns_and_is_unpinned(self):
         with tempfile.TemporaryDirectory() as tmp:

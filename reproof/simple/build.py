@@ -80,7 +80,10 @@ _LOG_SCAN_BYTES = 64 * 1024
 
 
 def is_validation_failure(failure: ToolFailure) -> bool:
-    """빌드 실패 출력이 macro·plugin 신뢰 검증 때문인지 판별한다(출력 끝부분과 로그 끝 64KiB 검사)."""
+    """빌드 실패 출력이 macro·plugin 신뢰 검증 때문인지 판별한다(출력 끝부분과 로그 끝 64KiB 검사).
+
+    왜 정확한 문구만 보나: macro·plugin·trust·enable 낱말 조합 같은 넓은 규칙은 일반 빌드 오류를 검증 문제로 잘못 안내했다.
+    """
     text = failure.output_tail
     if failure.log_path is not None:
         try:
@@ -88,9 +91,7 @@ def is_validation_failure(failure: ToolFailure) -> bool:
         except OSError:
             pass  # 로그는 보조 정보다. 읽지 못해도 출력 끝부분으로 판별한다.
     lowered = text.lower()
-    if any(marker in lowered for marker in _VALIDATION_MARKERS):
-        return True
-    return ("macro" in lowered or "plugin" in lowered) and "trust" in lowered and "enable" in lowered
+    return any(marker in lowered for marker in _VALIDATION_MARKERS)
 
 
 def validation_required_error(failure: ToolFailure) -> SimpleError:

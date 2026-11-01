@@ -29,6 +29,10 @@ _NOT_STARTED_MESSAGE = "Command could not start"
 _OUTPUT_LIMIT_MESSAGE = "Command output limit exceeded"
 # 도구 출력 상한. xcodebuild 로그가 커질 수 있어 기본값보다 크게 둔다.
 _MAX_OUTPUT_BYTES = 64 * 1024 * 1024
+# 있으면 값을 읽지 않고 그대로 넘기는 사용자 환경 변수. 회사 프록시·사내 CA·git SSH 설정 뒤에서도 SPM·git이
+# 개발자 터미널과 같게 동작하게 하려는 것이다(run_command는 HOME·PATH 등 최소 환경만 물려준다).
+_PASSTHROUGH_ENVIRONMENT = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+                            "GIT_SSH_COMMAND", "SSL_CERT_FILE", "GIT_SSL_CAINFO")
 # xcode-select 조회 결과 캐시. 프로세스당 한 번만 조회한다.
 _developer_dir_cache: list[str | None] = []
 
@@ -67,14 +71,16 @@ def build_default_environment() -> dict[str, str]:
     """기본 추가 환경 변수를 만든다.
 
     DEVELOPER_DIR(있을 때), GIT_TERMINAL_PROMPT=0(인증 입력 대기로 멈추는 것 방지),
-    SSH_AUTH_SOCK(있을 때만; 비공개 SPM이 기존 git 인증을 쓰도록 값만 전달하고 읽지는 않는다).
+    SSH_AUTH_SOCK(있을 때만; 비공개 SPM이 기존 git 인증을 쓰도록 값만 전달하고 읽지는 않는다),
+    프록시·CA·GIT_SSH_COMMAND 변수(_PASSTHROUGH_ENVIRONMENT, 있을 때만; 값은 로그·오류에 쓰지 않는다).
     """
     environment = {"GIT_TERMINAL_PROMPT": "0"}
     developer_dir = lookup_developer_dir()
     if developer_dir:
         environment["DEVELOPER_DIR"] = developer_dir
-    if os.environ.get("SSH_AUTH_SOCK"):
-        environment["SSH_AUTH_SOCK"] = os.environ["SSH_AUTH_SOCK"]
+    for name in ("SSH_AUTH_SOCK", *_PASSTHROUGH_ENVIRONMENT):
+        if os.environ.get(name):
+            environment[name] = os.environ[name]
     return environment
 
 

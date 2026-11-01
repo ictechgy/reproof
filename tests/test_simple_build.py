@@ -8,7 +8,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from reproof.simple.build import BUILD_RECIPE_VERSION, PRODUCTS_SUBPATH, find_app_bundle, simulator_build_argv
+from reproof.simple.build import (BUILD_RECIPE_VERSION, PRODUCTS_SUBPATH, find_app_bundle, is_validation_failure,
+                                  simulator_build_argv)
 from reproof.simple.errors import SimpleError, ToolFailure
 from reproof.simple.pipeline import default_workspace_root, prepare_build
 from tests.simple_support import FakeToolRunner, sample_config
@@ -192,6 +193,17 @@ class SimpleBuildTests(unittest.TestCase):
             prepare_build(self.source, self.config, workspace_root=self.workspace,
                           runner=self._runner(raise_failure), progress=lambda _: None)
         self.assertEqual(raised.exception.code, "package_validation_required")
+
+    def test_only_specific_marker_counts_as_validation_failure(self):
+        """"must be enabled before it can be used" 문구만 검증 실패로 보고, macro·trust·enable 낱말 조합은 보지 않는지 본다.
+
+        왜: 넓은 낱말 조합은 일반 빌드 오류(예: trust store, enable 옵션 안내)를 검증 문제로 잘못 안내했다.
+        """
+        def failure(text):
+            return ToolFailure("xcodebuild", log_path=None, output_tail=text)
+        self.assertTrue(is_validation_failure(failure('error: Macro "M" must be enabled before it can be used')))
+        self.assertFalse(is_validation_failure(failure(
+            "warning: plugin output; enable trust for the keychain macro step failed")))
 
     def test_build_timeout_points_to_build_timeout_setting(self):
         """빌드가 시간 제한을 넘기면 reproof.toml의 [build] timeout_seconds를 늘리라고 안내하는지 본다."""

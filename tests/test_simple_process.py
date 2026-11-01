@@ -90,6 +90,25 @@ class SimpleProcessTests(unittest.TestCase):
             output = HostToolRunner().run(["/bin/sh", "-c", "echo $GIT_TERMINAL_PROMPT"], cwd=Path(tmp), timeout=10)
         self.assertEqual(output.strip(), "0")
 
+    def test_proxy_and_git_transport_variables_are_passed_through(self):
+        """회사 네트워크용 프록시·CA·git SSH 변수가 있으면 값을 바꾸지 않고 도구에 넘기고, 없으면 넣지 않는지 본다.
+
+        왜: run_command는 HOME·PATH 등 최소 환경만 물려줘, 프록시 뒤의 Mac에서 비공개 SPM·git이 실패했다.
+        """
+        names = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+                 "GIT_SSH_COMMAND", "SSL_CERT_FILE", "GIT_SSL_CAINFO")
+        values = {name: f"값-{index}" for index, name in enumerate(names)}
+        script = "; ".join(f'echo "{name}=${{{name}-unset}}"' for name in names)
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, values):
+                output = HostToolRunner().run(["/bin/sh", "-c", script], cwd=Path(tmp), timeout=10)
+            self.assertEqual(output.splitlines(), [f"{name}={values[name]}" for name in names])
+            with mock.patch.dict(os.environ, {}, clear=False):
+                for name in names:
+                    os.environ.pop(name, None)
+                output = HostToolRunner().run(["/bin/sh", "-c", script], cwd=Path(tmp), timeout=10)
+            self.assertEqual(output.splitlines(), [f"{name}=unset" for name in names])
+
     def test_caller_env_extra_overrides_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
             output = HostToolRunner().run(["/bin/sh", "-c", "echo $GIT_TERMINAL_PROMPT"], cwd=Path(tmp), timeout=10,

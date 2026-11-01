@@ -98,10 +98,11 @@ def _run_build_steps(partial: Path, working_copy: WorkingCopy, config: ProjectCo
         progress("프로젝트 생성 중")
         generate_project(working_copy.root, config, runner, log_path=logs / "generate.log")
     progress("패키지 받는 중")
+    derived_data = partial / "DerivedData"  # 패키지 해석과 빌드가 같은 폴더를 써 전역 DerivedData를 건드리지 않는다.
     packages = resolve_packages(working_copy.root, config, cache_root=cache_root, runner=runner,
-                                log_path=logs / "packages.log", warn=progress)
+                                log_path=logs / "packages.log", warn=progress, derived_data=derived_data)
     progress("앱 빌드 중")
-    return build_for_simulator(working_copy.root, config, derived_data=partial / "DerivedData", packages=packages,
+    return build_for_simulator(working_copy.root, config, derived_data=derived_data, packages=packages,
                                runner=runner, log_path=logs / "build.log")
 
 

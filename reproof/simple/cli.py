@@ -414,11 +414,11 @@ def prepare_simulator(config: ProjectConfig, prepared: PreparedBuild, runner: To
     return udid
 
 
-def launch_app(client: RunnerClient, config: ProjectConfig) -> None:
-    """로케일 설정과 설정의 launch 인자·환경으로 앱을 실행하고 화면이 자리 잡을 때까지 기다린다."""
+def launch_app(client: RunnerClient, config: ProjectConfig, launch_environment: dict[str, str]) -> None:
+    """로케일 설정과 설정의 launch 인자, 미리 풀어 둔 launch 환경(launch_environment)으로 앱을 실행하고 화면이 자리 잡을
+    때까지 기다린다."""
     locale_arguments, locale_environment = launch_locale_settings(config.simulator)
-    environment = {**locale_environment, **resolve_launch_environment(config, os.environ)}
-    client.launch([*locale_arguments, *config.launch_arguments], environment)
+    client.launch([*locale_arguments, *config.launch_arguments], {**locale_environment, **launch_environment})
     time.sleep(LAUNCH_SETTLE_SECONDS)
 
 
@@ -460,15 +460,17 @@ def run_inspect_command(arguments: argparse.Namespace) -> int:
     """
     point = parse_point(arguments.point)  # 빌드 전에 검사해 잘못된 입력으로 몇 분을 쓰지 않게 한다.
     config, root = _load_project(arguments)
+    launch_environment = resolve_launch_environment(config, os.environ)  # 빠진 env: 참조도 빌드·부팅 전에 알린다.
     workspace_root = _workspace_root(arguments)
     with project_lock(workspace_root, config.name):
-        hierarchy_root = _inspect_locked(arguments, config, root, workspace_root)
+        hierarchy_root = _inspect_locked(arguments, config, root, workspace_root, launch_environment)
     if point is not None:
         describe_point(hierarchy_root, point)
     return 0
 
 
-def _inspect_locked(arguments: argparse.Namespace, config: ProjectConfig, root: Path, workspace_root: Path) -> Element:
+def _inspect_locked(arguments: argparse.Namespace, config: ProjectConfig, root: Path, workspace_root: Path,
+                    launch_environment: dict[str, str]) -> Element:
     """프로젝트 잠금을 쥔 상태에서 빌드 → Simulator 준비 → 실행기 → 세션 → 앱 실행 → 계층 저장을 하고 계층 루트를 돌려준다."""
     runner = _new_runner()
     prepared = prepare_build(root, config, workspace_root=workspace_root, runner=runner)
@@ -477,7 +479,7 @@ def _inspect_locked(arguments: argparse.Namespace, config: ProjectConfig, root: 
     session = RunnerSession(products, udid=udid, target_bundle=config.bundle_id, port=free_loopback_port(),
                             log_path=prepared.directory / "logs" / "inspect-session.log")
     with session as client:
-        launch_app(client, config)
+        launch_app(client, config, launch_environment)
         return save_hierarchy(client, inspect_output_path(arguments, prepared))
 
 
