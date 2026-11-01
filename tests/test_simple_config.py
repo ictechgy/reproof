@@ -86,12 +86,25 @@ class SimpleConfigTests(unittest.TestCase):
     def test_env_reference_is_resolved_and_missing_reference_fails(self):
         """env: 참조를 풀고, 없으면 변수 이름을 알려 준다."""
         config = replace(sample_config(), launch_environment=(
-            ("API_TOKEN", "env:REPROOF_API_TOKEN"), ("MODE", "qa")))
-        self.assertEqual(resolve_launch_environment(config, {"REPROOF_API_TOKEN": "t"}),
+            ("API_TOKEN", "env:REPROOF_APP_API_TOKEN"), ("MODE", "qa")))
+        self.assertEqual(resolve_launch_environment(config, {"REPROOF_APP_API_TOKEN": "t"}),
                          {"API_TOKEN": "t", "MODE": "qa"})
         with self.assertRaises(SimpleError) as caught:
             resolve_launch_environment(config, {})
-        self.assertIn("REPROOF_API_TOKEN", caught.exception.user_message())
+        self.assertIn("REPROOF_APP_API_TOKEN", caught.exception.user_message())
+
+    def test_env_reference_must_use_app_prefix(self):
+        """호스트 비밀이 앱으로 새지 않도록 env: 참조는 REPROOF_APP_ 변수만 허용한다(읽을 때와 풀 때 모두)."""
+        bad = replace(sample_config(), launch_environment=(("KEY", "env:AWS_SECRET_ACCESS_KEY"),))
+        self.path.write_text(render_config(bad), encoding="utf-8")
+        with self.assertRaises(SimpleError) as caught:
+            load_config(self.path)
+        self.assertEqual(caught.exception.code, "config_invalid")
+        self.assertIn("KEY", caught.exception.user_message())
+        self.assertIn("REPROOF_APP_", caught.exception.user_message())
+        with self.assertRaises(SimpleError) as resolved:
+            resolve_launch_environment(bad, {"AWS_SECRET_ACCESS_KEY": "secret"})
+        self.assertIn("REPROOF_APP_", resolved.exception.user_message())
 
     def test_digest_changes_when_scheme_changes(self):
         """scheme이 바뀌면 digest가 바뀌고 64자리 hex다."""

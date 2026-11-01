@@ -75,22 +75,50 @@ def _new_runner() -> ToolRunner:
 # ---------- 공통: 설정 찾기 ----------
 
 def find_config(start: Path) -> Path | None:
-    """start부터 상위로 올라가며 처음 만나는 reproof.toml을 찾는다. 없으면 None."""
+    """start부터 상위로 올라가며 처음 만나는 reproof.toml을 찾는다. 없으면 None.
+
+    왜 멈추나: 저장소 밖(상위 폴더)의 낯선 설정을 자동으로 집어 쓰지 않도록, `.git`이 있는 폴더(포함)나
+    홈 디렉터리(포함)에서 탐색을 끝낸다.
+    """
+    home = Path.home().absolute()
     for folder in (start, *start.parents):
         candidate = folder / CONFIG_FILE_NAME
         if candidate.is_file():
             return candidate
+        if (folder / ".git").exists() or folder == home:
+            return None
     return None
+
+
+def _current_uid() -> int:
+    """현재 사용자의 uid. 테스트에서 다른 소유자 상황을 흉내 내려고 함수로 분리했다."""
+    return os.getuid()
+
+
+def _require_trusted(path: Path) -> None:
+    """설정 파일이 현재 사용자 소유가 아니면 config_untrusted로 거절한다. 파일이 없으면 load_config가 안내한다.
+
+    왜: 설정에는 실행할 생성기·환경 변수가 담겨, 다른 사용자가 놓아 둔 파일을 그대로 따르면 위험하다.
+    """
+    try:
+        owner = path.stat().st_uid
+    except OSError:
+        return  # 없거나 읽을 수 없는 파일은 이어서 load_config가 원인과 함께 오류를 낸다.
+    if owner != _current_uid():
+        raise SimpleError("config_untrusted", f"{path}의 소유자가 현재 사용자가 아닙니다.",
+                          "내용을 확인한 뒤 `chown`으로 소유자를 바꾸거나, 본인 계정으로 `reproof app init --force`를 실행하세요.")
 
 
 def _config_path(arguments: argparse.Namespace, *, is_required: bool) -> Path | None:
     """--config 값 또는 자동 탐색 결과를 돌려준다. 필수인데 없으면 init 안내와 함께 오류를 낸다."""
-    if arguments.config:
-        return Path(arguments.config).expanduser().absolute()
-    found = find_config(Path.cwd().absolute())
+    found = Path(arguments.config).expanduser().absolute() if arguments.config else find_config(Path.cwd().absolute())
     if found is None and is_required:
-        raise SimpleError("config_missing", "현재 폴더와 상위 폴더에서 reproof.toml을 찾지 못했습니다.",
+        raise SimpleError("config_missing", "현재 폴더에서 저장소 루트(.git)나 홈 폴더까지 reproof.toml을 찾지 못했습니다.",
                           "앱 저장소 폴더에서 `reproof app init`을 먼저 실행하거나 --config로 경로를 지정하세요.")
+    if found is not None:
+        _require_trusted(found)
+        if found.exists():
+            print(f"설정 파일: {found}")
     return found
 
 
@@ -125,7 +153,7 @@ def run_doctor_command(arguments: argparse.Namespace) -> int:
     path = _config_path(arguments, is_required=False)
     config = load_config(path) if path else None
     checks = run_doctor(config, runner=_new_runner(), workspace_root=_workspace_root(arguments))
-    return 0 if print_checks(checks) else 1
+    return 0 if print_checks(checks) else 2
 
 
 # ---------- init ----------
@@ -207,6 +235,7 @@ def _application_schemes(search_root: Path, container: str, schemes: Sequence[st
         try:
             found[scheme] = read_app_settings(search_root, container, scheme, runner)
         except SimpleError as error:
+            print(f"건너뜀: {scheme} ({error.cause})")
             failures.append(error)
     if not found:
         reportable = [error for error in failures if error.code != "app_target_missing"]
@@ -239,10 +268,11 @@ def _config_from_project(root: Path, search_root: Path, scan: ContainerScan, gen
 
 
 @contextlib.contextmanager
-def _generated_copy(root: Path, scan: ContainerScan, workspace_root: Path, runner: ToolRunner) -> Iterator[Path]:
-    """원본을 임시 사본으로 복사해 프로젝트를 생성하고 사본 경로를 준다. 끝나면 사본을 지운다.
+def _discovery_copy(root: Path, scan: ContainerScan, workspace_root: Path, runner: ToolRunner) -> Iterator[Path]:
+    """원본을 임시 사본으로 복사하고(생성기가 있으면 생성까지 해서) 사본 경로를 준다. 끝나면 사본을 지운다.
 
-    왜 사본에서: 생성기가 원본 저장소에 .xcodeproj를 쓰지 않게 하려는 것이다. 생성 로그는 사본 밖(작업 공간 logs)에
+    왜 항상 사본에서: xcodebuild -list 등이 Package.resolved·.build를 쓸 수 있고 생성기는 .xcodeproj를 쓰므로,
+    init이 원본 저장소에 남기는 파일을 reproof.toml 하나로 제한하려는 것이다. 생성 로그는 사본 밖(작업 공간 logs)에
     둬서 실패했을 때도 안내된 경로에서 읽을 수 있다.
     """
     tmp_root = workspace_root / "tmp"
@@ -252,8 +282,8 @@ def _generated_copy(root: Path, scan: ContainerScan, workspace_root: Path, runne
     try:
         copy = materialize_working_copy(root, directory / "source")
         provisional = ProjectConfig(
-            name=slugify_name(root.name), container="", generator=scan.generator, generator_spec=scan.generator_spec,
-            scheme="", app_target="", bundle_id="", test_scheme=None,
+            name=slugify_name(root.name), container="", generator=scan.generator or "none",
+            generator_spec=scan.generator_spec, scheme="", app_target="", bundle_id="", test_scheme=None,
             simulator=SimulatorSettings(DEFAULT_DEVICE_TYPE, "latest"))
         generate_project(copy.root, provisional, runner, log_path=workspace_root / "logs" / "init-generate.log")
         yield copy.root
@@ -262,22 +292,39 @@ def _generated_copy(root: Path, scan: ContainerScan, workspace_root: Path, runne
 
 
 def discover_config(root: Path, runner: ToolRunner, workspace_root: Path, prompter: Prompter) -> ProjectConfig:
-    """프로젝트를 탐색해 ProjectConfig를 만든다. 생성기가 있으면 임시 사본에서 생성한 결과를 기준으로 한다."""
+    """프로젝트를 탐색해 ProjectConfig를 만든다. 탐색은 항상 임시 사본에서 하고 원본은 읽기만 한다."""
     scan = scan_containers(root)
     generator = (scan.generator, scan.generator_spec)
-    if not scan.generator:
-        return _config_from_project(root, root, scan, generator, runner, prompter)
-    with _generated_copy(root, scan, workspace_root, runner) as copy_root:
+    with _discovery_copy(root, scan, workspace_root, runner) as copy_root:
         return _config_from_project(root, copy_root, scan_containers(copy_root), generator, runner, prompter)
 
 
+def _refuse_symlink(target: Path) -> None:
+    """reproof.toml이 심볼릭 링크면 config_symlink로 거절한다(깨진 링크 포함).
+
+    왜: 링크를 따라 쓰면 링크가 가리키는 다른 파일(예: 홈의 설정)을 덮어쓰게 된다.
+    """
+    if target.is_symlink():
+        raise SimpleError("config_symlink", f"{target}은(는) 심볼릭 링크라 쓸 수 없습니다.",
+                          "링크를 지우거나 실제 파일로 바꾼 뒤 다시 실행하세요.")
+
+
 def _write_config(target: Path, config: ProjectConfig) -> None:
-    """설정을 쓰고 다시 읽어 검증한다. 검증에 실패하면 깨진 파일을 남기지 않고 오류를 그대로 전달한다."""
-    target.write_text(render_config(config), encoding="utf-8")
+    """설정을 같은 폴더의 임시 파일에 쓰고 검증한 뒤 os.replace로 바꿔 넣는다.
+
+    왜 임시 파일: 링크를 따라가 쓰지 않고, 검증에 실패하거나 중간에 끊겨도 기존 파일이 깨지지 않게 하려는 것이다.
+    """
+    _refuse_symlink(target)
+    handle, temp_name = tempfile.mkstemp(dir=target.parent, prefix=".reproof-", suffix=".tmp")
+    temp_path = Path(temp_name)
     try:
-        load_config(target)
-    except SimpleError:
-        target.unlink()
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(render_config(config))
+        load_config(temp_path)
+        os.chmod(temp_path, 0o644)  # mkstemp의 0600 대신 일반 소스 파일 권한으로 둬 팀이 함께 읽게 한다.
+        os.replace(temp_path, target)
+    except BaseException:
+        temp_path.unlink(missing_ok=True)
         raise
 
 
@@ -287,6 +334,7 @@ def run_init_command(arguments: argparse.Namespace) -> int:
     target = root / CONFIG_FILE_NAME
     if not root.is_dir():
         raise SimpleError("path_invalid", f"앱 폴더를 찾을 수 없습니다: {root}", "--path에 앱 저장소 폴더를 지정하세요.")
+    _refuse_symlink(target)
     if target.exists() and not arguments.force:
         raise SimpleError("config_exists", f"{target}이(가) 이미 있습니다.",
                           "그대로 쓰려면 `reproof app build`를, 새로 만들려면 --force를 붙여 다시 실행하세요.")
@@ -422,7 +470,7 @@ _COMMANDS = {"init": run_init_command, "doctor": run_doctor_command, "build": ru
 def main(argv: Sequence[str]) -> int:
     """간편 모드 CLI를 실행한다.
 
-    반환: 0 성공, 1 doctor 점검 실패, 2 SimpleError, 130 KeyboardInterrupt. 오류 안내문은 stderr로 낸다.
+    반환: 0 성공, 2 SimpleError 또는 doctor 점검 실패, 130 KeyboardInterrupt. 오류 안내문은 stderr로 낸다.
     --help는 argparse가 SystemExit(0)로 처리한다.
     """
     arguments = build_parser().parse_args(list(argv))

@@ -48,5 +48,5 @@ def sample_config():
         test_scheme="MixedShopTests",
         simulator=SimulatorSettings(device_type="iPhone 16", runtime="latest"),
         launch_arguments=("-AppleLanguages", "(ko)"),
-        launch_environment=(("API_TOKEN", "env:REPROOF_API_TOKEN"),),
+        launch_environment=(("API_TOKEN", "env:REPROOF_APP_API_TOKEN"),),
     )

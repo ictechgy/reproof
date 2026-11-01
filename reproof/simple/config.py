@@ -28,6 +28,10 @@ fullmatch로만 쓴다: `$`는 끝의 개행을 허용해 "abc\\n"이 통과하�
 ENV_PREFIX = "env:"
 """launch.environment 값이 이 접두사로 시작하면 실행 시점 환경 변수에서 읽는다(비밀 값을 파일에 두지 않으려는 것)."""
 
+ENV_NAME_PREFIX = "REPROOF_APP_"
+"""env: 참조가 가리킬 수 있는 환경 변수 이름 접두사. AI가 만든 후보 코드가 앱 안에서 실행되므로,
+호스트의 비밀(AWS 키 등)은 이 접두사로 이름을 붙여 명시적으로 내보낸 것만 앱에 전달한다."""
+
 ALLOWED_KEYS: dict[str, set[str]] = {
     "": {"schema", "name", "project", "simulator", "launch", "build", "ai"},
     "project": {"container", "generator", "generator_spec", "scheme", "app_target", "bundle_id", "test_scheme"},
@@ -128,6 +132,19 @@ def _environment(table: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
     return tuple(raw.items())
 
 
+def _env_reference_name(key: str, value: str) -> str | None:
+    """값이 env: 참조면 변수 이름을 돌려준다(아니면 None). 접두사 규칙을 어기면 config_invalid를 낸다."""
+    if not value.startswith(ENV_PREFIX):
+        return None
+    name = value[len(ENV_PREFIX):]
+    if not name.startswith(ENV_NAME_PREFIX):
+        raise _invalid(
+            f"launch.environment의 {key}가 참조하는 환경 변수 '{name}'은(는) 허용되지 않습니다. "
+            f"env: 참조는 {ENV_NAME_PREFIX}로 시작하는 변수만 쓸 수 있습니다.",
+            f"앱에 전달할 값은 `export {ENV_NAME_PREFIX}이름=값`으로 따로 만들고 env:{ENV_NAME_PREFIX}이름 으로 참조하세요.")
+    return name
+
+
 def _validate_project(config: ProjectConfig) -> None:
     """이름 규칙, 생성기 값, 생성기-스펙 조합 등 값 자체의 규칙을 검사한다."""
     if not NAME_PATTERN.fullmatch(config.name):
@@ -141,6 +158,8 @@ def _validate_project(config: ProjectConfig) -> None:
                        "generator_spec 줄을 지우거나 generator를 xcodegen/tuist로 바꾸세요.")
     if config.build_timeout_seconds <= 0:
         raise _invalid("build.timeout_seconds는 1 이상이어야 합니다.")
+    for key, value in config.launch_environment:
+        _env_reference_name(key, value)
 
 
 def _build_config(root: Mapping[str, Any]) -> ProjectConfig:
@@ -254,10 +273,10 @@ def resolve_launch_environment(config: ProjectConfig, environ: Mapping[str, str]
     """
     resolved: dict[str, str] = {}
     for key, value in config.launch_environment:
-        if not value.startswith(ENV_PREFIX):
+        name = _env_reference_name(key, value)
+        if name is None:
             resolved[key] = value
             continue
-        name = value[len(ENV_PREFIX):]
         if name not in environ:
             raise SimpleError("env_missing", f"launch.environment의 {key}가 환경 변수 {name}을(를) 참조하지만 설정돼 있지 않습니다.",
                               f"실행 전에 export {name}=값 으로 설정하세요.")

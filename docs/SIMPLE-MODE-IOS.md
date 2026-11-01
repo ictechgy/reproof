@@ -46,16 +46,19 @@ reproof app init
 저장했습니다: /Users/me/Desktop/회사 앱/reproof.toml
   프로젝트: MixedShop.xcodeproj  scheme: MixedShop  테스트 scheme: MixedShopTests
   앱 번들 ID: io.reproof.example.mixedshop  Simulator: iPhone 16 (latest)
-질문 0개
+질문 1개
 환경 점검:
 ✓ xcode: Xcode 16.2
 ...
 다음 단계: reproof app build
 ```
 
+질문은 테스트 scheme 추정값을 Enter로 수락하는 것까지 센다(`MixedShop` 예제는 1개). `--non-interactive`로 실행하면 0개다.
+
 옵션: `--path DIR`(다른 폴더), `--non-interactive`(질문 없이; 모호하면 후보를 보여 주고 멈춤),
 `--force`(기존 `reproof.toml` 덮어쓰기). XcodeGen·Tuist 프로젝트는 임시 사본에서 생성해 확인하고
-바로 지우므로 저장소에 `.xcodeproj`가 생기지 않는다.
+바로 지운다. 일반 프로젝트도 임시 사본에서 scheme을 조회하므로, `init`이 저장소에 남기는 파일은 `reproof.toml` 하나뿐이다.
+`reproof.toml`이 심볼릭 링크이면(`config_symlink`) 쓰지 않는다.
 
 ### 2. `reproof app doctor`
 
@@ -73,7 +76,7 @@ reproof app doctor [--config FILE]
 ```
 
 점검 항목: `xcode`, `ios_runtime`, `git`, `generator`(생성기를 쓸 때만), `disk`(30 GB),
-`claude`. 종료 코드는 모두 통과하면 0, 아니면 1이다. `claude`는 안내용이라 결과에 영향을 주지 않는다.
+`claude`. 종료 코드는 모두 통과하면 0, 하나라도 실패하면 2다. `claude`는 안내용이라 결과에 영향을 주지 않는다.
 
 ### 3. `reproof app build`
 
@@ -108,6 +111,11 @@ reproof app inspect [--point X,Y] [--output FILE]
 참고: `reproof-<이름>` Simulator는 `inspect` 후에도 켜 둔다(다음 실행이 빨라진다). 끄려면
 `xcrun simctl shutdown <udid>`. 사용자가 만든 다른 Simulator는 건드리지 않는다.
 
+## 설정 파일을 찾는 규칙
+
+`--config`를 주지 않으면 현재 폴더에서 위로 올라가며 `reproof.toml`을 찾되, `.git`이 있는 폴더나 홈 폴더에서 멈춘다.
+찾은 파일은 항상 `설정 파일: <경로>`로 출력한다. 현재 사용자 소유가 아닌 파일은 `config_untrusted`로 거절한다.
+
 ## `reproof.toml` 키
 
 | 위치 | 키 | 설명 |
@@ -127,15 +135,16 @@ reproof app inspect [--point X,Y] [--output FILE]
 
 ### 비밀 값은 `env:`로
 
-토큰 같은 값은 파일에 쓰지 말고 환경 변수를 참조한다.
+토큰 같은 값은 파일에 쓰지 말고 환경 변수를 참조한다. 참조할 수 있는 변수는 이름이 `REPROOF_APP_`으로 시작하는 것뿐이다
+(AI가 만든 후보 코드가 앱 안에서 돌기 때문에, 호스트의 `AWS_*` 같은 비밀이 이름 지정 없이 앱에 넘어가지 않게 하려는 규칙).
 
 ```toml
 [launch.environment]
-API_TOKEN = "env:REPROOF_API_TOKEN"
+API_TOKEN = "env:REPROOF_APP_API_TOKEN"
 ```
 
 ```sh
-export REPROOF_API_TOKEN=...   # 실행하는 셸에서만 설정
+export REPROOF_APP_API_TOKEN=...   # 실행하는 셸에서만 설정
 reproof app inspect
 ```
 

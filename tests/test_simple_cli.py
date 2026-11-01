@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-from reproof.simple.cli import main
+from reproof.simple.cli import find_config, main
 from reproof.simple.errors import ToolFailure
 from reproof.simple.config import CONFIG_FILE_NAME, load_config, render_config
 from tests.simple_support import FakeToolRunner, sample_config
@@ -142,9 +142,10 @@ class SimpleCliTests(unittest.TestCase):
                       ToolFailure("xcodebuild", log_path=None, output_tail=""))]
         responses += scheme_responses(["MixedShop"], []) + doctor_responses(READY_RUNTIME)
         responses[1] = (responses[1][0], json.dumps({"project": {"schemes": ["Broken", "MixedShop"]}}))
-        code, *_ = self.run_cli(self.init_args("--non-interactive"), responses)
+        code, out, *_ = self.run_cli(self.init_args("--non-interactive"), responses)
         self.assertEqual(code, 0)
         self.assertEqual(load_config(self.app / CONFIG_FILE_NAME).scheme, "MixedShop")
+        self.assertIn("건너뜀: Broken (xcodebuild 실행이 실패했습니다.)", out)
 
     def test_init_reports_read_failure_when_no_scheme_is_usable(self):
         responses = [(["xcodebuild", "-list", "-json"], json.dumps({"project": {"schemes": ["Broken"]}})),
@@ -152,6 +153,68 @@ class SimpleCliTests(unittest.TestCase):
         code, _, err, _, _ = self.run_cli(self.init_args("--non-interactive"), responses)
         self.assertEqual(code, 2)
         self.assertIn("xcodebuild 실행이 실패", err)
+
+    def tree_files(self):
+        """앱 폴더 아래 모든 파일·폴더의 상대 경로와 파일 내용을 모은다(원본이 바뀌었는지 비교용)."""
+        return {path.relative_to(self.app).as_posix(): path.read_bytes() if path.is_file() else None
+                for path in self.app.rglob("*")}
+
+    def test_init_never_runs_xcodebuild_in_the_repository(self):
+        before = self.tree_files()
+        responses = scheme_responses(["MixedShop"], ["MixedShopTests"]) + doctor_responses(READY_RUNTIME)
+        code, _, _, runner, _ = self.run_cli(self.init_args("--non-interactive"), responses)
+        self.assertEqual(code, 0)
+        xcodebuild_dirs = [call["cwd"] for call in runner.calls if call["argv"][0] == "xcodebuild" and "-list" in call["argv"]]
+        self.assertTrue(xcodebuild_dirs)
+        self.assertTrue(all(self.app not in (cwd, *cwd.parents) for cwd in xcodebuild_dirs))
+        after = self.tree_files()
+        self.assertIn(CONFIG_FILE_NAME, after)
+        del after[CONFIG_FILE_NAME]
+        self.assertEqual(after, before)
+        self.assertEqual(list((self.tmp / "home" / "tmp").iterdir()), [])
+
+    def test_init_refuses_symlinked_config_and_keeps_target(self):
+        victim = self.tmp / "victim.txt"
+        victim.write_text("건드리면 안 됨", encoding="utf-8")
+        (self.app / CONFIG_FILE_NAME).symlink_to(victim)
+        for extra in ((), ("--force",)):
+            code, _, err, _, _ = self.run_cli(self.init_args("--non-interactive", *extra), [])
+            self.assertEqual(code, 2)
+            self.assertIn("심볼릭 링크", err)
+            self.assertEqual(victim.read_text(encoding="utf-8"), "건드리면 안 됨")
+
+    def test_init_write_replaces_atomically_without_leftover_temp_files(self):
+        responses = scheme_responses(["MixedShop"]) + doctor_responses(READY_RUNTIME)
+        self.run_cli(self.init_args("--non-interactive"), responses)
+        self.assertEqual(sorted(path.name for path in self.app.iterdir()), ["MixedShop.xcodeproj", CONFIG_FILE_NAME])
+
+    def test_config_discovery_stops_at_git_root_and_home(self):
+        outer = self.tmp / "outer"
+        repo = outer / "repo"
+        (repo / ".git").mkdir(parents=True)
+        (repo / "sub").mkdir()
+        (outer / CONFIG_FILE_NAME).write_text("x", encoding="utf-8")
+        self.assertIsNone(find_config(repo / "sub"))
+        (repo / CONFIG_FILE_NAME).write_text("x", encoding="utf-8")
+        self.assertEqual(find_config(repo / "sub"), repo / CONFIG_FILE_NAME)
+        home = self.tmp / "home-user"
+        (home / "work").mkdir(parents=True)
+        (self.tmp / CONFIG_FILE_NAME).write_text("x", encoding="utf-8")
+        with mock.patch("pathlib.Path.home", return_value=home):
+            self.assertIsNone(find_config(home / "work"))
+
+    def test_config_owned_by_another_user_is_refused(self):
+        path = self.write_config()
+        with mock.patch("reproof.simple.cli._current_uid", return_value=os.stat(path).st_uid + 1):
+            code, _, err, runner, _ = self.run_cli(["doctor", "--config", str(path)], [])
+        self.assertEqual(code, 2)
+        self.assertIn("소유자", err)
+        self.assertEqual(runner.calls, [])
+
+    def test_commands_print_which_config_file_is_used(self):
+        path = self.write_config()
+        _, out, *_ = self.run_cli(["doctor", "--config", str(path)], doctor_responses(READY_RUNTIME))
+        self.assertIn(f"설정 파일: {path}", out)
 
     def write_config(self, **changes):
         """생성기 없는 sample_config를 임시 폴더에 쓰고 경로를 돌려준다."""
@@ -163,7 +226,7 @@ class SimpleCliTests(unittest.TestCase):
     def test_doctor_reports_missing_runtime_with_download_command(self):
         path = self.write_config()
         code, out, _, _, _ = self.run_cli(["doctor", "--config", str(path)], doctor_responses([]))
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 2)
         self.assertIn("xcodebuild -downloadPlatform iOS", out)
         self.assertIn("✗ ios_runtime", out)
         self.assertIn("✓ xcode", out)
@@ -172,7 +235,7 @@ class SimpleCliTests(unittest.TestCase):
         path = self.write_config()
         with mock.patch("shutil.disk_usage", return_value=DiskUsage(10**12, 10**12 - 10**10, 10**10)):
             code, out, _, _, _ = self.run_cli(["doctor", "--config", str(path)], doctor_responses(READY_RUNTIME))
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 2)
         self.assertIn("✗ disk", out)
 
     def test_doctor_passes_and_claude_is_informational(self):
@@ -181,7 +244,7 @@ class SimpleCliTests(unittest.TestCase):
                 mock.patch("shutil.which", return_value=None):
             code, out, _, _, _ = self.run_cli(["doctor", "--config", str(path)], doctor_responses(READY_RUNTIME))
         self.assertIn("ⓘ claude", out)
-        self.assertEqual(code, 1)  # git이 없어서 실패하므로 claude와 무관하게 1
+        self.assertEqual(code, 2)  # git이 없어서 실패하므로 claude와 무관하게 2
         with mock.patch("shutil.disk_usage", return_value=DiskUsage(10**12, 0, 10**12)), \
                 mock.patch("shutil.which", side_effect=lambda name: None if name == "claude" else "/usr/bin/git"):
             code, out, _, _, _ = self.run_cli(["doctor", "--config", str(path)], doctor_responses(READY_RUNTIME))
