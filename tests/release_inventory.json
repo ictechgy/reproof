@@ -1703,6 +1703,23 @@
           "gate": "software"
         },
         {
+          "id": "simple-packages",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "tests.test_simple_packages"
+          ],
+          "environment": "local-python-synthetic-no-native-execution",
+          "effects": [
+            "filesystem",
+            "process"
+          ],
+          "timeoutSeconds": 120,
+          "evidence": "unittest-summary",
+          "gate": "software"
+        },
+        {
           "id": "simple-workcopy",
           "command": [
             "python3",
