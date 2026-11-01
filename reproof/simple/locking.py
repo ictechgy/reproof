@@ -1,7 +1,8 @@
 """같은 작업 공간 자원을 두 실행이 동시에 쓰지 못하게 하는 파일 잠금(fcntl.flock, 기다리지 않음).
 
-지키는 것: 프로젝트 잠금(`projects/<이름>/.lock`)은 그 프로젝트의 staging·partial 빌드 폴더와 `reproof-<이름>`
-Simulator를, 실행기 잠금(`runner/.lock`)은 공유하는 runner-src·runner-dd를 지킨다.
+지키는 것: 프로젝트 잠금(`projects/<이름>/.lock`)은 그 프로젝트의 staging·partial 빌드 폴더를, 실행기 잠금
+(`runner/.lock`)은 공유하는 runner-src·runner-dd를 지킨다. Simulator 잠금(`<임시 폴더>/reproof-<uid>/sim-<기기>.lock`)은
+작업 공간과 무관하게 사용자 전체에서 `reproof-*` 기기 하나의 초기화·설치·세션을 지킨다.
 왜 flock인가: 프로세스가 끝나면(강제 종료 포함) 커널이 잠금을 풀어, 남은 잠금 파일 때문에 영영 막히는 일이 없다.
 왜 기다리지 않나: 다른 실행이 몇 분 걸리는 빌드 중일 수 있어, 멈춘 듯 보이게 하지 않고 바로 이유를 알린다.
 """
@@ -10,6 +11,8 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import os
+import stat
+import tempfile
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -80,3 +83,33 @@ def runner_lock(output_root: Path) -> contextlib.AbstractContextManager[None]:
         "runner_busy", f"다른 터미널에서 실행기(SimpleRunner)를 준비하는 중입니다(잠금 파일: {path}).",
         "그 터미널의 `reproof app inspect`가 실행기 준비를 마친 뒤 다시 실행하세요. 잠금은 그 실행이 끝나면 자동으로 "
         "풀립니다."))
+
+
+def _private_lock_directory() -> Path:
+    """사용자별 전역 잠금 폴더 `<임시 폴더>/reproof-<uid>`를 0700으로 만들거나 확인해 돌려준다.
+
+    왜 확인하나: 임시 폴더가 여러 사용자가 함께 쓰는 /tmp일 수 있어, 다른 사용자가 미리 만든 폴더나 링크에 잠금 파일을
+    두면 잠금이 엇갈리거나 남의 폴더에 파일을 만들게 된다. 링크이거나 폴더가 아니거나 내 것이 아니면 lock_directory_untrusted.
+    """
+    directory = Path(tempfile.gettempdir()) / f"reproof-{os.getuid()}"
+    with contextlib.suppress(FileExistsError):  # 이미 있으면 아래에서 종류·소유자를 확인한다.
+        directory.mkdir(mode=0o700)
+    info = os.lstat(directory)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise SimpleError("lock_directory_untrusted", f"잠금 폴더 {directory}가 링크이거나 다른 사용자의 것입니다.",
+                          "그 경로를 확인해 직접 지우거나 TMPDIR을 본인만 쓰는 폴더로 바꾼 뒤 다시 실행하세요.")
+    os.chmod(directory, 0o700)
+    return directory
+
+
+def simulator_lock(device_name: str) -> contextlib.AbstractContextManager[None]:
+    """`reproof-*` 기기 하나의 사용자 전역 잠금. 기기 준비(생성·초기화·설치)부터 세션 끝까지 쥔다. 잠겨 있으면 simulator_busy.
+
+    왜 작업 공간 밖인가: 작업 공간(--workspace·REPROOF_HOME)이 다른 두 실행은 프로젝트 잠금이 서로 달라, 같은 기기를
+    동시에 초기화해 진행 중인 세션을 깨뜨릴 수 있기 때문이다.
+    """
+    path = _private_lock_directory() / f"sim-{device_name}.lock"
+    return exclusive_lock(path, lambda: SimpleError(
+        "simulator_busy", f"다른 터미널에서 Simulator {device_name}를 쓰는 중입니다(잠금 파일: {path}).",
+        "그 터미널의 `reproof app inspect`가 끝난 뒤 다시 실행하세요. 잠금은 그 실행이 끝나면(강제 종료 포함) 자동으로 "
+        "풀리므로 잠금 파일을 지울 필요는 없습니다."))

@@ -1,6 +1,6 @@
 """범용 실행기를 실제 Xcode·Simulator로 검증하는 native 테스트(Xcode 없으면 skip하지 않고 실패한다).
 
-reproof 전용 Simulator `reproof-mixedshop`만 만들거나 초기화하고, 끝나면 끈다(기기 자체는 남긴다).
+reproof 전용 Simulator `reproof-mixedshop-<MixedShop 경로 해시>`만 만들거나 초기화하고, 끝나면 끈다(기기 자체는 남긴다).
 사용자 DerivedData(~/Library/Developer/Xcode/DerivedData)는 읽기만 하고 아무것도 지우지 않는다.
 """
 from __future__ import annotations
@@ -22,7 +22,8 @@ from reproof.simple.locator import capture_evidence, resolve
 from reproof.simple.pipeline import prepare_build
 from reproof.simple.process import HostToolRunner
 from reproof.simple.runner_client import RunnerSession, build_runner, free_loopback_port
-from reproof.simple.simulator import OWNED_PREFIX, SimulatorManager, launch_locale_settings
+from reproof.simple.locking import simulator_lock
+from reproof.simple.simulator import SimulatorManager, launch_locale_settings, owned_device_name
 
 MIXEDSHOP = Path(__file__).resolve().parents[1] / "examples" / "simple-ios" / "MixedShop"
 BUNDLE = "io.reproof.example.mixedshop"
@@ -112,12 +113,16 @@ class SimpleNativeRunnerTests(unittest.TestCase):
         self.products = build_runner(self.workspace / "runner", self.runner)
         prepared = prepare_build(MIXEDSHOP, self.config, workspace_root=self.workspace, runner=self.runner,
                                  progress=lambda _: None)
+        self.device_name = owned_device_name(self.config.name, MIXEDSHOP)
+        lock = simulator_lock(self.device_name)  # inspect처럼 기기 준비부터 테스트 끝까지 같은 기기 잠금을 쥔다.
+        lock.__enter__()
+        self.addCleanup(lock.__exit__, None, None, None)
         self.udid = self._prepare_simulator(prepared.products.app_path)
 
     def _prepare_simulator(self, app_path: Path) -> str:
-        """reproof-mixedshop을 만들거나 재사용해 초기화·표시 고정·앱 설치를 하고 udid를 돌려준다."""
+        """reproof-mixedshop-<해시>를 만들거나 재사용해 초기화·표시 고정·앱 설치를 하고 udid를 돌려준다."""
         simulators = SimulatorManager(self.runner)
-        udid = simulators.ensure_device(self.config.name, self.config.simulator)
+        udid = simulators.ensure_device(self.device_name, self.config.simulator)
         self.addCleanup(self._shutdown, udid)
         simulators.reset(udid)
         simulators.apply_presentation(udid)
@@ -127,7 +132,7 @@ class SimpleNativeRunnerTests(unittest.TestCase):
     def _shutdown(self, udid: str) -> None:
         """테스트가 켠 전용 기기를 끈다. 이름 접두사를 다시 확인해 다른 기기는 절대 건드리지 않는다."""
         names = self.runner.run(["xcrun", "simctl", "list", "devices", udid], cwd=Path.cwd(), timeout=60)
-        self.assertIn(f"{OWNED_PREFIX}{self.config.name} ({udid})", names)
+        self.assertIn(f"{self.device_name} ({udid})", names)
         if "(Booted)" in names:
             self.runner.run(["xcrun", "simctl", "shutdown", udid], cwd=Path.cwd(), timeout=120)
 

@@ -123,6 +123,51 @@ class SimpleLockingTests(unittest.TestCase):
         self.assertIn("다른 터미널에서 같은 프로젝트", err.getvalue())
         self.assertEqual(runner.calls, [])
 
+    def test_simulator_lock_is_global_per_user_and_private(self):
+        """Simulator 잠금은 작업 공간과 무관한 `<임시 폴더>/reproof-<uid>/sim-<기기>.lock`이고 폴더는 0700이다.
+
+        왜: 작업 공간이 다른 두 실행이 같은 `reproof-*` 기기를 동시에 초기화하지 못하게 하려는 것이다.
+        """
+        from reproof.simple.locking import simulator_lock
+        with mock.patch("reproof.simple.locking.tempfile.gettempdir", return_value=str(self.tmp)):
+            directory = self.tmp / f"reproof-{os.getuid()}"
+            self.hold_with_other_descriptor(directory / "sim-reproof-shop-abc123.lock")
+            with self.assertRaises(SimpleError) as raised, simulator_lock("reproof-shop-abc123"):
+                pass
+            self.assertEqual(raised.exception.code, "simulator_busy")
+            self.assertIn("reproof-shop-abc123", raised.exception.cause)
+            with simulator_lock("reproof-other-def456"):
+                self.assertEqual(os.stat(directory).st_mode & 0o777, 0o700)
+
+    def test_simulator_lock_refuses_directory_owned_by_someone_else_or_link(self):
+        """잠금 폴더가 링크이거나 다른 사용자 것이면 쓰지 않고 lock_directory_untrusted로 멈춘다(공유 /tmp 대비)."""
+        from reproof.simple.locking import simulator_lock
+        with mock.patch("reproof.simple.locking.tempfile.gettempdir", return_value=str(self.tmp)):
+            (self.tmp / "elsewhere").mkdir()
+            os.symlink(self.tmp / "elsewhere", self.tmp / f"reproof-{os.getuid()}")
+            with self.assertRaises(SimpleError) as raised, simulator_lock("reproof-shop-abc123"):
+                pass
+            self.assertEqual(raised.exception.code, "lock_directory_untrusted")
+            self.assertEqual(list((self.tmp / "elsewhere").iterdir()), [])
+
+    def test_inspect_refuses_before_touching_simulator_while_device_is_busy(self):
+        """다른 작업 공간의 실행이 같은 기기의 Simulator 잠금을 쥐고 있으면 simctl을 부르기 전에 simulator_busy로 멈춘다."""
+        from reproof.simple.simulator import owned_device_name
+        config_path = self.source / CONFIG_FILE_NAME
+        config_path.write_text(render_config(self.config), encoding="utf-8")
+        runner, err = FakeToolRunner([]), io.StringIO()
+        device_name = owned_device_name(self.config.name, self.source)
+        with mock.patch("reproof.simple.locking.tempfile.gettempdir", return_value=str(self.tmp)):
+            self.hold_with_other_descriptor(self.tmp / f"reproof-{os.getuid()}" / f"sim-{device_name}.lock")
+            with mock.patch("reproof.simple.cli._new_runner", return_value=runner), \
+                    mock.patch("reproof.simple.cli.prepare_build", return_value=mock.Mock()), \
+                    mock.patch.dict(os.environ, {"REPROOF_APP_API_TOKEN": "t"}), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                code = main(["inspect", "--config", str(config_path), "--workspace", str(self.workspace)])
+        self.assertEqual(code, 2)
+        self.assertIn(device_name, err.getvalue())
+        self.assertEqual(runner.calls, [])
+
     def test_lock_is_reentrant_within_one_process(self):
         """inspect처럼 이미 잠금을 쥔 프로세스가 prepare_build를 불러도 스스로 막히지 않는지 본다."""
         from reproof.simple.locking import project_lock

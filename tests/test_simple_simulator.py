@@ -6,7 +6,7 @@ from pathlib import Path
 from reproof.simple.config import SimulatorSettings
 from reproof.simple.errors import SimpleError, ToolFailure
 from reproof.simple.simulator import (
-    Runtime, SimulatorManager, launch_locale_settings, list_runtimes, pick_runtime,
+    Runtime, SimulatorManager, launch_locale_settings, list_runtimes, owned_device_name, pick_runtime,
 )
 from tests.simple_support import FakeToolRunner
 
@@ -66,13 +66,39 @@ class SimulatorTests(unittest.TestCase):
 
     def test_ensure_device_reuses_owned_device_and_creates_when_missing(self):
         fake = FakeToolRunner(self.base_responses({RUNTIME_27: [device("UDID-A", "reproof-shop")]}))
-        self.assertEqual(SimulatorManager(fake).ensure_device("shop", SETTINGS), "UDID-A")
+        self.assertEqual(SimulatorManager(fake).ensure_device("reproof-shop", SETTINGS), "UDID-A")
         self.assertEqual(self.mutating(fake), [])
         # 이름은 같지만 device type이 다르면 새로 만들고 기존 기기는 건드리지 않는다.
         fake = FakeToolRunner(self.base_responses({RUNTIME_27: [device("UDID-A", "reproof-shop", TYPE_17)]})
                               + [(["xcrun", "simctl", "create"], "UDID-NEW\n")])
-        self.assertEqual(SimulatorManager(fake).ensure_device("shop", SETTINGS), "UDID-NEW")
+        self.assertEqual(SimulatorManager(fake).ensure_device("reproof-shop", SETTINGS), "UDID-NEW")
         self.assertEqual(self.mutating(fake), [["xcrun", "simctl", "create", "reproof-shop", TYPE_16, RUNTIME_27]])
+
+    def test_owned_device_name_includes_source_root_hash(self):
+        """기기 이름은 `reproof-<이름>-<소스 경로 sha256 앞 6자>`라, 같은 이름의 다른 저장소가 같은 기기를 초기화하지 않는다.
+
+        왜: 이름만 쓰면 `MyApp`/`my-app`이나 같은 앱의 두 클론, 다른 작업 공간의 실행이 서로의 기기를 지운다.
+        """
+        import hashlib
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            first, second = Path(tmp) / "회사 앱", Path(tmp) / "clone"
+            first.mkdir()
+            second.mkdir()
+            digest = hashlib.sha256(os.path.realpath(first).encode("utf-8")).hexdigest()[:6]
+            self.assertEqual(owned_device_name("shop", first), f"reproof-shop-{digest}")
+            self.assertNotEqual(owned_device_name("shop", first), owned_device_name("shop", second))
+            os.symlink(first, Path(tmp) / "link")
+            self.assertEqual(owned_device_name("shop", Path(tmp) / "link"), owned_device_name("shop", first))
+
+    def test_ensure_device_refuses_name_without_owned_prefix(self):
+        """reproof- 접두사가 없는 이름으로는 기기를 찾거나 만들지 않는다."""
+        fake = FakeToolRunner(self.base_responses({RUNTIME_27: [device("UDID-U", "shop")]}))
+        with self.assertRaises(SimpleError) as caught:
+            SimulatorManager(fake).ensure_device("shop", SETTINGS)
+        self.assertEqual(caught.exception.code, "simulator_not_owned")
+        self.assertEqual(fake.calls, [])
 
     def test_operations_refuse_device_without_prefix(self):
         fake = FakeToolRunner(self.base_responses({RUNTIME_27: [device("UDID-U", "iPhone 16")]}))
@@ -114,7 +140,7 @@ class SimulatorTests(unittest.TestCase):
         fake = FakeToolRunner(self.base_responses(
             {RUNTIME_27: [device("OLD", "reproof-shop", available=False)]})
             + [(["xcrun", "simctl", "create"], "UDID-NEW\n")])
-        self.assertEqual(SimulatorManager(fake).ensure_device("shop", SETTINGS), "UDID-NEW")
+        self.assertEqual(SimulatorManager(fake).ensure_device("reproof-shop", SETTINGS), "UDID-NEW")
 
     def test_unexpected_json_raises_simulator_output_invalid(self):
         bad_runtimes = json.dumps({"runtimes": [{"identifier": "x.SimRuntime.iOS-27-0"}]})
@@ -125,7 +151,7 @@ class SimulatorTests(unittest.TestCase):
         fake = FakeToolRunner([(["xcrun", "simctl", "list", "runtimes"], runtimes_json()),
                                (["xcrun", "simctl", "list", "devicetypes"], bad_types)])
         with self.assertRaises(SimpleError) as caught:
-            SimulatorManager(fake).ensure_device("shop", SETTINGS)
+            SimulatorManager(fake).ensure_device("reproof-shop", SETTINGS)
         self.assertEqual(caught.exception.code, "simulator_output_invalid")
 
     def test_reset_ignores_only_already_shutdown_failure(self):
@@ -174,7 +200,7 @@ class SimulatorTests(unittest.TestCase):
         fake = FakeToolRunner(self.base_responses({}))
         settings = SimulatorSettings(device_type="iPhone 99", runtime="latest")
         with self.assertRaises(SimpleError) as caught:
-            SimulatorManager(fake).ensure_device("shop", settings)
+            SimulatorManager(fake).ensure_device("reproof-shop", settings)
         self.assertEqual(caught.exception.code, "device_type_not_found")
         self.assertIn("iPhone 17", caught.exception.cause)
         self.assertNotIn("iPad", caught.exception.cause)

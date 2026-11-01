@@ -31,11 +31,11 @@ from .errors import SimpleError
 from .generation import generate_project
 from .hierarchy import Element, element_at, parse_hierarchy
 from .locator import capture_evidence, resolve
-from .locking import project_lock
+from .locking import project_lock, simulator_lock
 from .pipeline import PreparedBuild, _remove_tree, default_workspace_root, prepare_build
 from .process import HostToolRunner, ToolRunner
 from .runner_client import RunnerClient, RunnerSession, build_runner, free_loopback_port
-from .simulator import SimulatorManager, launch_locale_settings
+from .simulator import SimulatorManager, launch_locale_settings, owned_device_name
 from .workcopy import materialize_working_copy
 
 LAUNCH_SETTLE_SECONDS = 3.0
@@ -411,10 +411,13 @@ def parse_point(text: str | None) -> tuple[float, float] | None:
                       "예: --point 195,420")
 
 
-def prepare_simulator(config: ProjectConfig, prepared: PreparedBuild, runner: ToolRunner) -> str:
-    """전용 Simulator를 확보해 초기화·표시 고정·앱 설치를 하고 udid를 돌려준다. 끄지는 않는다."""
+def prepare_simulator(config: ProjectConfig, prepared: PreparedBuild, runner: ToolRunner, device_name: str) -> str:
+    """전용 Simulator device_name(owned_device_name)을 확보해 초기화·표시 고정·앱 설치를 하고 udid를 돌려준다. 끄지는 않는다.
+
+    주의: 호출자가 simulator_lock(device_name)을 쥔 상태에서 불러야 한다(다른 실행이 같은 기기를 초기화하지 못하게).
+    """
     simulators = SimulatorManager(runner)
-    udid = simulators.ensure_device(config.name, config.simulator)
+    udid = simulators.ensure_device(device_name, config.simulator)
     simulators.reset(udid)
     simulators.apply_presentation(udid)
     simulators.install_app(udid, prepared.products.app_path)
@@ -461,9 +464,9 @@ def inspect_output_path(arguments: argparse.Namespace, prepared: PreparedBuild) 
 def run_inspect_command(arguments: argparse.Namespace) -> int:
     """inspect 명령. 빌드 → 전용 Simulator 준비 → 실행기 세션 → 앱 실행 → 계층 저장(→ 좌표 요소 확인).
 
-    reproof-<이름> Simulator는 끄지 않고 둔다(다음 실행을 빠르게 하고, 이 명령이 시작하지 않은 것은 건드리지 않으려는 것).
-    빌드부터 세션 끝까지 프로젝트 잠금을 쥔다. 왜: 다른 터미널의 같은 프로젝트 실행이 세션 도중 같은 Simulator를
-    초기화하거나 빌드 폴더를 지우지 못하게 하려는 것이다.
+    reproof-<이름>-<경로 해시> Simulator는 끄지 않고 둔다(다음 실행을 빠르게 하고, 이 명령이 시작하지 않은 것은 건드리지
+    않으려는 것). 빌드부터 세션 끝까지 프로젝트 잠금을, 기기 준비부터 세션 끝까지 Simulator 잠금을 쥔다. 왜: 다른 터미널의
+    실행(작업 공간이 달라도)이 세션 도중 같은 Simulator를 초기화하거나 빌드 폴더를 지우지 못하게 하려는 것이다.
     """
     point = parse_point(arguments.point)  # 빌드 전에 검사해 잘못된 입력으로 몇 분을 쓰지 않게 한다.
     config, root = _load_project(arguments)
@@ -478,10 +481,18 @@ def run_inspect_command(arguments: argparse.Namespace) -> int:
 
 def _inspect_locked(arguments: argparse.Namespace, config: ProjectConfig, root: Path, workspace_root: Path,
                     launch_environment: dict[str, str]) -> Element:
-    """프로젝트 잠금을 쥔 상태에서 빌드 → Simulator 준비 → 실행기 → 세션 → 앱 실행 → 계층 저장을 하고 계층 루트를 돌려준다."""
+    """프로젝트 잠금을 쥔 상태에서 빌드한 뒤, Simulator 잠금 안에서 기기 준비부터 계층 저장까지 하고 계층 루트를 돌려준다."""
     runner = _new_runner()
     prepared = prepare_build(root, config, workspace_root=workspace_root, runner=runner)
-    udid = prepare_simulator(config, prepared, runner)
+    device_name = owned_device_name(config.name, root)
+    with simulator_lock(device_name):
+        return _inspect_on_device(arguments, config, prepared, device_name, workspace_root, launch_environment, runner)
+
+
+def _inspect_on_device(arguments: argparse.Namespace, config: ProjectConfig, prepared: PreparedBuild, device_name: str,
+                       workspace_root: Path, launch_environment: dict[str, str], runner: ToolRunner) -> Element:
+    """Simulator 잠금을 쥔 상태에서 기기 준비 → 실행기 → 세션 → 앱 실행 → 계층 저장을 하고 계층 루트를 돌려준다."""
+    udid = prepare_simulator(config, prepared, runner, device_name)
     products = build_runner(workspace_root / "runner", runner)
     session = RunnerSession(products, udid=udid, target_bundle=config.bundle_id, port=free_loopback_port(),
                             log_path=prepared.directory / "logs" / "inspect-session.log")

@@ -1,7 +1,7 @@
 # iOS 간편 모드 (`reproof app`)
 
 회사 iOS 앱 저장소에서 설정을 거의 하지 않고 시작하는 모드다. 도구가 자기 전용 Simulator
-(`reproof-<이름>`)와 작업 사본을 따로 쓰므로, 개발자의 소스와 기존 Simulator는 바뀌지 않는다.
+(`reproof-<이름>-<소스 경로 해시 6자>`)와 작업 사본을 따로 쓰므로, 개발자의 소스와 기존 Simulator는 바뀌지 않는다.
 
 ## 현재 범위
 
@@ -124,8 +124,11 @@ reproof app inspect [--point X,Y] [--output FILE]
 `strength`가 `weak`이면 accessibility identifier 없이 종류·라벨로 찾은 것이다. 앱에 identifier를
 달면 `strong`이 된다. 좌표는 저장된 JSON의 `frame`에서 확인한다.
 
-참고: `reproof-<이름>` Simulator는 `inspect` 후에도 켜 둔다(다음 실행이 빨라진다). 끄려면
-`xcrun simctl shutdown <udid>`. 사용자가 만든 다른 Simulator는 건드리지 않는다.
+참고: `reproof-<이름>-<해시>` Simulator는 `inspect` 후에도 켜 둔다(다음 실행이 빨라진다). 끄려면
+`xcrun simctl shutdown <udid>`. 사용자가 만든 다른 Simulator는 건드리지 않는다. `<해시>`는 저장소 폴더 실경로의 sha256 앞
+6자라, 이름이 같은 다른 저장소(클론·다른 작업 공간)가 같은 기기를 초기화하지 않는다. 기기 준비부터 세션 끝까지
+사용자 전역 잠금(`<임시 폴더>/reproof-<uid>/sim-<기기 이름>.lock`)을 쥐므로, 같은 기기를 쓰는 다른 실행은 `simulator_busy`로
+멈춘다. 이전 버전이 만든 `reproof-<이름>` 기기는 더 쓰지 않으며 지우지 않고 남겨 둔다.
 
 ## 설정 파일을 찾는 규칙
 
@@ -137,7 +140,7 @@ reproof app inspect [--point X,Y] [--output FILE]
 | 위치 | 키 | 설명 |
 |---|---|---|
 | 최상위 | `schema` | 설정 형식 버전(현재 1) |
-| 최상위 | `name` | 소문자·숫자·`-` 이름(40자 이하). Simulator 이름 `reproof-<name>`에 쓴다 |
+| 최상위 | `name` | 소문자·숫자·`-` 이름(40자 이하). Simulator 이름 `reproof-<name>-<경로 해시>`에 쓴다 |
 | `[project]` | `container` | `.xcworkspace` 또는 `.xcodeproj`의 저장소 기준 상대 경로(빈 값·절대 경로·`..` 불가) |
 | `[project]` | `generator`, `generator_spec` | `none`/`xcodegen`/`tuist`, 스펙 파일의 저장소 기준 상대 경로(xcodegen은 `.yml`·`.yaml`, tuist는 `.swift`; 빈 값·절대 경로·`..` 불가). Tuist는 미검증(이 Mac에 Tuist 없음; `tuist install` 선행 필요 여부 미확인) |
 | `[project]` | `scheme`, `app_target`, `bundle_id` | 빌드할 scheme, 앱 타깃, 번들 ID(비울 수 없음) |
@@ -213,7 +216,7 @@ git ls-remote git@github.com:회사/비공개-패키지.git     # 목록이 나�
   `chmod -R u+w <폴더>` 뒤에 지운다. `~/.reproof` 전체를 지워도 되지만, 다음 실행이 패키지를 다시 받고 실행기를 다시 빌드한다.
 - **SwiftPM 전역 캐시**: `~/Library/Caches/org.swift.swiftpm`(저장소 캐시), `~/Library/org.swift.swiftpm`(패키지 지문 등).
   xcodebuild가 패키지를 받을 때 쓰며 Xcode·다른 프로젝트와 함께 쓰는 위치다. 지우면 다른 프로젝트도 패키지를 다시 받는다.
-- **CoreSimulator 기기**: 이름이 `reproof-<이름>`인 Simulator. `inspect` 뒤에도 켜 둔다. 지우려면
+- **CoreSimulator 기기**: 이름이 `reproof-<이름>-<해시>`인 Simulator(이전 버전은 `reproof-<이름>`). `inspect` 뒤에도 켜 둔다. 지우려면
   `xcrun simctl delete <udid>`(이름이 `reproof-`로 시작하는 기기만). 다른 Simulator는 도구가 만들거나 지우지 않는다.
 - **Xcode DerivedData**: `~/Library/Developer/Xcode/DerivedData`에 `<scheme>-<해시>` 이름의 작은 로그 폴더(수 KB~수백 KB)가
   있을 수 있다. 확인된 원인은 이전 버전의 패키지 해석이었다(지금은 빌드 폴더의 `DerivedData`를 쓴다). 다른 xcodebuild 호출이
@@ -233,7 +236,8 @@ git ls-remote git@github.com:회사/비공개-패키지.git     # 목록이 나�
 | `<도구> 실행이 시간 제한 N초를 넘겼습니다` | 시간 초과 | 빌드·패키지 단계면 `reproof.toml`의 `[build] timeout_seconds`를 늘리고, 아니면 네트워크·Simulator 상태 확인 |
 | `point_invalid` | `--point` 형식 오류 | `--point 195,420`처럼 숫자 두 개 |
 | `runner_start_failed` | 실행기 세션이 시작되지 않음 | `inspect-session.log`를 확인하고, Simulator가 부팅됐는지 `xcrun simctl list devices`로 확인 |
-| `project_busy` / `runner_busy` | 다른 터미널에서 같은 프로젝트(또는 실행기 준비)가 실행 중 | 그 실행이 끝난 뒤 다시 실행(잠금은 실행이 끝나면 자동으로 풀림) |
+| `project_busy` / `runner_busy` / `simulator_busy` | 다른 터미널에서 같은 프로젝트(또는 실행기 준비, 같은 Simulator)가 실행 중 | 그 실행이 끝난 뒤 다시 실행(잠금은 실행이 끝나면 자동으로 풀림) |
+| `lock_directory_untrusted` | 임시 폴더의 `reproof-<uid>` 잠금 폴더가 링크이거나 다른 사용자 것 | 그 경로를 확인해 지우거나 `TMPDIR`을 본인 폴더로 바꿈 |
 | `file_operation_failed` | 읽을 수 없는 파일, 디스크 부족, 읽기 전용 폴더 | 안내된 파일의 권한(`ls -l`)이나 디스크 여유 공간 확인 |
 | `내부 오류입니다. 이 로그를 첨부해 알려 주세요` | 예상하지 못한 오류 | 안내된 `crash-*.log`(작업 공간 `logs/`)를 첨부해 알림 |
 

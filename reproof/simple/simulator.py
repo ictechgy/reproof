@@ -1,5 +1,7 @@
 """reproof 전용 Simulator 관리. 사용자의 기존 Simulator는 조회만 하고 절대 바꾸지 않는다."""
+import hashlib
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -17,6 +19,18 @@ _BOOT_WAIT_TIMEOUT = 300
 # 이미 꺼진 기기를 shutdown할 때 simctl이 내는 문구. 이 경우만 정상으로 본다.
 _ALREADY_SHUTDOWN = "current state: Shutdown"
 _IOS_RUNTIME_MARKER = "SimRuntime.iOS-"
+# 기기 이름에 붙이는 소스 경로 해시 길이(16진 글자 수).
+_SOURCE_HASH_LENGTH = 6
+
+
+def owned_device_name(project_name: str, source_root: Path) -> str:
+    """전용 기기 이름 `reproof-<project_name>-<sha256(소스 루트 실경로) 앞 6자>`를 돌려준다.
+
+    왜 경로 해시인가: 이름(slug)만 쓰면 `MyApp`/`my-app`, 같은 앱의 두 클론, 다른 작업 공간의 실행이 같은 기기를
+    초기화해 서로의 앱 데이터를 지운다. 실경로(realpath)를 써서 링크로 들어온 같은 폴더는 같은 기기를 쓰게 한다.
+    """
+    digest = hashlib.sha256(os.path.realpath(source_root).encode("utf-8", "surrogateescape")).hexdigest()
+    return f"{OWNED_PREFIX}{project_name}-{digest[:_SOURCE_HASH_LENGTH]}"
 
 
 @dataclass(frozen=True)
@@ -129,15 +143,17 @@ class SimulatorManager:
                 return item["udid"]
         return None
 
-    def ensure_device(self, project_name: str, settings: SimulatorSettings) -> str:
-        """`reproof-<project_name>` 기기를 재사용하거나 새로 만들어 udid를 돌려준다.
+    def ensure_device(self, name: str, settings: SimulatorSettings) -> str:
+        """`reproof-` 접두사 기기 name(보통 owned_device_name 결과)을 재사용하거나 새로 만들어 udid를 돌려준다.
 
         왜 새로 만들기만 하나: 종류·런타임이 다른 기존 기기를 지우면 사용자 데이터를 잃을 수 있어
-        옛 기기는 그대로 둔다.
+        옛 기기는 그대로 둔다. 주의: 접두사가 없는 이름이면 아무것도 조회·생성하지 않고 simulator_not_owned.
         """
+        if not name.startswith(OWNED_PREFIX):
+            raise SimpleError("simulator_not_owned", f"Simulator 이름 '{name}'은(는) reproof 전용 이름이 아닙니다.",
+                              f"'{OWNED_PREFIX}'로 시작하는 이름(owned_device_name)만 쓰세요.")
         runtime = pick_runtime(list_runtimes(self._runner), settings.runtime)
         type_id = self._find_device_type(settings.device_type)
-        name = f"{OWNED_PREFIX}{project_name}"
         existing = self._find_owned_device(name, type_id, runtime.identifier)
         if existing is not None:
             return existing

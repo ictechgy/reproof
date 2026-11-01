@@ -1,7 +1,8 @@
 """`reproof app init → build → inspect`를 실제 Xcode·Simulator로 끝까지 검증하는 native 테스트.
 
-MixedShop을 임시 폴더로 복사해(init이 reproof.toml을 쓰므로) 실행하고, 전용 Simulator `reproof-mixedshop`만 쓴다.
-작업 공간(REPROOF_HOME)도 임시 폴더라 사용자의 ~/.reproof는 건드리지 않는다.
+MixedShop을 임시 폴더의 고정 위치로 복사해(init이 reproof.toml을 쓰므로) 실행하고, 전용 Simulator
+`reproof-mixedshop-<그 경로 해시>`만 쓴다. 왜 고정 위치인가: 기기 이름에 소스 경로 해시가 들어가므로, 실행마다 다른 임시
+경로를 쓰면 실행마다 새 기기가 생겨 쌓인다. 작업 공간(REPROOF_HOME)은 임시 폴더라 사용자의 ~/.reproof는 건드리지 않는다.
 """
 from __future__ import annotations
 
@@ -19,9 +20,11 @@ from reproof.simple.cli import main
 from reproof.simple.config import CONFIG_FILE_NAME, load_config
 from reproof.simple.hierarchy import iter_elements, parse_hierarchy
 from reproof.simple.process import HostToolRunner
-from reproof.simple.simulator import OWNED_PREFIX
+from reproof.simple.simulator import owned_device_name
 
 MIXEDSHOP = Path(__file__).resolve().parents[1] / "examples" / "simple-ios" / "MixedShop"
+# MixedShop 복사본을 두는 고정 폴더 이름(공백·한글 포함). 이 테스트만 만들고 지운다.
+FIXED_APP_PARENT = "reproof CLI 검증 고정"
 
 
 def run_cli(*argv: str) -> tuple[int, str, str]:
@@ -40,7 +43,10 @@ class SimpleNativeCliTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="reproof CLI 검증 ")
         self.addCleanup(tmp.cleanup)
         self.tmp = Path(tmp.name)
-        self.app = self.tmp / "MixedShop"
+        fixed_parent = Path(tempfile.gettempdir()) / FIXED_APP_PARENT
+        shutil.rmtree(fixed_parent, ignore_errors=True)  # 이전 실행이 남긴 이 테스트 전용 폴더만 지운다.
+        self.addCleanup(shutil.rmtree, fixed_parent, True)
+        self.app = fixed_parent / "MixedShop"
         shutil.copytree(MIXEDSHOP, self.app)
         environment = mock.patch.dict(os.environ, {"REPROOF_HOME": str(self.tmp / "home")})
         environment.start()
@@ -48,12 +54,13 @@ class SimpleNativeCliTests(unittest.TestCase):
         self.addCleanup(self._shutdown_owned_simulator)
 
     def _shutdown_owned_simulator(self) -> None:
-        """테스트가 켠 reproof-mixedshop만 끈다. 이름이 정확히 일치하는 기기만 대상으로 한다."""
+        """테스트가 켠 reproof-mixedshop-<해시>만 끈다. 이름이 정확히 일치하는 기기만 대상으로 한다."""
         runner = HostToolRunner()
         listing = json.loads(runner.run(["xcrun", "simctl", "list", "devices", "--json"], cwd=Path.cwd(), timeout=60))
+        name = owned_device_name("mixedshop", self.app)
         for group in listing["devices"].values():
             for item in group:
-                if item["name"] == f"{OWNED_PREFIX}mixedshop" and item["state"] != "Shutdown":
+                if item["name"] == name and item["state"] != "Shutdown":
                     runner.run(["xcrun", "simctl", "shutdown", item["udid"]], cwd=Path.cwd(), timeout=120)
 
     def add_button_center(self, hierarchy_file: Path) -> tuple[float, float]:
