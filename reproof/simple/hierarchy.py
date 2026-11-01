@@ -19,6 +19,12 @@ AUTO_ID_PREFIX = "rp."
 MAX_NODE_COUNT = 8000
 MAX_DEPTH = 64
 
+# 장식용 덮개 아래의 interactive를 고를 수 있는 공통 조상 넓이의 상한(창 넓이 대비 비율, 미만이어야 함).
+# 이 이상이면 화면 전체 덮개(모달 배경 등)로 보고 뒤의 버튼을 고르지 않는다.
+MAX_OVERLAY_AREA_RATIO = 0.9
+# 공통 조상이 이 종류면 덮개와 버튼이 한 묶음이 아니라 화면 단위로만 겹친 것으로 본다.
+SCREEN_LEVEL_TYPES = frozenset({"application", "window"})
+
 
 @dataclass(frozen=True)
 class Frame:
@@ -185,17 +191,55 @@ def _nearest_interactive_ancestor(root: Element, element: Element) -> Element | 
                  if ancestor.element_type in INTERACTIVE_TYPES), None)
 
 
+def _common_ancestor(root: Element, first: Element, second: Element) -> Element:
+    """두 요소의 가장 가까운 공통 조상(path의 공통 앞부분이 가리키는 요소). 한쪽이 다른 쪽 조상이면 그 요소다."""
+    node = root
+    for left, right in zip(first.path, second.path):
+        if left != right:
+            break
+        node = node.children[left]
+    return node
+
+
+def _area(frame: Frame) -> float:
+    """frame 넓이(pt²). 음수 크기는 0으로 본다."""
+    return max(frame.width, 0.0) * max(frame.height, 0.0)
+
+
+def _is_bounded_overlay(root: Element, hit: Element, candidate: Element) -> bool:
+    """덮개 hit와 candidate가 창보다 확실히 작은 한 묶음 안에서 겹쳤는지 돌려준다.
+
+    공통 조상이 application·window가 아니고, 그 넓이가 가장 가까운 window(없으면 root) 넓이의 90% 미만이어야 True.
+    왜: 탭 바의 선택 표시처럼 작은 묶음 안의 빈 view는 장식이지만, 화면 전체를 덮는 빈 view(모달 배경 등)는
+    실제로 터치를 막는다. 그 뒤의 버튼을 고르면 틀린 요소가 되고, 틀린 요소는 못 찾는 것보다 나쁘다.
+    """
+    shared = _common_ancestor(root, hit, candidate)
+    if shared.element_type in SCREEN_LEVEL_TYPES:
+        return False
+    window = next((ancestor for ancestor in ancestors_of(root, shared) if ancestor.element_type == "window"), root)
+    window_area = _area(window.frame)
+    return window_area > 0 and _area(shared.frame) < MAX_OVERLAY_AREA_RATIO * window_area
+
+
+def _interactive_under_overlay(root: Element, hit: Element, x: float, y: float) -> Element | None:
+    """hit가 작은 묶음 안의 장식용 덮개면 좌표를 포함하는 가장 깊은 interactive를, 아니면 None을 돌려준다."""
+    if not _is_decorative(hit):
+        return None
+    candidate = _deepest_interactive_at(root, x, y)
+    return candidate if candidate is not None and _is_bounded_overlay(root, hit, candidate) else None
+
+
 def element_at(root: Element, x: float, y: float) -> Element | None:
     """좌표 (x, y)에 해당하는 요소를 돌려준다. 없으면 None.
 
     가장 깊은 요소를 고른다. 그 요소가 interactive면 그대로 돌려주고(셀 안의 버튼은 셀이 아니라 버튼),
-    장식용(label·identifier·value가 빈 비interactive)이면 좌표를 포함하는 가장 깊은 interactive를,
-    아니면 조상 중 가장 가까운 interactive를 돌려준다. 어느 쪽도 없으면 가장 깊은 요소 그대로다.
+    작은 묶음 안의 장식용 덮개(label·identifier·value가 빈 비interactive)면 좌표를 포함하는 가장 깊은
+    interactive를, 아니면 조상 중 가장 가까운 interactive를 돌려준다. 어느 쪽도 없으면 가장 깊은 요소 그대로다.
     왜: 버튼 안쪽 Text를 눌러도 녹화 대상은 버튼이어야 재생이 안정적이다. iOS 27 탭 바처럼 선택 표시용
     빈 view가 버튼의 형제 가지에서 버튼보다 깊게 겹치면, 조상을 따라 올라가도 버튼을 만나지 못한다.
+    다만 화면 전체 덮개 뒤의 버튼은 고르지 않는다(`_is_bounded_overlay` 참고).
     """
     best = _deepest_hit(root, x, y)
     if best is None or best.element_type in INTERACTIVE_TYPES:
         return best
-    covered = _deepest_interactive_at(root, x, y) if _is_decorative(best) else None
-    return covered or _nearest_interactive_ancestor(root, best) or best
+    return _interactive_under_overlay(root, best, x, y) or _nearest_interactive_ancestor(root, best) or best

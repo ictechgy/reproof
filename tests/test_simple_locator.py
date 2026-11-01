@@ -193,5 +193,52 @@ class TabBarHitTests(unittest.TestCase):
         self.assertEqual(self.hit(239.67, 800, self.document), ("button", "요약"))
 
 
+def plain_node(kind, frame, children=(), label=""):
+    """계층 노드 사전 하나를 만든다(테스트용 합성 계층)."""
+    return {"type": kind, "identifier": "", "label": label, "value": "", "placeholder": "", "frame": list(frame),
+            "enabled": True, "selected": False, "children": list(children)}
+
+
+def overlay_chain(frame, depth):
+    """label 없는 other가 depth단 겹친 덮개(맨 아래가 가장 깊다)."""
+    node = plain_node("other", frame)
+    for _ in range(depth - 1):
+        node = plain_node("other", frame, [node])
+    return node
+
+
+SCREEN = (0, 0, 393, 852)
+BUTTON = (100, 400, 120, 44)
+
+
+class DecorativeOverlayBoundTests(unittest.TestCase):
+    """장식용 덮개 보정은 작은 묶음 안에서만: 화면 전체 덮개(scrim) 뒤의 버튼은 고르지 않는다(틀린 요소보다 없음이 낫다)."""
+
+    def hit(self, window_children):
+        """창 아래에 window_children을 둔 합성 계층에서 버튼 가운데 좌표의 element_at을 (종류, label)로 돌려준다."""
+        document = plain_node("application", SCREEN, [plain_node("window", SCREEN, window_children)], label="앱")
+        element = element_at(parse_hierarchy(document), 160, 422)
+        return element.element_type, element.label
+
+    def test_full_screen_scrim_under_window_does_not_pick_button_behind(self):
+        content = plain_node("other", SCREEN, [plain_node("button", BUTTON, label="결제")])
+        self.assertEqual(self.hit([content, overlay_chain(SCREEN, 4)]), ("other", ""))
+
+    def test_full_screen_scrim_in_full_screen_container_does_not_pick_button_behind(self):
+        content = plain_node("other", SCREEN, [plain_node("button", BUTTON, label="결제")])
+        container = plain_node("other", SCREEN, [content, overlay_chain(SCREEN, 4)])
+        self.assertEqual(self.hit([container]), ("other", ""))
+
+    def test_overlay_in_small_shared_container_picks_button(self):
+        group = (90, 390, 200, 64)
+        container = plain_node("other", group, [plain_node("button", BUTTON, label="결제"), overlay_chain(group, 3)])
+        self.assertEqual(self.hit([plain_node("other", SCREEN, [container])]), ("button", "결제"))
+
+    def test_container_at_ninety_percent_of_window_is_full_screen(self):
+        tall = (0, 0, 393, 852 * 0.9)
+        container = plain_node("other", tall, [plain_node("button", BUTTON, label="결제"), overlay_chain(tall, 3)])
+        self.assertEqual(self.hit([container]), ("other", ""))
+
+
 if __name__ == "__main__":
     unittest.main()
