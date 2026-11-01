@@ -3,6 +3,8 @@ import contextlib
 import errno
 import io
 import os
+import random
+import string
 import tempfile
 import threading
 import time
@@ -16,6 +18,21 @@ from reproof.repair import run_command
 from reproof.simple.errors import SimpleError, ToolFailure
 from reproof.simple.process import HostToolRunner, summarize_tool_output
 from tests.simple_support import FakeToolRunner, spawn_zombie_group
+
+
+def _fake_secret(prefix: str, length: int, alphabet: str, seed: int) -> str:
+    """테스트용 가짜 비밀 값을 실행 시점에 만든다.
+
+    왜 이렇게 하는가: 실제 토큰처럼 보이는 문자열을 공개 저장소에 그대로 적으면 비밀 정보 스캐너가 오탐하고
+    진짜 토큰과 구별하기 어렵다. 가리기 규칙은 반복 문자열을 무작위로 보지 않으므로, 고정 seed의 의사 난수로
+    형식(접두사·길이·문자 종류)과 무작위성만 같은 값을 만든다. 같은 seed라 실행마다 값이 같다.
+    """
+    return prefix + "".join(random.Random(seed).choices(alphabet, k=length))
+
+
+_ALNUM = string.ascii_letters + string.digits
+FAKE_GITHUB_TOKEN = _fake_secret("ghp_", 36, _ALNUM, 20261101)
+FAKE_URLSAFE_SECRET = _fake_secret("", 43, _ALNUM + "-_", 20261102)
 
 
 class SimpleProcessTests(unittest.TestCase):
@@ -165,7 +182,7 @@ class ToolOutputMaskingTests(unittest.TestCase):
 
     def test_long_high_entropy_runs_are_masked(self):
         """32자 이상 무작위 토큰(GitHub 토큰, base64 비밀, 16진 키, '/'가 섞인 키)을 가린다."""
-        for token in ("ghp_WHwzdV3GOOeTcsPksgWmfW82W1OzM9K7dRn6", "17VD4hk5e_oJJwYv1CSbEA1H3Lmd2cAZ7ZQFDZxsNs4",
+        for token in (FAKE_GITHUB_TOKEN, FAKE_URLSAFE_SECRET,
                       "7276a711f33fc88eff7217122b731c57a19ebff671a94dcc0c09d9eb9d86e26f",
                       "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"):
             with self.subTest(token=token):
@@ -196,12 +213,12 @@ class ToolOutputMaskingTests(unittest.TestCase):
 
     def test_host_runner_summary_masks_secrets_end_to_end(self):
         """실제 실행 실패의 안내문에서도 토큰이 가려지는지 본다(URL 사용자 정보 가리기와 함께)."""
-        script = ("echo 'curl -H \"Authorization: Bearer ghp_WHwzdV3GOOeTcsPksgWmfW82W1OzM9K7dRn6\" "
+        script = ("echo 'curl -H \"Authorization: Bearer " + FAKE_GITHUB_TOKEN + "\" "
                   "https://bot:pw@git.corp/x.git?token=abc' >&2; exit 1")
         with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ToolFailure) as caught:
             HostToolRunner().run(["/bin/sh", "-c", script], cwd=Path(tmp), timeout=10)
         message = caught.exception.user_message()
-        for secret in ("ghp_WHwzdV3GOOeTcsPksgWmfW82W1OzM9K7dRn6", "bot:pw", "token=abc"):
+        for secret in (FAKE_GITHUB_TOKEN, "bot:pw", "token=abc"):
             self.assertNotIn(secret, message)
 
 
