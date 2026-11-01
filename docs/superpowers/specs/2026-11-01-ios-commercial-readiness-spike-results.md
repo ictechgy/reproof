@@ -38,9 +38,9 @@
 
 ```
 $ python3 scripts/simple-fetch-app.py --pin examples/simple-ios/wikipedia/pin.json --output ~/.reproof/sources/wikipedia-ios
-Cloning into '/Users/jinhongan/.reproof/sources/wikipedia-ios'...
+Cloning into '~/.reproof/sources/wikipedia-ios'...
 HEAD is now at 09fa0f3805 Merge pull request #6335 from wikimedia/T440007/discover-setup
-받았습니다: /Users/jinhongan/.reproof/sources/wikipedia-ios
+받았습니다: ~/.reproof/sources/wikipedia-ios
   HEAD: 09fa0f380510aedc4af515729cb6331b1a4acfcb (pin과 같음)
 ```
 
@@ -106,7 +106,7 @@ $ printf '9\nWikipedia\n' | reproof app init  # 104.5초, 종료 코드 0
   ...
   11. WikipediaUITests
 번호 입력 (1-11): 테스트 scheme은 'Performance Testing'(으)로 추정했습니다. Enter=수락, 다른 이름 입력, -=사용 안 함:
-저장했습니다: /Users/jinhongan/.reproof/sources/wikipedia-ios/reproof.toml
+저장했습니다: ~/.reproof/sources/wikipedia-ios/reproof.toml
   프로젝트: Wikipedia.xcodeproj  scheme: Wikipedia  테스트 scheme: Wikipedia
   앱 번들 ID: org.wikimedia.wikipedia  Simulator: iPhone 16 (latest)
 질문 2개
@@ -180,7 +180,7 @@ error: value of type 'UITraitCollection' has no member 'verticalBarEdge'
 #### build 4 — 성공(ad-hoc 서명, 최종)
 
 툴 수정 뒤, 같은 빌드 ID의 완성 빌드가 재사용되지 않도록 `builds/9edc8552bee13db5`를 지우고 다시 빌드했다
-(아래 "툴 발견" 2).
+(아래 "툴 수정"의 빌드 ID 항목에서 고침).
 
 ```
 [   1.7s 15:24:28] 패키지 받는 중
@@ -283,39 +283,41 @@ identifier가 잘 달린 화면이라, 앱 전체의 identifier 비율(설계 �
   포터블 테스트 `test_build_argv_ad_hoc_signs_so_simulator_entitlements_are_embedded`를 먼저 실패시킨 뒤 고쳤고,
   MixedShop native 테스트(`test_simple_native_build`, `test_simple_native_cli`)도 같은 설정으로 통과했다.
   실행기(`ios/SimpleRunner`) 빌드는 entitlement가 없어 그대로 둔다.
+- **빌드 ID에 빌드 방법과 Xcode 버전 포함**(`1ceb6e3`): 서명 방식을 고친 뒤에도 빌드 ID가 `9edc8552bee13db5`로
+  같아, 그대로 두면 App Group이 빠진 이전 앱을 재사용했다(위 build 4는 손으로 지운 뒤 빌드). 이제 빌드 식별 문서에
+  `buildRecipe`(`reproof/simple/build.py`의 `BUILD_RECIPE_VERSION`, ad-hoc 서명부터 2)와 `xcodeVersion`
+  (`xcodebuild -version` 출력)이 들어간다. 수정 뒤 같은 소스로 다시 build하니 새 빌드 ID `80392764bf5f8c1b`로
+  처음부터 빌드했다(빌드 78.5초).
+- **init이 전역 DerivedData에 고아 폴더를 남기지 않게 함**(`497db49`): init의 `xcodebuild -list`가 패키지를 해석하며
+  `~/Library/Developer/Xcode/DerivedData/Wikipedia-<해시>/SourcePackages`(1.1 GB)를 init마다 새로 만들었다(이번
+  spike에서 2개, 2.2 GB). `-list`는 `-derivedDataPath`를 받지 않으므로(`The flag -scheme, -testProductsPath, or
+  -xctestrun is required when specifying -derivedDataPath.`) 같은 효과의 사용자 기본값
+  `-IDECustomDerivedDataLocation=<init 임시 폴더>/dd`를 주고, `-showBuildSettings`에는 `-derivedDataPath`를 준다.
+  패키지는 둘 다 `-clonedSourcePackagesDirPath <작업 공간>/cache/spm/discovery`로 받는다. 이 사용자 기본값은 그
+  실행에만 적용되고 Xcode 설정에 저장되지 않음을 확인했다. MixedShop `init --non-interactive` 전후로 전역 DerivedData
+  목록이 같았다(`-list`에 패키지 폴더만 주던 중간 구현에서는 8 KB `Logs` 폴더가 하나 생겼다).
+  남은 것: build의 `-resolvePackageDependencies`는 빌드 ID마다 8 KB `Logs` 폴더를 전역에 남긴다(이번 수정 범위 밖).
 
 ### 툴 발견 (이번에는 고치지 않음, 후속 판단 필요)
 
-1. **init이 전역 DerivedData에 큰 폴더를 남긴다.** init의 `xcodebuild -list`가 패키지를 해석하면서
-   `~/Library/Developer/Xcode/DerivedData/Wikipedia-<해시>/SourcePackages`(1.1 GB)를 만든다. 경로가 매번 다른 임시
-   사본 기준이라 Xcode가 다시 쓰지 않는 고아 폴더가 init 한 번마다 생긴다(이번 spike에서 2개, 2.2 GB).
-   build의 `-resolvePackageDependencies`도 빌드 ID마다 8 KB짜리 `Logs` 폴더를 남긴다. 확인한 사실:
-   `-list`는 `-derivedDataPath`를 받지 않는다(`The flag -scheme, -testProductsPath, or -xctestrun is required when
-   specifying -derivedDataPath.`). `-list`에 `-clonedSourcePackagesDirPath <폴더>`를 주면 패키지는 그 폴더로 가고
-   전역에는 8 KB `Logs`만 남는다. `-showBuildSettings`에 `-derivedDataPath`와 `-clonedSourcePackagesDirPath`를 함께
-   주면 전역에 아무것도 남지 않는다(이미 해석된 패키지 폴더를 줬을 때 2초). 권고: discovery 호출에 init 임시 폴더(또는 공유 SPM 캐시)를
-   `-clonedSourcePackagesDirPath`로, `-showBuildSettings`·`-resolvePackageDependencies`에는 `-derivedDataPath`도 준다.
-2. **빌드 ID에 툴의 빌드 방법이 들어가지 않는다.** 서명 방식을 고친 뒤에도 빌드 ID가 `9edc8552bee13db5`로 같아,
-   그대로 두면 App Group이 빠진 이전 앱을 재사용했을 것이다(이번에는 손으로 지움). 권고: 빌드 argv 규칙 버전(또는
-   툴 버전)을 설정 지문이나 빌드 식별에 넣는다.
-3. **앱 scheme 후보가 많다.** 11개 후보가 실제로는 앱 타깃 3개였다(9개가 `Wikipedia`). 권고: (타깃, 번들 ID)가
+1. **앱 scheme 후보가 많다.** 11개 후보가 실제로는 앱 타깃 3개였다(9개가 `Wikipedia`). 권고: (타깃, 번들 ID)가
    같은 후보를 묶고, 컨테이너·타깃 이름과 같은 scheme(`Wikipedia`)을 기본값으로 보여 Enter로 수락하게 한다.
-4. **테스트 scheme 추정이 틀렸다.** `"Test" in name` 규칙이 `Performance Testing`, `WMFDataTestSupport`,
+2. **테스트 scheme 추정이 틀렸다.** `"Test" in name` 규칙이 `Performance Testing`, `WMFDataTestSupport`,
    `WMFTestKitchen`을 후보로 잡고 정렬상 첫 값을 골랐다. 앱 scheme 자신이 테스트 동작을 가진 경우(Wikipedia)를
    우선하고, `Tests`로 끝나는 이름을 우선하는 것을 권고한다.
-5. **init 출력의 "건너뜀" 10줄**은 앱 타깃이 없는 패키지·스크립트 scheme이라 정상인데 오류처럼 보인다. 한 줄 요약을 권고한다.
-6. **실패한 빌드 폴더가 쌓인다.** 소스가 바뀌어 빌드 ID가 달라지면 이전 `*.partial`은 지워지지 않는다
+3. **init 출력의 "건너뜀" 10줄**은 앱 타깃이 없는 패키지·스크립트 scheme이라 정상인데 오류처럼 보인다. 한 줄 요약을 권고한다.
+4. **실패한 빌드 폴더가 쌓인다.** 소스가 바뀌어 빌드 ID가 달라지면 이전 `*.partial`은 지워지지 않는다
    (이번에 166 MB, 983 MB가 남음).
-7. **빌드 실패 안내가 원인을 보여 주지 않는다.** 두 실패 모두 원인은 로그의 `error:` 줄이었는데 화면에는
+5. **빌드 실패 안내가 원인을 보여 주지 않는다.** 두 실패 모두 원인은 로그의 `error:` 줄이었는데 화면에는
    "xcodebuild 실행이 실패했습니다"만 나온다. 첫 몇 개의 서로 다른 `error:` 줄을 함께 보여 주는 것을 권고한다.
    특히 `Unable to open base configuration reference file '<경로>'`는 "저장소에 없는(보통 설정 스크립트가 만드는)
    xcconfig가 필요하다"는 안내로 바꿀 수 있다.
-8. **앱이 실행 직후 죽으면 안내가 엉뚱하다.** inspect 1은 `'launch' 명령을 보내지 못했습니다: timed out`으로만
+6. **앱이 실행 직후 죽으면 안내가 엉뚱하다.** inspect 1은 `'launch' 명령을 보내지 못했습니다: timed out`으로만
    끝났다. 앱 충돌 보고서(`DiagnosticReports/<앱 이름>-*.ips`)나 앱 상태를 확인해 "앱이 실행 직후 종료됐습니다"로
    알리는 것을 권고한다.
-9. **진행 표시가 없는 구간**: `build.log`는 xcodebuild가 끝나야 써지고, inspect의 Simulator 준비·실행기 빌드(첫 실행 약 46초)
+7. **진행 표시가 없는 구간**: `build.log`는 xcodebuild가 끝나야 써지고, inspect의 Simulator 준비·실행기 빌드(첫 실행 약 46초)
    동안 출력이 없다. Wikipedia는 빌드가 80초 안팎이라 문제가 작지만, 더 큰 앱에서는 멈춘 것처럼 보일 수 있다.
-10. **두 아키텍처 빌드**: generic Simulator destination이라 arm64·x86_64를 모두 컴파일한다. Apple Silicon에서 arm64만
+8. **두 아키텍처 빌드**: generic Simulator destination이라 arm64·x86_64를 모두 컴파일한다. Apple Silicon에서 arm64만
     빌드하면 시간이 줄 것으로 추정하지만 측정하지 않았다(측정 뒤 결정).
 
 ### 경고 (첫 줄만)
@@ -342,9 +344,11 @@ Wikipedia 소스와 빌드 산출물은 커밋하지 않았다.
 이 Mac에 남은 것(정리 여부는 사용자 판단):
 
 - `~/.reproof/sources/wikipedia-ios` — 받은 소스 + `reproof.toml` + 위 xcconfig·patch
-- `~/.reproof/projects/wikipedia-ios/builds/` — 완성 빌드 3.8 GB, 실패한 partial 2개(1.1 GB)
+- `~/.reproof/projects/wikipedia-ios/builds/` — 완성 빌드 2개(빌드 ID 수정 전 `9edc8552bee13db5`, 수정 후
+  `80392764bf5f8c1b`, 각 약 3.8 GB), 실패한 partial 2개(1.1 GB)
 - `~/.reproof/cache/spm/` 1.1 GB, `~/.reproof/runner/` 155 MB
-- `~/Library/Developer/Xcode/DerivedData/Wikipedia-*` 6개(init이 만든 1.1 GB짜리 2개, 8 KB짜리 4개 — 1개는 위 1번 확인 실험)
+- `~/Library/Developer/Xcode/DerivedData/Wikipedia-*` 7개(init이 만든 1.1 GB짜리 2개, build의 패키지 해석과 init 수정 전
+  확인 실험이 만든 8 KB짜리 5개). MixedShop 확인 중 생긴 `MixedShop-*`도 8 KB짜리가 하나 늘었다.
 - `~/Library/Caches/org.swift.swiftpm/repositories`의 Wikipedia 의존성 6개(Xcode가 평소 쓰는 공용 캐시)
 - `~/Library/Logs/DiagnosticReports/`의 `Wikipedia-2026-11-01-151617.ips`, `WidgetsExtension-2026-11-01-1516*.ips` 5개
 - Simulator `reproof-wikipedia-ios`(켜 둠, 문서의 기본 동작). 다른 Simulator는 건드리지 않았다.
