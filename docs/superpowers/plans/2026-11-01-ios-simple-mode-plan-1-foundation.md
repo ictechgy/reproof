@@ -47,8 +47,8 @@ Network.framework.
 - 커밋 전에 `python3 -m compileall -q reproof/simple tests`와 `git diff --check`를 통과시킨다.
   커밋은 Conventional Commits 형식에 본문 한국어로 쓰고, 작업 브랜치
   `feature/ios-commercial-readiness`에만 커밋한다. push하지 않는다.
-- 작업 디렉터리는 `/Users/jinhongan/Desktop/qa/reproof-ios-commercial`. 기존 checkout
-  `/Users/jinhongan/Desktop/qa/reproof`는 건드리지 않는다.
+- 작업 디렉터리는 `~/Desktop/qa/reproof-ios-commercial`. 기존 checkout
+  `~/Desktop/qa/reproof`는 건드리지 않는다.
 
 ## Review Focus
 
@@ -1015,7 +1015,7 @@ Run (`~/.reproof/sources/wikipedia-ios`에서): `reproof app init`, `reproof app
 - [ ] **Step 1: portable 전체 확인**
 
 Run: `python3 scripts/release-check.py --goal IOS_SIMPLE_CONTRACTS --effects filesystem,process,loopback`
-(Python 3.11은 `/Users/jinhongan/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/bin/python3.11`, 3.12는 `/opt/homebrew/bin/python3.12`로 각각 실행한다.)
+(Python 3.11은 `uv로 설치한 Python 3.11.15(`~/.local/share/uv/python/cpython-3.11.15-*/bin/python3.11`)`, 3.12는 `/opt/homebrew/bin/python3.12`로 각각 실행한다.)
 Expected: 모든 check 통과, exit 0
 
 - [ ] **Step 2: native 전체 확인**

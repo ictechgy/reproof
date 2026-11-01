@@ -446,8 +446,8 @@ patch만 둔다. 앱 빌드에 필요한 Xcode 최소 버전은 16이고 이 Mac
 ## 8. 실행 환경과 경계
 
 - 작업은 `main`에서 갈라진 `feature/ios-commercial-readiness` 브랜치의 worktree
-  `/Users/jinhongan/Desktop/qa/reproof-ios-commercial`에서 한다. 기존 checkout
-  `/Users/jinhongan/Desktop/qa/reproof`의 미커밋 Android pin 작업
+  `~/Desktop/qa/reproof-ios-commercial`에서 한다. 기존 checkout
+  `~/Desktop/qa/reproof`의 미커밋 Android pin 작업
   (`fix/private-sandbox-host-binding`)은 건드리지 않는다.
 - 이 Mac에는 2026-11-01 기준으로 iOS Simulator 런타임이 설치돼 있지 않다(watchOS
   11.0만 있음). 실제 실행 전에 iOS 런타임 설치가 필요하다.
